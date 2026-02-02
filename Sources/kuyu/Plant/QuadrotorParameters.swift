@@ -13,6 +13,7 @@ public struct QuadrotorParameters: Sendable, Equatable, Codable {
     public let maxThrust: Double
     public let yawCoefficient: Double
     public let gravity: Double
+    public let aerodynamics: AerodynamicsParameters
 
     public init(
         mass: Double,
@@ -21,7 +22,8 @@ public struct QuadrotorParameters: Sendable, Equatable, Codable {
         motorTimeConstant: Double,
         maxThrust: Double,
         yawCoefficient: Double,
-        gravity: Double
+        gravity: Double,
+        aerodynamics: AerodynamicsParameters = .zero
     ) throws {
         guard mass.isFinite else { throw ValidationError.nonFinite("mass") }
         guard armLength.isFinite else { throw ValidationError.nonFinite("armLength") }
@@ -50,6 +52,7 @@ public struct QuadrotorParameters: Sendable, Equatable, Codable {
         self.maxThrust = maxThrust
         self.yawCoefficient = yawCoefficient
         self.gravity = gravity
+        self.aerodynamics = aerodynamics
     }
 
     public static let baseline: QuadrotorParameters = {
@@ -61,7 +64,8 @@ public struct QuadrotorParameters: Sendable, Equatable, Codable {
                 motorTimeConstant: 0.030,
                 maxThrust: 6.0,
                 yawCoefficient: 0.020,
-                gravity: 9.80665
+                gravity: 9.80665,
+                aerodynamics: .baseline
             )
         } catch {
             preconditionFailure("Invalid baseline quadrotor parameters: \(error)")

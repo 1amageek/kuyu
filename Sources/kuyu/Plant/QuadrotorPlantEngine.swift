@@ -9,31 +9,98 @@ public struct QuadrotorPlantEngine: PlantEngine {
     public var mixer: QuadrotorMixer
     public var store: WorldStore
     public let timeStep: TimeStep
+    public let environment: WorldEnvironment
 
     public init(
         parameters: QuadrotorParameters,
         mixer: QuadrotorMixer,
         store: WorldStore,
-        timeStep: TimeStep
+        timeStep: TimeStep,
+        environment: WorldEnvironment = .standard
     ) {
         self.parameters = parameters
         self.mixer = mixer
         self.store = store
         self.timeStep = timeStep
+        self.environment = environment
     }
 
     public mutating func integrate(time: WorldTime) throws {
         let mix = mixer.mix(thrusts: store.motorThrusts)
+        var bodyForce = mix.forceBody
+        var bodyTorque = mix.torqueBody
+        var worldForce = store.disturbances.forceWorld
+        let gravity = environment.effectiveGravity(defaultGravity: parameters.gravity)
+
+        if environment.usage.useAtmosphere {
+            let density = environment.airDensity()
+            let ratio = density / WorldEnvironment.seaLevelDensity
+            bodyForce *= ratio
+            bodyTorque *= ratio
+        }
+
+        bodyTorque += store.disturbances.torqueBody
+
+        if environment.usage.useWind || environment.usage.useAtmosphere {
+            let windVelocity = environment.usage.useWind ? environment.windVelocityWorld.simd : SIMD3<Double>(repeating: 0)
+            let airVelocity = store.state.velocity - windVelocity
+            let speed = simd_length(airVelocity)
+
+            if environment.usage.useAtmosphere {
+                let density = environment.airDensity()
+                let aero = parameters.aerodynamics
+
+                if speed > 0, aero.dragCoefficient > 0, aero.referenceArea > 0 {
+                    let dragMagnitude = 0.5 * density * aero.dragCoefficient * aero.referenceArea * speed * speed
+                    let drag = -dragMagnitude * (airVelocity / speed)
+                    worldForce += drag
+                }
+
+                if aero.liftCoefficient > 0, aero.referenceArea > 0 {
+                    let airVelocityBody = store.state.orientation.inverse.act(airVelocity)
+                    let bodySpeed = simd_length(airVelocityBody)
+                    if bodySpeed > 0 {
+                        let vHat = airVelocityBody / bodySpeed
+                        let bodyUp = SIMD3<Double>(0, 0, 1)
+                        let liftPlane = simd_cross(vHat, simd_cross(bodyUp, vHat))
+                        let liftPlaneMag = simd_length(liftPlane)
+                        if liftPlaneMag > 0 {
+                            let liftMagnitude = 0.5 * density * aero.liftCoefficient * aero.referenceArea * bodySpeed * bodySpeed
+                            let liftBody = liftPlane / liftPlaneMag * liftMagnitude
+                            worldForce += store.state.orientation.act(liftBody)
+                        }
+                    }
+                }
+
+                if aero.bodyVolume > 0 {
+                    let gravityWorld = SIMD3<Double>(0, 0, -gravity)
+                    let buoyancy = -gravityWorld * (density * aero.bodyVolume)
+                    worldForce += buoyancy
+                }
+
+                if aero.angularDrag.x > 0 || aero.angularDrag.y > 0 || aero.angularDrag.z > 0 {
+                    let omega = store.state.angularVelocity
+                    let damping = SIMD3<Double>(
+                        aero.angularDrag.x * omega.x,
+                        aero.angularDrag.y * omega.y,
+                        aero.angularDrag.z * omega.z
+                    )
+                    bodyTorque -= damping
+                }
+            }
+        }
+
         let input = QuadrotorInput(
-            bodyForce: mix.forceBody,
-            bodyTorque: mix.torqueBody + store.disturbances.torqueBody,
-            worldForce: store.disturbances.forceWorld
+            bodyForce: bodyForce,
+            bodyTorque: bodyTorque,
+            worldForce: worldForce
         )
 
         let next = QuadrotorDynamics.integrateRK4(
             state: store.state,
             input: input,
             parameters: parameters,
+            gravity: gravity,
             delta: timeStep.delta
         )
 

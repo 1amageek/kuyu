@@ -6,6 +6,7 @@ public struct ScenarioRunner<Cut: CutInterface, Dal: ExternalDAL> {
     public var schedule: SimulationSchedule
     public var determinism: DeterminismConfig
     public var noise: IMU6NoiseConfig
+    public var environment: WorldEnvironment
     public var hoverThrustScale: Double
 
     public init(
@@ -14,6 +15,7 @@ public struct ScenarioRunner<Cut: CutInterface, Dal: ExternalDAL> {
         schedule: SimulationSchedule,
         determinism: DeterminismConfig,
         noise: IMU6NoiseConfig = .zero,
+        environment: WorldEnvironment = .standard,
         hoverThrustScale: Double = 1.0
     ) {
         self.parameters = parameters
@@ -21,6 +23,7 @@ public struct ScenarioRunner<Cut: CutInterface, Dal: ExternalDAL> {
         self.schedule = schedule
         self.determinism = determinism
         self.noise = noise
+        self.environment = environment
         self.hoverThrustScale = hoverThrustScale
     }
 
@@ -49,7 +52,8 @@ public struct ScenarioRunner<Cut: CutInterface, Dal: ExternalDAL> {
             parameters: parameters,
             mixer: mixer,
             store: store,
-            timeStep: timeStep
+            timeStep: timeStep,
+            environment: environment
         )
 
         let scaledNoise = try IMU6NoiseConfig(
@@ -67,6 +71,7 @@ public struct ScenarioRunner<Cut: CutInterface, Dal: ExternalDAL> {
             mixer: mixer,
             store: store,
             timeStep: timeStep,
+            environment: environment,
             noiseSeed: definition.config.seed.rawValue,
             gyroNoiseStdDev: scaledNoise.gyroNoiseStdDev,
             gyroBias: scaledNoise.gyroBias,
@@ -80,7 +85,8 @@ public struct ScenarioRunner<Cut: CutInterface, Dal: ExternalDAL> {
         let config = SimulationConfig(
             scenario: definition.config,
             schedule: schedule,
-            determinism: determinism
+            determinism: determinism,
+            environment: environment
         )
 
         var simulator = try WorldSimulator(

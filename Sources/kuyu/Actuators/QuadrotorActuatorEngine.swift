@@ -19,9 +19,15 @@ public struct QuadrotorActuatorEngine: ActuatorEngine {
         self.parameters = parameters
         self.store = store
         self.timeStep = timeStep
-        self.motorMaxThrusts = motorMaxThrusts ?? (try? MotorMaxThrusts.uniform(parameters.maxThrust)) ?? {
-            preconditionFailure("Invalid motor max thrusts for parameters.maxThrust=\(parameters.maxThrust)")
-        }()
+        if let motorMaxThrusts {
+            self.motorMaxThrusts = motorMaxThrusts
+        } else {
+            do {
+                self.motorMaxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
+            } catch {
+                preconditionFailure("Invalid motor max thrusts for parameters.maxThrust=\(parameters.maxThrust)")
+            }
+        }
         self.commanded = store.motorThrusts
     }
 

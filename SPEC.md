@@ -32,6 +32,29 @@ Validation reports must always declare tier and tolerances.
 - IMU6 sensor with numeric channelIndex 0..5 (gyro x/y/z, accel x/y/z).
 - Seeded noise, bias, drift, and delay; **no state estimates** exposed.
 
+## World Environment Parameters
+Kuyūkai supports declaring world parameters even when the current simulation ignores them for cost.
+The environment is modeled as a structured parameter set with explicit usage flags:
+
+- gravity (m/s^2)
+- windVelocityWorld (m/s)
+- airPressure (Pa)
+- airTemperature (K)
+- usage flags: useGravity / useWind / useAtmosphere
+
+Default behavior in the baseline engine:
+- parameters are recorded and hashed in config for reproducibility
+- gravity applies when useGravity=true
+- wind and atmosphere apply when useWind/useAtmosphere=true (drag, buoyancy, lift, thrust scaling)
+
+## Modeling Formats
+Kuyu separates physics, rendering, and printing formats:
+- Physics model: URDF or SDF
+- Render mesh: glTF/GLB (preferred), OBJ or USDZ
+- Print mesh: STL or 3MF
+
+See `MODELING.md` and `RobotModelDescriptor` for the binding structure.
+
 ## Disturbances
 Continuous, seeded, reproducible disturbances.
 For M1, torque disturbances are mandatory.
@@ -57,3 +80,8 @@ KUY‑ATT‑PERM adds channel permutations for strict robustness.
 ## Logging Requirements
 Must log tier/tolerances, scenario ID, seed, config hash, Δt, sensor channels,
 actuator commands, motor thrust, safety traces, disturbances, and replay residuals.
+
+## MLX‑Enabled Profiles
+If the CUT enables MLX‑based learning inside the DAL, the validation report must
+declare a distinct profile/badge for MLX‑enabled runs. MLX‑disabled remains the default
+baseline profile for determinism and M1 gating.

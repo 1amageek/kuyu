@@ -13,7 +13,12 @@ import Testing
 
     let hoverForce = SIMD3<Double>(0, 0, params.mass * params.gravity)
     let input = QuadrotorInput(bodyForce: hoverForce, bodyTorque: SIMD3<Double>(repeating: 0), worldForce: SIMD3<Double>(repeating: 0))
-    let derivative = QuadrotorDynamics.derivative(state: state, input: input, parameters: params)
+    let derivative = QuadrotorDynamics.derivative(
+        state: state,
+        input: input,
+        parameters: params,
+        gravity: params.gravity
+    )
 
     #expect(simd_length(derivative.velocity) < 1e-9)
     #expect(simd_length(derivative.angularVelocity) == 0)

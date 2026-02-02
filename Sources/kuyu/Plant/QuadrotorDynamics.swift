@@ -4,9 +4,10 @@ public struct QuadrotorDynamics: Sendable {
     public static func derivative(
         state: QuadrotorState,
         input: QuadrotorInput,
-        parameters: QuadrotorParameters
+        parameters: QuadrotorParameters,
+        gravity: Double
     ) -> QuadrotorStateDerivative {
-        let gravityWorld = SIMD3<Double>(0, 0, -parameters.gravity)
+        let gravityWorld = SIMD3<Double>(0, 0, -gravity)
         let inertia = parameters.inertiaSIMD
 
         let forceWorld = state.orientation.act(input.bodyForce) + input.worldForce
@@ -31,15 +32,16 @@ public struct QuadrotorDynamics: Sendable {
         state: QuadrotorState,
         input: QuadrotorInput,
         parameters: QuadrotorParameters,
+        gravity: Double,
         delta: Double
     ) -> QuadrotorState {
-        let k1 = derivative(state: state, input: input, parameters: parameters)
+        let k1 = derivative(state: state, input: input, parameters: parameters, gravity: gravity)
         let s2 = state.applying(derivative: k1, scale: delta * 0.5)
-        let k2 = derivative(state: s2, input: input, parameters: parameters)
+        let k2 = derivative(state: s2, input: input, parameters: parameters, gravity: gravity)
         let s3 = state.applying(derivative: k2, scale: delta * 0.5)
-        let k3 = derivative(state: s3, input: input, parameters: parameters)
+        let k3 = derivative(state: s3, input: input, parameters: parameters, gravity: gravity)
         let s4 = state.applying(derivative: k3, scale: delta)
-        let k4 = derivative(state: s4, input: input, parameters: parameters)
+        let k4 = derivative(state: s4, input: input, parameters: parameters, gravity: gravity)
 
         let position = state.position + (k1.position + k2.position * 2 + k3.position * 2 + k4.position) * (delta / 6)
         let velocity = state.velocity + (k1.velocity + k2.velocity * 2 + k3.velocity * 2 + k4.velocity) * (delta / 6)
@@ -59,9 +61,10 @@ public struct QuadrotorDynamics: Sendable {
     public static func specificForceBody(
         state: QuadrotorState,
         input: QuadrotorInput,
-        parameters: QuadrotorParameters
+        parameters: QuadrotorParameters,
+        gravity: Double
     ) -> SIMD3<Double> {
-        let gravityWorld = SIMD3<Double>(0, 0, -parameters.gravity)
+        let gravityWorld = SIMD3<Double>(0, 0, -gravity)
         let forceWorld = state.orientation.act(input.bodyForce) + input.worldForce
         let acceleration = (forceWorld / parameters.mass) + gravityWorld
         let withoutGravity = acceleration - gravityWorld

@@ -1,0 +1,10 @@
+{
+  "id": "quadref-v0",
+  "name": "Quadrotor Reference",
+  "physicsFormat": "urdf",
+  "physicsPath": "quadref.urdf",
+  "renderFormat": "glb",
+  "renderPath": "quadref.glb",
+  "printFormat": "3mf",
+  "printPath": "quadref.3mf"
+}

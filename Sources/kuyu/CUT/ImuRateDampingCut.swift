@@ -16,6 +16,9 @@ public struct ImuRateDampingCut: CutInterface {
 
     private var gyro: SIMD3<Double>
     private var accel: SIMD3<Double>
+    private var estimatedRoll: Double
+    private var estimatedPitch: Double
+    private var lastTime: Double?
 
     public init(
         hoverThrust: Double,
@@ -36,6 +39,9 @@ public struct ImuRateDampingCut: CutInterface {
         self.yawCoefficient = yawCoefficient
         self.gyro = SIMD3<Double>(repeating: 0)
         self.accel = SIMD3<Double>(0, 0, 1)
+        self.estimatedRoll = 0
+        self.estimatedPitch = 0
+        self.lastTime = nil
     }
 
     public mutating func update(samples: [ChannelSample], time: WorldTime) throws -> CutOutput {
@@ -52,8 +58,9 @@ public struct ImuRateDampingCut: CutInterface {
         }
 
         let (roll, pitch) = estimateTilt(accel: accel)
-        let tauX = -kp * roll - kd * gyro.x
-        let tauY = -kp * pitch - kd * gyro.y
+        let (estRoll, estPitch) = updateEstimates(accelRoll: roll, accelPitch: pitch, time: time)
+        let tauX = -kp * estRoll - kd * gyro.x
+        let tauY = -kp * estPitch - kd * gyro.y
         let tauZ = -yawDamping * gyro.z
 
         guard tauX.isFinite, tauY.isFinite, tauZ.isFinite else { throw CutError.nonFiniteState }
@@ -81,6 +88,33 @@ public struct ImuRateDampingCut: CutInterface {
         let roll = atan2(ay, az)
         let pitch = atan2(-ax, sqrt(ay * ay + az * az))
         return (roll, pitch)
+    }
+
+    private mutating func updateEstimates(
+        accelRoll: Double,
+        accelPitch: Double,
+        time: WorldTime
+    ) -> (roll: Double, pitch: Double) {
+        let currentTime = time.time
+        let dt: Double
+        if let lastTime {
+            dt = max(0, currentTime - lastTime)
+        } else {
+            dt = 0
+        }
+        lastTime = currentTime
+
+        estimatedRoll += gyro.x * dt
+        estimatedPitch += gyro.y * dt
+
+        if dt > 0 {
+            let tau = 0.4
+            let alpha = exp(-dt / tau)
+            estimatedRoll = alpha * estimatedRoll + (1 - alpha) * accelRoll
+            estimatedPitch = alpha * estimatedPitch + (1 - alpha) * accelPitch
+        }
+
+        return (estimatedRoll, estimatedPitch)
     }
 
     private func solveThrusts(totalThrust: Double, torque: SIMD3<Double>) throws -> MotorThrusts {

@@ -7,7 +7,7 @@ public struct WorldSimulator<
     Sensor: SensorField,
     Cut: CutInterface,
     Dal: ExternalDAL
->: Sendable {
+> {
     public var config: SimulationConfig
     public var disturbance: Disturbance
     public var actuator: Actuator
@@ -47,7 +47,7 @@ public struct WorldSimulator<
         logs.reserveCapacity(steps + 1)
         let configHash = try ConfigHash.hash(config)
 
-        for _ in 0...steps {
+        for _ in 0..<steps {
             let log = try step(deltaTime: dt)
             logs.append(log)
         }
@@ -98,7 +98,8 @@ public struct WorldSimulator<
                 commands = direct
             case .driveIntents(let drives):
                 if config.schedule.externalDal?.isDue(stepIndex: time.stepIndex) == true, var dal = externalDal {
-                    commands = try dal.update(drives: drives, time: time)
+                    let telemetry = ExternalDALTelemetry(motorThrusts: store.motorThrusts)
+                    commands = try dal.update(drives: drives, telemetry: telemetry, time: time)
                     externalDal = dal
                     events.append(.externalDalUpdate)
                 }

@@ -14,10 +14,15 @@ let package = Package(
             name: "kuyu",
             targets: ["kuyu"]
         ),
+        .library(
+            name: "KuyuUI",
+            targets: ["KuyuUI"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
+        .package(path: "../manas"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -27,6 +32,19 @@ let package = Package(
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Configuration", package: "swift-configuration"),
+            ]
+        ),
+        .target(
+            name: "KuyuUI",
+            dependencies: [
+                "kuyu",
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Configuration", package: "swift-configuration"),
+                .product(name: "manas", package: "manas"),
+                .product(name: "ManasMLX", package: "manas"),
+            ],
+            resources: [
+                .copy("Resources/Models")
             ]
         ),
         .testTarget(

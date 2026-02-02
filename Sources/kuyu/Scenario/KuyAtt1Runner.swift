@@ -4,6 +4,7 @@ public struct KuyAtt1Runner {
     public var schedule: SimulationSchedule
     public var determinism: DeterminismConfig
     public var noise: IMU6NoiseConfig
+    public var environment: WorldEnvironment
     public var gains: ImuRateDampingCutGains
 
     public init(
@@ -12,6 +13,7 @@ public struct KuyAtt1Runner {
         schedule: SimulationSchedule,
         determinism: DeterminismConfig,
         noise: IMU6NoiseConfig = .zero,
+        environment: WorldEnvironment = .standard,
         gains: ImuRateDampingCutGains
     ) {
         self.parameters = parameters
@@ -19,6 +21,7 @@ public struct KuyAtt1Runner {
         self.schedule = schedule
         self.determinism = determinism
         self.noise = noise
+        self.environment = environment
         self.gains = gains
     }
 
@@ -43,6 +46,7 @@ public struct KuyAtt1Runner {
             schedule: schedule,
             determinism: determinism,
             noise: noise,
+            environment: environment,
             hoverThrustScale: gains.hoverThrustScale
         )
 
@@ -72,6 +76,7 @@ public struct KuyAtt1Runner {
             schedule: schedule,
             determinism: determinism,
             noise: noise,
+            environment: environment,
             hoverThrustScale: gains.hoverThrustScale
         )
 

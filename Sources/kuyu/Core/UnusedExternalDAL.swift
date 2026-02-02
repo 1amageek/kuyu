@@ -5,7 +5,14 @@ public struct UnusedExternalDAL: ExternalDAL {
 
     public init() {}
 
-    public mutating func update(drives: [DriveIntent], time: WorldTime) throws -> [ActuatorCommand] {
+    public mutating func update(
+        drives: [DriveIntent],
+        telemetry: ExternalDALTelemetry,
+        time: WorldTime
+    ) throws -> [ActuatorCommand] {
+        _ = drives
+        _ = telemetry
+        _ = time
         throw DalError.unexpectedCall
     }
 }

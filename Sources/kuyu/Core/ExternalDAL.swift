@@ -1,4 +1,7 @@
-public protocol ExternalDAL: Sendable {
-    mutating func update(drives: [DriveIntent], time: WorldTime) throws -> [ActuatorCommand]
+public protocol ExternalDAL {
+    mutating func update(
+        drives: [DriveIntent],
+        telemetry: ExternalDALTelemetry,
+        time: WorldTime
+    ) throws -> [ActuatorCommand]
 }
-

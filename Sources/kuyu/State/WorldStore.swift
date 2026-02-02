@@ -1,4 +1,4 @@
-public final class WorldStore: @unchecked Sendable {
+public final class WorldStore {
     public var state: QuadrotorState
     public var motorThrusts: MotorThrusts
     public var disturbances: DisturbanceState
