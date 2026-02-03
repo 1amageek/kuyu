@@ -1,5 +1,5 @@
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func scenarioRunnerProducesLogs() async throws {
     let timeStep = try TimeStep(delta: 0.001)
@@ -18,12 +18,14 @@ import Testing
         safetyEnvelope: envelope,
         torqueEvents: [],
         actuatorDegradation: nil,
-        gyroDriftScale: 1.0
+        gyroDriftScale: 1.0,
+        swapEvents: [],
+        hfEvents: []
     )
 
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 1)
     let determinism = try DeterminismConfig(tier: .tier0, tier1Tolerance: nil)
-    let runner = ScenarioRunner<ImuRateDampingCut, UnusedExternalDAL>(
+    let runner = ScenarioRunner<ImuRateDampingDriveCut, DirectExternalDAL>(
         schedule: schedule,
         determinism: determinism,
         noise: .zero,
@@ -31,7 +33,7 @@ import Testing
     )
 
     let hoverThrust = QuadrotorParameters.baseline.mass * QuadrotorParameters.baseline.gravity / 4.0
-    let cut = try ImuRateDampingCut(
+    let cut = try ImuRateDampingDriveCut(
         hoverThrust: hoverThrust,
         kp: 2.0,
         kd: 0.2,
@@ -40,8 +42,9 @@ import Testing
         yawCoefficient: QuadrotorParameters.baseline.yawCoefficient
     )
 
-    let log = try runner.runScenario(definition: definition, cut: cut, externalDal: nil)
-    #expect(log.events.count == 11)
-    #expect(log.events.first?.events.contains(.timeAdvance) == true)
-    #expect(log.events.first?.events.contains(.logging) == true)
+    let log = try await runner.runScenario(definition: definition, cut: cut, externalDal: DirectExternalDAL())
+    #expect(log.events.count == 10)
+    #expect(log.events.first?.events.contains(ExecutionEvent.timeAdvance) == true)
+    #expect(log.events.first?.events.contains(ExecutionEvent.logging) == true)
+    #expect(log.events.first?.events.contains(ExecutionEvent.externalDalUpdate) == true)
 }

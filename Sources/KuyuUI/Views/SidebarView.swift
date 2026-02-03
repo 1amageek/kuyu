@@ -5,12 +5,12 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $model.selectedRunID) {
-            Section("Suite") {
+            Section("Training Suite") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("KUY-ATT-1")
+                    Text("KUY-ATT-1 (M1)")
                         .font(KuyuUITheme.titleFont(size: 14))
                         .foregroundStyle(KuyuUITheme.textPrimary)
-                    Text("Attitude stability validation")
+                    Text("Attitude stabilization + swappability + HF stress")
                         .font(KuyuUITheme.bodyFont(size: 12))
                         .foregroundStyle(KuyuUITheme.textSecondary)
                 }
@@ -37,5 +37,5 @@ struct SidebarView: View {
 
 #Preview {
     SidebarView(model: KuyuUIPreviewFactory.model())
-        .frame(width: 280, height: 600)
+        .frame(width: 260, height: 520)
 }

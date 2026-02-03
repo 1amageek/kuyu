@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import kuyu
+@testable import KuyuCore
 
 private struct HoverCut: CutInterface {
     let hoverThrust: Double
@@ -22,7 +22,7 @@ private struct HoverCut: CutInterface {
 }
 
 @Test("World simulation benchmark")
-func worldSimulationBenchmark() {
+func worldSimulationBenchmark() async {
     do {
         let timeStep = try TimeStep(delta: 0.001)
         let schedule = SimulationSchedule(
@@ -64,7 +64,9 @@ func worldSimulationBenchmark() {
             safetyEnvelope: envelope,
             torqueEvents: [],
             actuatorDegradation: nil,
-            gyroDriftScale: 1.0
+            gyroDriftScale: 1.0,
+            swapEvents: [],
+            hfEvents: []
         )
         let hoverThrust = parameters.mass * parameters.gravity / 4.0
         let repetitions = 100
@@ -72,7 +74,7 @@ func worldSimulationBenchmark() {
         let clock = ContinuousClock()
         let start = clock.now
         for _ in 0..<repetitions {
-            _ = try runner.runScenario(definition: scenario, cut: HoverCut(hoverThrust: hoverThrust))
+            _ = try await runner.runScenario(definition: scenario, cut: HoverCut(hoverThrust: hoverThrust))
         }
         let end = clock.now
         let elapsed = end - start

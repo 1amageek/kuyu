@@ -1,50 +1,87 @@
 import Foundation
 import Logging
-import kuyu
-import simd
+import KuyuCore
+import KuyuMLX
 
 enum KuyuUIPreviewFactory {
-    private static let previewOutput: KuyAtt1RunOutput = {
-        let gains: ImuRateDampingCutGains
-        do {
-            gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0)
-        } catch {
-            preconditionFailure("Invalid preview gains: \(error)")
-        }
+    private static func placeholderOutput() -> KuyAtt1RunOutput {
+        let scenarioId = try! ScenarioID("PREVIEW-SCN")
+        let seed = ScenarioSeed(1)
+        let evaluation = ScenarioEvaluation(
+            scenarioId: scenarioId,
+            seed: seed,
+            passed: true,
+            maxOmega: 0,
+            maxTiltDegrees: 0,
+            sustainedViolationSeconds: 0,
+            recoveryTimeSeconds: nil,
+            overshootDegrees: nil,
+            hfStabilityScore: nil,
+            failures: []
+        )
+        let result = SuiteRunResult(evaluations: [evaluation], replayChecks: [], passed: true)
+        let aggregate = EvaluationAggregate.from(evaluations: [evaluation])
+        let summary = ValidationSummary(
+            suitePassed: true,
+            evaluations: [evaluation],
+            replayChecks: [],
+            manifest: [],
+            aggregate: aggregate
+        )
+        let timeStep = try! TimeStep(delta: 0.02)
+        let determinism = try! DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
+        let log = SimulationLog(
+            scenarioId: scenarioId,
+            seed: seed,
+            timeStep: timeStep,
+            determinism: determinism,
+            configHash: "preview",
+            events: []
+        )
+        let entry = ScenarioLogEntry(key: ScenarioKey(scenarioId: scenarioId, seed: seed), log: log)
+        return KuyAtt1RunOutput(result: result, summary: summary, logs: [entry])
+    }
 
-        let determinism: DeterminismConfig
-        do {
-            determinism = try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
-        } catch {
-            preconditionFailure("Invalid preview determinism: \(error)")
-        }
-
-        let request = SimulationRunRequest(
+    private static func placeholderRequest() -> SimulationRunRequest {
+        let gains = try! ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0)
+        let determinism = try! DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
+        return SimulationRunRequest(
+            controller: .baseline,
             gains: gains,
             cutPeriodSteps: 2,
             noise: .zero,
             determinism: determinism,
-            learningMode: .off,
             modelDescriptorPath: KuyuUIModelPaths.defaultDescriptorPath(),
-            overrideParameters: nil
+            overrideParameters: nil,
+            useAux: true,
+            useQualityGating: true
         )
-
-        let service = SimulationRunnerService()
-        do {
-            return try service.run(request: request)
-        } catch {
-            preconditionFailure("Preview simulation failed: \(error)")
-        }
-    }()
+    }
 
     @MainActor
     static func model() -> SimulationViewModel {
         let store = UILogStore(buffer: UILogBuffer())
         let model = SimulationViewModel(logStore: store)
-        let output = previewOutput
+        let output = placeholderOutput()
         model.insertRun(runRecord(output: output))
-        for entry in logEntries(output: output) {
-            store.emit(entry)
+        for entry in logEntries(output: output) { store.emit(entry) }
+
+        let request = placeholderRequest()
+        Task {
+            let service = SimulationRunnerService(modelStore: ManasMLXModelStore())
+            do {
+                let output = try await service.run(request: request)
+                model.insertRun(runRecord(output: output))
+                for entry in logEntries(output: output) { store.emit(entry) }
+            } catch {
+                store.emit(UILogEntry(
+                    timestamp: Date(),
+                    level: .error,
+                    label: "kuyu.ui",
+                    message: "Preview run failed",
+                    metadata: ["error": "\(error)"]
+                ))
+            }
         }
         return model
     }
@@ -76,11 +113,11 @@ enum KuyuUIPreviewFactory {
     }
 
     static func runRecord() -> RunRecord {
-        runRecord(output: previewOutput)
+        runRecord(output: placeholderOutput())
     }
 
     static func scenario() -> ScenarioRunRecord {
-        runRecord(output: previewOutput).scenarios.first!
+        runRecord().scenarios.first!
     }
 
     static func logEntries(output: KuyAtt1RunOutput) -> [UILogEntry] {
@@ -101,10 +138,6 @@ enum KuyuUIPreviewFactory {
                 metadata: ["passed": "\(output.summary.suitePassed)"]
             )
         ]
-    }
-
-    static func logEntries() -> [UILogEntry] {
-        logEntries(output: previewOutput)
     }
 
     static func samples() -> [MetricSample] {

@@ -1,87 +1,68 @@
-# Kuyūkai Specification (Verification World)
+# Kuyu Specification — v2.4
 
-## Scope
-Kuyūkai defines a deterministic simulation and verification environment for control systems.
-It does **not** define Manas semantics or symbolic control events.
+## Purpose (Normative)
+Kuyu is a **training world** for Manas, not a general‑purpose simulator.
+It injects swappability events and HF stressors while keeping runs reproducible.
 
-## Logging & Configuration
-Kuyūkai integrates `swift-log` and `swift-configuration` for runtime controls.
-Configuration is optional and only applied when explicitly provided.
-Environment keys:
-- `KUYU_LOG_LEVEL` (trace/debug/info/notice/warning/error/critical; default: info)
-- `KUYU_LOG_LABEL` (default: kuyu)
-- `KUYU_LOG_DIR` (optional log output directory)
+## Core Principles
+- Training‑first, quadcopter‑first (attitude stabilization only).
+- Same‑type swappability is a first‑class event.
+- Reflex‑aware HF stress (impulse/vibration/glitch/latency spike).
+- Bundle/Gating stress (salience and normalization shocks).
 
-Runtime bootstrap uses `KuyukaiRuntime` (or `KuyukaiConfigLoader` with a `ConfigReader`) to load configuration and create a logger.
+## Interface Boundary
+- Inputs: sensor streams only (no ground truth).
+- Outputs: DriveIntent + Reflex corrections → DAL → actuator commands.
 
-## Determinism Tiers
-- **Tier0**: bitwise determinism (exact log match).
-- **Tier1**: epsilon determinism (declared tolerances).
-- **Tier2**: statistical determinism (invariants over seed sets; not for M1 gating unless declared).
+## World Engine (Baseline)
+- Fixed Δt, multi‑rate as integer multiples.
+- Quadcopter attitude dynamics with IMU sensor emulation.
+- Actuator lag, saturation, asymmetry models.
+- Disturbances: wind torque, impulses, vibration.
 
-Validation reports must always declare tier and tolerances.
+## Swappability & Stress Events
+- Sensor swaps: gain/bias/noise/delay/bandwidth/dropout changes.
+- Actuator swaps: max output, time constant, gain, deadzone shifts.
+- HF stress: impulse torque, vibration, brief glitches, latency spikes.
 
-## Time Model and Execution Order
-- Fixed base step Δt; all subsystem periods are integer multiples.
-- Required update order per StepWorld(Δt):
-  time → disturbance → actuator → plant RK4 → sensor → CUT → external DAL → apply → log → replay check.
+## Evaluation Metrics (Normative)
+- No‑sustained‑failure.
+- Recovery time after swaps.
+- Transient overshoot and violation budgets.
+- HF stability score (chatter/oscillation/saturation cascades).
 
-## Plant, Actuators, and Sensors
-- 6‑DOF quadrotor with RK4 integration; quaternion renormalized every step.
-- Motor first‑order dynamics and mixer matrix.
-- IMU6 sensor with numeric channelIndex 0..5 (gyro x/y/z, accel x/y/z).
-- Seeded noise, bias, drift, and delay; **no state estimates** exposed.
+## Logs (Minimum)
+Sensors, DriveIntent, Reflex outputs, actuator commands,
+attitude/omega traces, event schedule + seeds, and safety traces.
 
-## World Environment Parameters
-Kuyūkai supports declaring world parameters even when the current simulation ignores them for cost.
-The environment is modeled as a structured parameter set with explicit usage flags:
+## Training Environment
+See `TRAINING_SPEC.md` for training loop contracts, required suites, and
+dataset/metric requirements for M1.
 
-- gravity (m/s^2)
-- windVelocityWorld (m/s)
-- airPressure (Pa)
-- airTemperature (K)
-- usage flags: useGravity / useWind / useAtmosphere
+## World Physics Specification
+Canonical physics + deterministic negligibility policy live in `WORLD_SPEC.md`.
 
-Default behavior in the baseline engine:
-- parameters are recorded and hashed in config for reproducibility
-- gravity applies when useGravity=true
-- wind and atmosphere apply when useWind/useAtmosphere=true (drag, buoyancy, lift, thrust scaling)
+## System/Plugin Architecture (Gazebo-aligned)
+Kuyu mirrors Gazebo’s separation of concerns: physics, sensors, rendering, and control
+are treated as distinct systems. Determinism is enforced in physics + sensor systems;
+rendering is allowed to be non-deterministic.
 
-## Modeling Formats
-Kuyu separates physics, rendering, and printing formats:
-- Physics model: URDF or SDF
-- Render mesh: glTF/GLB (preferred), OBJ or USDZ
-- Print mesh: STL or 3MF
+Required systems:
+- PhysicsSystem (fixed Δt, deterministic integrator)
+- SensorSystem (IMU6 minimum; noise/bias/delay models)
+- ActuatorSystem (motor lag/saturation/asymmetry)
+- EventSystem (swaps, HF stressors, latency spikes)
 
-See `MODELING.md` and `RobotModelDescriptor` for the binding structure.
+Optional systems:
+- RenderSystem (RealityKit or other renderer)
+- CommandSystem (UI and external control)
 
-## Disturbances
-Continuous, seeded, reproducible disturbances.
-For M1, torque disturbances are mandatory.
+World → System order is fixed and versioned in `WORLD_SPEC.md`.
 
-## CUT Interface (Black‑Box)
-Inputs: (channelIndex, scalar, timestamp).
-Outputs: actuator commands or drive intents (if DAL externalized).
-No ground truth, no simulator internals, no symbolic tokens.
+### RenderSystem (required for KuyuUI)
+- KuyuUI must use RenderSystem as a pure consumer of scene state.
+- Rendering must never write to physics or sensor state.
 
-## Reference Model (Baseline)
-Kuyūkai‑QuadRef v0:
-m=1.00 kg, I=diag(0.005,0.005,0.009), L=0.12 m, τ_m=0.030 s,
-f_max=6.0 N, κ_yaw=0.020 N·m/N, g=9.80665, Δt=0.001 s.
-
-## Scenario Suite KUY‑ATT‑1 (M1)
-Duration 20 s, seeds {1001,1002,1003} with safety envelope:
-ω_safe_max=20 rad/s, tilt_safe_max=60°, sustained violation threshold=0.200 s.
-SCN‑1..5 cover hover start, impulse shock, sustained torque, sensor drift, actuator degradation.
-
-## Optional Strict Suite (B2)
-KUY‑ATT‑PERM adds channel permutations for strict robustness.
-
-## Logging Requirements
-Must log tier/tolerances, scenario ID, seed, config hash, Δt, sensor channels,
-actuator commands, motor thrust, safety traces, disturbances, and replay residuals.
-
-## MLX‑Enabled Profiles
-If the CUT enables MLX‑based learning inside the DAL, the validation report must
-declare a distinct profile/badge for MLX‑enabled runs. MLX‑disabled remains the default
-baseline profile for determinism and M1 gating.
+### CommandSystem (required for KuyuUI)
+- KuyuUI issues run/train/export commands through CommandSystem only.
+- Commands enqueue into EventSystem / scheduler, never mutate physics directly.

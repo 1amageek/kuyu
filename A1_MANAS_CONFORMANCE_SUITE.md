@@ -1,50 +1,47 @@
-# A1 Manas Conformance Test Suite Specification (Local Copy)
+# A1 Manas Training and Evaluation Suite Specification (v2.4)
 
 ## Scope
-Defines the required structure and checks for declaring **Manas‑Conformant** implementations. Tests are valid **only** within a declared Operating Envelope Declaration (OED).
+Defines required training and evaluation runs for **Manas v2.4** under the **Kuyu** training world. Focus is quadcopter attitude stabilization with same-type swappability and high-frequency (HF) stress.
 
-## Required Declarations (per implementation)
-- OED (physical bounds, sensor bounds, disturbance bounds, actuator bounds, update rates)
-- Input/output normalization ranges `R_y`, `R_u`
-- Controller update period `Δt_c` and multi‑rate aggregation rule
-- Continuity constants `L2`, `L∞`
-- Total variation bound `V_max(T)` definition
-- Phase bandwidth `B_phi` and minimum variance `Var_min(T)`
-- Declared saturation and rate‑limit models (for residual analysis)
-- Badge claims: B0/B1/B2
+## Required Declarations (per run)
+- Scenario suite ID (Suite-0..Suite-5) and seeds
+- World step size `dt`, sensor/update periods, CUT update period
+- Sensor swap parameter ranges (gain, bias, noise, delay, bandwidth, dropout)
+- Actuator swap parameter ranges (max_output, time_const, deadzone, gain, rate_limit, asymmetry)
+- HF stress event set (impulse, vibration, brief glitches)
+- NerveBundle/Gating/Trunks definition (type + version)
+- Core and Reflex learning enabled/disabled flags
+- DAL protection limits
 
-## Required Input Families
-All families must be generated **within OED bounds** and with declared coverage across amplitude and frequency bands:
-- Step (bounded amplitude)
-- Ramp (bounded slope)
-- PRBS (low‑pass shaped)
-- Chirp (band‑limited sweep)
-- Band‑limited noise (seeded)
+## Required Suites
+- **Suite-0 Warmup**: no swaps, no HF stress (smoke, stability baseline)
+- **Suite-1 Sensor Swappability**: sensor swaps injected mid-run
+- **Suite-2 Actuator Swappability**: actuator swaps injected mid-run
+- **Suite-3 Reflex HF Training**: impulse/vibration/glitch emphasis
+- **Suite-4 Bundle/Gating Stress**: abrupt salience shifts + normalization stress
+- **Suite-5 Combined**: swaps + HF + bundle/gating stress together
 
-## Mandatory Checks
-### Continuity (normalized)
-At controller steps `n`:
-- `||u[n] - u'[n]||_2 ≤ L2 * ||y[n] - y'[n]||_2`
-- `||u[n] - u'[n]||_∞ ≤ L∞ * ||y[n] - y'[n]||_∞`
+## Required Metrics
+- No sustained failure (safety envelope)
+- Recovery time after each swap event
+- Transient overshoot (max tilt/omega)
+- Violation budget (time above thresholds)
+- HF stability score (oscillation/chatter indicators)
+- Bundle/Gating stability proxy (avoid runaway gating or collapse)
 
-### Total Variation (normalized)
-For any window `T`:
-- `TV(u; T) ≤ V_max(T)`
+## Required Logs
+- Raw sensor streams (post-emulation)
+- NerveBundle outputs and Gating coefficients
+- Trunks (energy/phase/quality)
+- Core DriveIntent outputs
+- Reflex corrections (clamp/damping/micro-intent)
+- DAL actuator commands
+- Plant attitude/omega traces
+- Event schedule + seed
 
-### Non‑Symbolic Behavior
-- **Output snapping** detection on residuals after subtracting declared saturation/rate‑limit effects
-- **Mode induction** detection: bounded perturbations must not select finite command‑like behaviors
-- **Identifier policy**: numeric indices only; no semantic labels
-
-### Phase Anti‑Token
-- Snapping or low‑variance collapse detection
-- Bandwidth limit `B_phi` enforced
-- Minimum variance `Var_min(T)` under declared excitations
-
-## Reporting Requirements
-Each test run MUST log:
-- OED identifier and version
-- Suite version and configuration hash
-- Pass/fail per test family and per check category
-- Badge claims and any profile assumptions (e.g., IMU6 fixed mapping)
-
+## Reporting
+Each run must publish:
+- Suite + seed list
+- Metric summary per scenario
+- Aggregate summary (avg recovery, worst overshoot, avg HF score)
+- Learning flags (Core/Reflex)

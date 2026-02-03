@@ -1,12 +1,13 @@
+import Foundation
 import SwiftUI
-import kuyu
+import KuyuCore
 
 struct ScenarioDetailView: View {
     @Bindable var model: SimulationViewModel
     @State private var cursorTime: Double = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
             if let scenario = model.selectedScenario {
                 let metrics = scenario.metrics
 
@@ -15,38 +16,41 @@ struct ScenarioDetailView: View {
                         Text(scenario.id.scenarioId.rawValue)
                             .font(KuyuUITheme.titleFont(size: 18))
                             .foregroundStyle(KuyuUITheme.textPrimary)
-                        Text("Seed \(scenario.id.seed.rawValue)")
+                        HStack {
+                            Text("Seed \(scenario.id.seed.rawValue)")
+                                .font(KuyuUITheme.bodyFont(size: 12))
+                                .foregroundStyle(KuyuUITheme.textSecondary)
+                            let recoveryText = scenario.evaluation.recoveryTimeSeconds.map { String(format: "%.2fs", $0) } ?? "n/a"
+                            let overshootText = scenario.evaluation.overshootDegrees.map { String(format: "%.2f", $0) } ?? "n/a"
+                            let hfText = scenario.evaluation.hfStabilityScore.map { String(format: "%.2f", $0) } ?? "n/a"
+
+                            HStack(spacing: 16) {
+                                Label("Recovery: \(recoveryText)", systemImage: "waveform.path.ecg")
+                                Label("Overshoot: \(overshootText)", systemImage: "arrow.up.right")
+                                Label("HF: \(hfText)", systemImage: "waveform.path")
+                            }
                             .font(KuyuUITheme.bodyFont(size: 12))
                             .foregroundStyle(KuyuUITheme.textSecondary)
+                        }
+
                     }
                     Spacer()
                     StatBadgeView(passed: scenario.evaluation.passed)
                 }
 
-                TimelineSliderView(time: $cursorTime, range: metrics.timeRange)
+                let scene = model.sceneState(at: cursorTime)
+                let robot = scene?.robots.first
+                let angles = robot.map { eulerAngles(from: $0.orientation) } ?? (roll: 0, pitch: 0, yaw: 0)
+                let renderInfo = model.renderAssetInfo()
+                let profile = model.resolvedProfile(for: scenario)
 
-                let currentEvent = event(at: cursorTime, log: scenario.log)
-                let orientation = currentEvent?.stateSnapshot.orientation
-                let angles = orientation.map { eulerAngles(from: $0) } ?? (roll: 0, pitch: 0, yaw: 0)
-
-                HStack(alignment: .top, spacing: 16) {
-                    AttitudeIndicatorView(roll: angles.roll, pitch: angles.pitch, yaw: angles.yaw)
-                        .frame(maxWidth: 260)
-                    VStack(spacing: 16) {
-                        MetricChartView(
-                            title: "Tilt",
-                            unit: "degrees",
-                            samples: metrics.tiltDegrees,
-                            lineColor: KuyuUITheme.accent
-                        )
-                        MetricChartView(
-                            title: "Omega",
-                            unit: "rad/s",
-                            samples: metrics.omega,
-                            lineColor: KuyuUITheme.warning
-                        )
-                    }
-                }
+                gridLayout(
+                    columns: 2,
+                    profile: profile,
+                    angles: angles,
+                    metrics: metrics,
+                    renderInfo: renderInfo
+                )
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Scenario detail")
@@ -75,13 +79,6 @@ struct ScenarioDetailView: View {
         }
     }
 
-    private func event(at time: Double, log: SimulationLog) -> WorldStepLog? {
-        guard !log.events.isEmpty else { return nil }
-        let dt = log.timeStep.delta
-        let index = max(0, min(log.events.count - 1, Int(round(time / dt)) - 1))
-        return log.events[index]
-    }
-
     private func eulerAngles(from quaternion: QuaternionSnapshot) -> (roll: Double, pitch: Double, yaw: Double) {
         let w = quaternion.w
         let x = quaternion.x
@@ -100,6 +97,100 @@ struct ScenarioDetailView: View {
         let yaw = atan2(siny, cosy)
 
         return (roll, pitch, yaw)
+    }
+
+    @ViewBuilder
+    private func gridLayout(
+        columns: Int,
+        profile: RobotProfile,
+        angles: (roll: Double, pitch: Double, yaw: Double),
+        metrics: ScenarioMetrics,
+        renderInfo: RenderAssetInfo?
+    ) -> some View {
+        Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 8) {
+            ForEach(profile.rows.indices, id: \.self) { rowIndex in
+                let row = profile.rows[rowIndex]
+                if columns == 1 {
+                    ForEach(row.items) { item in
+                        GridRow {
+                            panelView(
+                                item: item,
+                                columns: columns,
+                                angles: angles,
+                                metrics: metrics,
+                                renderInfo: renderInfo
+                            )
+                        }
+                    }
+                } else {
+                    GridRow {
+                        ForEach(row.items) { item in
+                            panelView(
+                                item: item,
+                                columns: columns,
+                                angles: angles,
+                                metrics: metrics,
+                                renderInfo: renderInfo
+                            )
+                            .gridCellColumns(item.span)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func panelView(
+        item: RobotPanelItem,
+        columns: Int,
+        angles: (roll: Double, pitch: Double, yaw: Double),
+        metrics: ScenarioMetrics,
+        renderInfo: RenderAssetInfo?
+    ) -> some View {
+        switch item.kind {
+        case .timeline:
+            TimelineSliderView(time: $cursorTime, range: metrics.timeRange)
+        case .render:
+            WorldRealityView(
+                roll: angles.roll,
+                pitch: angles.pitch,
+                yaw: angles.yaw,
+                label: renderInfo?.name ?? "Robot proxy",
+                renderInfo: renderInfo
+            )
+        case .attitude:
+            AttitudeIndicatorView(roll: angles.roll, pitch: angles.pitch, yaw: angles.yaw)
+        case .tilt:
+            MetricChartView(
+                title: "Tilt",
+                unit: "degrees",
+                samples: metrics.tiltDegrees,
+                lineColor: KuyuUITheme.accent
+            )
+        case .omega:
+            MetricChartView(
+                title: "Omega",
+                unit: "rad/s",
+                samples: metrics.omega,
+                lineColor: KuyuUITheme.warning
+            )
+        case .speed:
+            MetricChartView(
+                title: "Speed",
+                unit: "m/s",
+                samples: metrics.speed,
+                lineColor: KuyuUITheme.accent
+            )
+        case .altitude:
+            MetricChartView(
+                title: "Altitude",
+                unit: "m",
+                samples: metrics.altitude,
+                lineColor: KuyuUITheme.warning
+            )
+        }
     }
 }
 

@@ -1,4 +1,7 @@
-# World Specification (Draft)
+# World Specification (Draft, v2.4 context)
+
+This document defines the **canonical physics** for Kuyu. It is shared across
+all v2.4 training suites (swappability, HF stress, bundle/gating stress).
 
 ## Purpose
 Define the simulation world rigorously for reproducible verification while allowing fast execution. The world is specified by strict physical equations, with a deterministic *negligibility policy* that can approximate small effects as zero without changing the underlying model.
@@ -10,6 +13,41 @@ Define the simulation world rigorously for reproducible verification while allow
 - **Cost control without semantic drift**: Zeroing is a controlled approximation, not a different model.
 
 ---
+
+## 0. System/Plugin Architecture (Gazebo-aligned)
+Kuyu mirrors Gazebo’s separation of concerns: physics, sensors, rendering, and control
+are treated as distinct systems. Determinism is enforced in physics + sensor systems;
+rendering may be non-deterministic.
+
+### Required systems
+- PhysicsSystem: rigid-body integration, fixed Δt
+- SensorSystem: IMU6 + optional sensors
+- ActuatorSystem: motor dynamics, saturation, asymmetry
+- EventSystem: swaps, HF stress, latency spikes
+
+### Optional systems
+- RenderSystem: RealityKit or equivalent visualizer (non-deterministic allowed)
+- CommandSystem: UI / automation triggers (does not touch physics state)
+
+### Execution order (fixed)
+1. time advance
+2. event injection
+3. actuator update
+4. physics integration
+5. sensor sampling
+6. control update (CUT/Manas)
+7. logging + replay checks
+
+### RenderSystem (spec detail)
+- Input: read-only scene state (poses, geometry ids, materials)
+- Output: visual frames / UI overlays only
+- Must NOT mutate physics state or sensor outputs
+- Can run at independent frame rate (e.g., 30–120 Hz)
+
+### CommandSystem (spec detail)
+- Input: operator/UI commands (run, pause, export, switch suite)
+- Output: queued command intents for the scheduler
+- Must NOT directly mutate physics state; all effects go through EventSystem or run lifecycle
 
 ## 1. World State and Time
 - Fixed step Δt; all subsystem update periods are integer multiples of Δt.

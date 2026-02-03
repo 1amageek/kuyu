@@ -1,5 +1,5 @@
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func determinismTier1RequiresTolerance() async throws {
     do {

@@ -53,7 +53,7 @@ struct LogEntryRowView: View {
 }
 
 #Preview {
-    LogEntryRowView(entry: KuyuUIPreviewFactory.logEntries().first!)
+    LogEntryRowView(entry: KuyuUIPreviewFactory.logEntries(output: KuyuUIPreviewFactory.runRecord().output).first!)
         .padding()
         .background(KuyuUITheme.background)
 }

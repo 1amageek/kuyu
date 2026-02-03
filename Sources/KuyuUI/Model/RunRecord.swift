@@ -1,5 +1,5 @@
 import Foundation
-import kuyu
+import KuyuCore
 
 struct RunRecord: Identifiable {
     let id: UUID

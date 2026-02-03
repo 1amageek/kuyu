@@ -1,4 +1,4 @@
-import kuyu
+import KuyuCore
 
 struct ScenarioRunRecord: Identifiable {
     let id: ScenarioKey

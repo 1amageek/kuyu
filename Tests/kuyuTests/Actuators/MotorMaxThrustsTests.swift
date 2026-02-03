@@ -1,5 +1,5 @@
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func motorMaxThrustsUniformAndSetting() async throws {
     let maxes = try MotorMaxThrusts.uniform(5.0)

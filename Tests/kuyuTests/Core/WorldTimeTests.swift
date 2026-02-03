@@ -1,5 +1,5 @@
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func worldTimeAdvancesStepAndTime() async throws {
     let time = try WorldTime(stepIndex: 0, time: 0.0)

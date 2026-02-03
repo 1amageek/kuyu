@@ -1,31 +1,31 @@
-# A2 Profiles and Badges Specification (Local Copy)
+# A2 Capability Profiles and Declarations (v2.4)
 
 ## Purpose
-Badges classify implementation guarantees and scope. **All conformance/validation claims must declare badges**; claims without badges are incomplete.
+Profiles communicate which **learning and interface capabilities** are enabled. All evaluation reports must declare a profile.
 
-## Badges
-### B0 Manas‑Baseline (required)
-- Numeric channelIndex only; no semantic labels or tokens
-- Continuity and total variation constraints satisfied
-- Phase anti‑token checks pass
+## Profiles
+### P0 Integration-Only (non-learning)
+- Core learning: disabled
+- Reflex learning: disabled
+- Used for smoke tests only (not M1-eligible)
 
-### B1 Manas‑Profile IMU6 Fixed Mapping
-- Assumes Kuyukai IMU6 channel mapping (indices 0..5)
-- No requirement for permutation robustness
-- Intended for milestone M1
+### P1 M1-Ready (required for milestone M1)
+- Core learning: enabled
+- Reflex learning: enabled
+- Passes Suite-1..Suite-5 under declared ranges
 
-### B2 Manas‑Strict Permutation Robust
-- Must pass permutation scenarios that reassign channelIndex mappings
-- Demonstrates reduced reliance on fixed index semantics
+### P2 CMI-Experimental (optional)
+- CMI enabled with low-bandwidth latent interaction
+- Must remain ignorable and safety-bounded
 
-## Declaration Format (per report)
+## Declaration Format
 Each report MUST include:
-- Implementation identifier and version
-- Badge list (B0/B1/B2)
-- Any fixed mapping assumptions
-- OED identifier and version
-- Test suite or scenario suite identifiers
+- Profile ID (P0/P1/P2)
+- Core learning on/off
+- Reflex learning on/off
+- NerveBundle/Gating/Trunks version IDs
+- DAL limits version
+- Kuyu suite ID and seed set
 
 ## Change Control
-Any change that alters badge requirements or test criteria is a breaking change and must be reflected in the compatibility matrix.
-
+Any change that alters profile requirements or evaluation criteria is a breaking change.

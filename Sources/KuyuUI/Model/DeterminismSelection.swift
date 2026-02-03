@@ -1,4 +1,4 @@
-import kuyu
+import KuyuCore
 
 enum DeterminismSelection: String, CaseIterable, Identifiable {
     case tier0 = "Tier0 (Bitwise)"

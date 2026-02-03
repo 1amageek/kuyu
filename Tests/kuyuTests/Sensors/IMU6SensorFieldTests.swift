@@ -1,6 +1,6 @@
 import simd
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func imu6SensorReportsHoverAcceleration() async throws {
     let params = QuadrotorParameters.baseline

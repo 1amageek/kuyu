@@ -1,53 +1,35 @@
-import kuyu
+import KuyuCore
+import KuyuMLX
 
-struct SimulationRunnerService: Sendable {
+@MainActor
+struct SimulationRunnerService {
+    let modelStore: ManasMLXModelStore
 
-    func run(request: SimulationRunRequest) throws -> KuyAtt1RunOutput {
-        let schedule = try SimulationSchedule(
-            sensor: SubsystemSchedule(periodSteps: 1),
-            actuator: SubsystemSchedule(periodSteps: 1),
-            cut: SubsystemSchedule(periodSteps: request.cutPeriodSteps),
-            externalDal: SubsystemSchedule(periodSteps: request.cutPeriodSteps)
-        )
+    init(modelStore: ManasMLXModelStore) {
+        self.modelStore = modelStore
+    }
+
+    func run(request: SimulationRunRequest, control: SimulationControl? = nil) async throws -> KuyAtt1RunOutput {
+        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: request.cutPeriodSteps)
         let parameters = loadParameters(request: request)
-        let runner = ScenarioRunner<ImuRateDampingDriveCut, ManasLearningDAL>(
-            parameters: parameters,
-            schedule: schedule,
-            determinism: request.determinism,
-            noise: request.noise,
-            hoverThrustScale: request.gains.hoverThrustScale
-        )
-        let validation = KuyAtt1Validation(runner: runner)
-        let output = try validation.runWithLogs(
-            cutFactory: { _ in
-                let hoverThrust = parameters.mass * parameters.gravity / 4.0 * request.gains.hoverThrustScale
-                return try ImuRateDampingDriveCut(
-                    hoverThrust: hoverThrust,
-                    kp: request.gains.kp,
-                    kd: request.gains.kd,
-                    yawDamping: request.gains.yawDamping,
-                    armLength: parameters.armLength,
-                    yawCoefficient: parameters.yawCoefficient
-                )
-            },
-            externalDalFactory: { definition in
-                let updatePeriod = definition.config.timeStep.delta * Double(request.cutPeriodSteps)
-                return try ManasLearningDAL(
-                    learningMode: request.learningMode,
-                    parameters: parameters,
-                    updatePeriod: updatePeriod
-                )
-            }
-        )
-
-        let summary = ValidationSummary(
-            suitePassed: output.result.passed,
-            evaluations: output.result.evaluations,
-            replayChecks: output.result.replayChecks,
-            manifest: output.manifest
-        )
-
-        return KuyAtt1RunOutput(result: output.result, summary: summary, logs: output.logs)
+        switch request.controller {
+        case .baseline:
+            let runner = KuyAtt1Runner(
+                parameters: parameters,
+                schedule: schedule,
+                determinism: request.determinism,
+                noise: request.noise,
+                gains: request.gains
+            )
+            return try await runner.runWithLogs(control: control)
+        case .manasMLX:
+            return try await modelStore.runManasMLX(
+                parameters: parameters,
+                schedule: schedule,
+                request: request,
+                control: control
+            )
+        }
     }
 
     private func loadParameters(request: SimulationRunRequest) -> QuadrotorParameters {
@@ -69,4 +51,6 @@ struct SimulationRunnerService: Sendable {
             return .baseline
         }
     }
+
+ 
 }

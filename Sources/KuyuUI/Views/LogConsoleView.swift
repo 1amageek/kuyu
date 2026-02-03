@@ -14,19 +14,27 @@ struct LogConsoleView: View {
                 Button("Clear", action: onClear)
                     .font(KuyuUITheme.bodyFont(size: 11))
             }
-            ScrollView {
-                Text(entries.map { line(for: $0) }.joined(separator: "\n"))
-                    .font(KuyuUITheme.monoFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+            if entries.isEmpty {
+                Text("No logs yet")
+                    .font(KuyuUITheme.bodyFont(size: 12))
+                    .foregroundStyle(KuyuUITheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(8)
+                    .padding(.vertical, 8)
+            } else {
+                ScrollView {
+                    Text(entries.map { line(for: $0) }.joined(separator: "\n"))
+                        .font(KuyuUITheme.monoFont(size: 11))
+                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(8)
+                }
+                .background(KuyuUITheme.panelBackground.opacity(0.7))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .background(Color.black.opacity(0.2))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(10)
-        .background(KuyuUITheme.panelBackground.opacity(0.85))
+        .background(KuyuUITheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -43,6 +51,6 @@ struct LogConsoleView: View {
 }
 
 #Preview {
-    LogConsoleView(entries: KuyuUIPreviewFactory.logEntries(), onClear: {})
+    LogConsoleView(entries: KuyuUIPreviewFactory.logEntries(output: KuyuUIPreviewFactory.runRecord().output), onClear: {})
         .background(KuyuUITheme.background)
 }

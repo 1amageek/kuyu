@@ -1,49 +1,33 @@
 import SwiftUI
-import kuyu
+import KuyuCore
 
 struct RunDetailView: View {
     @Bindable var model: SimulationViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
             if let run = model.selectedRun {
-                if model.isRunning {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Running…")
-                            .font(KuyuUITheme.bodyFont(size: 12))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
-                    }
-                    .padding(.horizontal, 8)
-                }
-                RunSummaryView(run: run)
-
                 List(selection: $model.selectedScenarioKey) {
                     ForEach(run.scenarios) { scenario in
                         ScenarioRowView(scenario: scenario)
                             .tag(scenario.id as ScenarioKey?)
                     }
                 }
-                .scrollContentBackground(.hidden)
-                .background(KuyuUITheme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .listStyle(.plain)
             } else {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("No run selected")
-                        .font(KuyuUITheme.titleFont(size: 18))
+                        .font(KuyuUITheme.titleFont(size: 14))
                         .foregroundStyle(KuyuUITheme.textPrimary)
                     Text("Run the KUY-ATT-1 suite to see scenario details and charts.")
-                        .font(KuyuUITheme.bodyFont(size: 13))
+                        .font(KuyuUITheme.bodyFont(size: 12))
                         .foregroundStyle(KuyuUITheme.textSecondary)
                 }
-                .padding(16)
-                .background(KuyuUITheme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 8)
             }
             Spacer()
         }
-        .padding(16)
+        .padding(8)
         .background(Color.clear)
     }
 }

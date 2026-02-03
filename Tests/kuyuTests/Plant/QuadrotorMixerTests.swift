@@ -1,5 +1,5 @@
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func quadrotorMixerBalancesEqualThrusts() async throws {
     let mixer = QuadrotorMixer(armLength: 0.12, yawCoefficient: 0.02)

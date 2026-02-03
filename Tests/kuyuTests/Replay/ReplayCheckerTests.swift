@@ -1,5 +1,5 @@
 import Testing
-@testable import kuyu
+@testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func replayCheckerTier0ExactMatch() async throws {
     let log = try makeLog(config: DeterminismConfig(tier: .tier0, tier1Tolerance: nil), positionOffset: 0.0, sensorOffset: 0.0)
@@ -55,6 +55,8 @@ private func makeLog(config: DeterminismConfig, positionOffset: Double, sensorOf
         time: try WorldTime(stepIndex: 0, time: 0.0),
         events: [.timeAdvance, .logging, .replayCheck],
         sensorSamples: [sample],
+        driveIntents: [],
+        reflexCorrections: [],
         actuatorCommands: [],
         motorThrusts: try MotorThrusts.uniform(1.0),
         safetyTrace: SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
