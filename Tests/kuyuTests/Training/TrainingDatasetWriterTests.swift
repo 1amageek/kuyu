@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import KuyuProfiles
 @testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func trainingDatasetWriterExportsMetaAndRecords() async throws {
@@ -19,8 +20,10 @@ import Testing
     let metaData = try Data(contentsOf: metaURL)
     let meta = try JSONDecoder().decode(TrainingDatasetMetadata.self, from: metaData)
     #expect(meta.recordCount == log.events.count)
-    #expect(meta.driveCount == 2)
+    #expect(meta.driveCount == 1)
     #expect(meta.channelCount == 1)
+    #expect(meta.failureReason == FailureReason.groundViolation.rawValue)
+    #expect(meta.failureTime == 0.01)
 
     let recordLines = try String(contentsOf: recordsURL, encoding: .utf8)
         .split(separator: "\n")
@@ -46,12 +49,14 @@ private func makeLog() throws -> SimulationLog {
         delta: 0.0
     )
 
-    let snapshot = QuadrotorStateSnapshot(
+    let root = RigidBodySnapshot(
+        id: "root",
         position: Axis3(x: 0, y: 0, z: 0),
         velocity: Axis3(x: 0, y: 0, z: 0),
         orientation: QuaternionSnapshot(w: 1, x: 0, y: 0, z: 0),
         angularVelocity: Axis3(x: 0, y: 0, z: 0)
     )
+    let snapshot = PlantStateSnapshot(root: root)
 
     let step0 = WorldStepLog(
         time: try WorldTime(stepIndex: 0, time: 0.0),
@@ -59,12 +64,14 @@ private func makeLog() throws -> SimulationLog {
         sensorSamples: [sample],
         driveIntents: [drive],
         reflexCorrections: [reflex],
-        actuatorCommands: [],
-        motorThrusts: try MotorThrusts.uniform(0.0),
+        actuatorValues: [],
+        actuatorTelemetry: ActuatorTelemetrySnapshot(channels: []),
         safetyTrace: SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
-        stateSnapshot: snapshot,
-        disturbanceTorqueBody: Axis3(x: 0, y: 0, z: 0),
-        disturbanceForceWorld: Axis3(x: 0, y: 0, z: 0)
+        plantState: snapshot,
+        disturbances: DisturbanceSnapshot(
+            forceWorld: Axis3(x: 0, y: 0, z: 0),
+            torqueBody: Axis3(x: 0, y: 0, z: 0)
+        )
     )
 
     let step1 = WorldStepLog(
@@ -73,12 +80,14 @@ private func makeLog() throws -> SimulationLog {
         sensorSamples: [sample],
         driveIntents: [drive],
         reflexCorrections: [reflex],
-        actuatorCommands: [],
-        motorThrusts: try MotorThrusts.uniform(0.0),
+        actuatorValues: [],
+        actuatorTelemetry: ActuatorTelemetrySnapshot(channels: []),
         safetyTrace: SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
-        stateSnapshot: snapshot,
-        disturbanceTorqueBody: Axis3(x: 0, y: 0, z: 0),
-        disturbanceForceWorld: Axis3(x: 0, y: 0, z: 0)
+        plantState: snapshot,
+        disturbances: DisturbanceSnapshot(
+            forceWorld: Axis3(x: 0, y: 0, z: 0),
+            torqueBody: Axis3(x: 0, y: 0, z: 0)
+        )
     )
 
     return SimulationLog(
@@ -87,7 +96,9 @@ private func makeLog() throws -> SimulationLog {
         timeStep: timeStep,
         determinism: try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline),
         configHash: "train",
-        events: [step0, step1]
+        events: [step0, step1],
+        failureReason: .groundViolation,
+        failureTime: 0.01
     )
 }
 

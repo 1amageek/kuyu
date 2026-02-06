@@ -5,7 +5,7 @@ public enum ExecutionEvent: String, Sendable, Codable {
     case plantIntegrate
     case sensorSample
     case cutUpdate
-    case externalDalUpdate
+    case motorNerveUpdate
     case applyCommands
     case logging
     case replayCheck

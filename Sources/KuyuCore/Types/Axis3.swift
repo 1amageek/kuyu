@@ -14,4 +14,8 @@ public struct Axis3: Sendable, Codable, Equatable {
     public var simd: SIMD3<Double> {
         SIMD3<Double>(x, y, z)
     }
+
+    public var isFinite: Bool {
+        x.isFinite && y.isFinite && z.isFinite
+    }
 }

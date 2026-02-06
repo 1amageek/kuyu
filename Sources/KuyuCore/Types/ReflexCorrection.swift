@@ -9,6 +9,8 @@ public struct ReflexCorrection: Hashable, Sendable, Codable {
     public let damping: Double
     public let delta: Double
 
+    public var primitiveIndex: DriveIndex { driveIndex }
+
     public init(
         driveIndex: DriveIndex,
         clampMultiplier: Double,

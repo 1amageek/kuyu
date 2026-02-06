@@ -1,10 +1,349 @@
 {
-  "id": "quadref-v0",
-  "name": "Quadrotor Reference",
-  "physicsFormat": "urdf",
-  "physicsPath": "quadref.urdf",
-  "renderFormat": "glb",
-  "renderPath": "quadref.glb",
-  "printFormat": "3mf",
-  "printPath": "quadref.3mf"
+  "robot": {
+    "robotID": "quadref-v0",
+    "name": "Quadrotor Reference",
+    "category": "aerial",
+    "tags": [
+      "reference"
+    ]
+  },
+  "physics": {
+    "model": {
+      "format": "urdf",
+      "path": "quadref.urdf"
+    },
+    "engine": {
+      "id": "quadrotor",
+      "parameters": {}
+    }
+  },
+  "render": {
+    "assets": [
+      {
+        "id": "body",
+        "name": "Body",
+        "format": "glb",
+        "path": "quadref.glb",
+        "frame": "base_link",
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    ]
+  },
+  "signals": {
+    "sensor": [
+      {
+        "id": "imu_gyro_x",
+        "index": 0,
+        "name": "Gyro X",
+        "units": "rad/s",
+        "rateHz": 1000,
+        "group": "imu/gyro"
+      },
+      {
+        "id": "imu_gyro_y",
+        "index": 1,
+        "name": "Gyro Y",
+        "units": "rad/s",
+        "rateHz": 1000,
+        "group": "imu/gyro"
+      },
+      {
+        "id": "imu_gyro_z",
+        "index": 2,
+        "name": "Gyro Z",
+        "units": "rad/s",
+        "rateHz": 1000,
+        "group": "imu/gyro"
+      },
+      {
+        "id": "imu_accel_x",
+        "index": 3,
+        "name": "Accel X",
+        "units": "m/s^2",
+        "rateHz": 1000,
+        "group": "imu/accel"
+      },
+      {
+        "id": "imu_accel_y",
+        "index": 4,
+        "name": "Accel Y",
+        "units": "m/s^2",
+        "rateHz": 1000,
+        "group": "imu/accel"
+      },
+      {
+        "id": "imu_accel_z",
+        "index": 5,
+        "name": "Accel Z",
+        "units": "m/s^2",
+        "rateHz": 1000,
+        "group": "imu/accel"
+      }
+    ],
+    "actuator": [
+      {
+        "id": "motor1",
+        "index": 0,
+        "name": "Motor 1",
+        "units": "N",
+        "range": [
+          0,
+          15
+        ],
+        "group": "motors"
+      },
+      {
+        "id": "motor2",
+        "index": 1,
+        "name": "Motor 2",
+        "units": "N",
+        "range": [
+          0,
+          15
+        ],
+        "group": "motors"
+      },
+      {
+        "id": "motor3",
+        "index": 2,
+        "name": "Motor 3",
+        "units": "N",
+        "range": [
+          0,
+          15
+        ],
+        "group": "motors"
+      },
+      {
+        "id": "motor4",
+        "index": 3,
+        "name": "Motor 4",
+        "units": "N",
+        "range": [
+          0,
+          15
+        ],
+        "group": "motors"
+      }
+    ],
+    "drive": [
+      {
+        "id": "drive0",
+        "index": 0,
+        "name": "Drive 0",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "drive"
+      },
+      {
+        "id": "drive1",
+        "index": 1,
+        "name": "Drive 1",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "drive"
+      },
+      {
+        "id": "drive2",
+        "index": 2,
+        "name": "Drive 2",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "drive"
+      },
+      {
+        "id": "drive3",
+        "index": 3,
+        "name": "Drive 3",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "drive"
+      }
+    ],
+    "reflex": [
+      {
+        "id": "reflex0",
+        "index": 0,
+        "name": "Reflex 0",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "reflex"
+      },
+      {
+        "id": "reflex1",
+        "index": 1,
+        "name": "Reflex 1",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "reflex"
+      },
+      {
+        "id": "reflex2",
+        "index": 2,
+        "name": "Reflex 2",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "reflex"
+      },
+      {
+        "id": "reflex3",
+        "index": 3,
+        "name": "Reflex 3",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "reflex"
+      }
+    ]
+  },
+  "sensors": [
+    {
+      "id": "imu6",
+      "type": "imu6",
+      "frame": "base_link",
+      "channels": [
+        "imu_gyro_x",
+        "imu_gyro_y",
+        "imu_gyro_z",
+        "imu_accel_x",
+        "imu_accel_y",
+        "imu_accel_z"
+      ],
+      "rateHz": 1000,
+      "latencyMs": 0,
+      "noise": {
+        "bias": 0,
+        "std": 0,
+        "randomWalkStd": 0
+      },
+      "dropout": {
+        "prob": 0,
+        "burstMs": 0
+      },
+      "swapProfile": {
+        "gainRange": [
+          1,
+          1
+        ],
+        "biasRange": [
+          0,
+          0
+        ],
+        "delayMsRange": [
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "actuators": [
+    {
+      "id": "motor_set",
+      "type": "quad-motor",
+      "frame": "base_link",
+      "channels": [
+        "motor1",
+        "motor2",
+        "motor3",
+        "motor4"
+      ],
+      "limits": {
+        "min": 0,
+        "max": 15,
+        "rateLimit": 100
+      },
+      "dynamics": {
+        "timeConstant": 0.03,
+        "deadzone": 0
+      },
+      "swapProfile": {
+        "gainRange": [
+          0.8,
+          1.2
+        ],
+        "maxRange": [
+          0.7,
+          1.1
+        ],
+        "lagMsRange": [
+          0,
+          20
+        ]
+      }
+    }
+  ],
+  "control": {
+    "driveChannels": [
+      "drive0",
+      "drive1",
+      "drive2",
+      "drive3"
+    ],
+    "reflexChannels": [
+      "reflex0",
+      "reflex1",
+      "reflex2",
+      "reflex3"
+    ],
+    "constraints": {
+      "driveClamp": [
+        0,
+        1
+      ],
+      "reflexClamp": [
+        -1,
+        1
+      ]
+    }
+  },
+  "motorNerve": {
+    "stages": [
+      {
+        "id": "stage-0",
+        "type": "mixer",
+        "inputs": [
+          "drive0",
+          "drive1",
+          "drive2",
+          "drive3"
+        ],
+        "outputs": [
+          "motor1",
+          "motor2",
+          "motor3",
+          "motor4"
+        ],
+        "parameters": {
+          "layout": "quad-x"
+        }
+      }
+    ]
+  }
 }

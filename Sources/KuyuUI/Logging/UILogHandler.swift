@@ -1,24 +1,24 @@
 import Foundation
 import Logging
 
-struct UILogHandler: LogHandler {
-    var metadata: Logger.Metadata = [:]
-    var logLevel: Logger.Level
+public struct UILogHandler: LogHandler {
+    public var metadata: Logger.Metadata = [:]
+    public var logLevel: Logger.Level
     let label: String
     let buffer: UILogBuffer
 
-    init(label: String, level: Logger.Level = .info, buffer: UILogBuffer) {
+    public init(label: String, level: Logger.Level = .info, buffer: UILogBuffer) {
         self.label = label
         self.logLevel = level
         self.buffer = buffer
     }
 
-    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+    public subscript(metadataKey key: String) -> Logger.Metadata.Value? {
         get { metadata[key] }
         set { metadata[key] = newValue }
     }
 
-    func log(
+    public func log(
         level: Logger.Level,
         message: Logger.Message,
         metadata: Logger.Metadata?,

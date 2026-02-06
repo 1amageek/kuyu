@@ -1,18 +1,19 @@
 import simd
 import Testing
+import KuyuProfiles
 @testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func imu6SensorReportsHoverAcceleration() async throws {
-    let params = QuadrotorParameters.baseline
-    let mixer = QuadrotorMixer(armLength: params.armLength, yawCoefficient: params.yawCoefficient)
-    let state = try QuadrotorState(
+    let params = ReferenceQuadrotorParameters.baseline
+    let mixer = ReferenceQuadrotorMixer(armLength: params.armLength, yawCoefficient: params.yawCoefficient)
+    let state = try ReferenceQuadrotorState(
         position: SIMD3<Double>(repeating: 0),
         velocity: SIMD3<Double>(repeating: 0),
         orientation: simd_quatd(angle: 0, axis: SIMD3<Double>(0, 0, 1)),
         angularVelocity: SIMD3<Double>(repeating: 0)
     )
     let hoverThrust = params.mass * params.gravity / 4.0
-    let store = WorldStore(state: state, motorThrusts: try MotorThrusts.uniform(hoverThrust))
+    let store = ReferenceQuadrotorWorldStore(state: state, motorThrusts: try MotorThrusts.uniform(hoverThrust))
     let timeStep = try TimeStep(delta: 0.001)
 
     var sensor = try IMU6SensorField(

@@ -1,4 +1,4 @@
-struct ScenarioMetrics: Hashable {
+public struct ScenarioMetrics: Hashable {
     let tiltDegrees: [MetricSample]
     let omega: [MetricSample]
     let speed: [MetricSample]

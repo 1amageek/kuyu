@@ -6,7 +6,7 @@ public struct WorldSimulator<
     Plant: PlantEngine,
     Sensor: SensorField,
     Cut: CutInterface,
-    Dal: ExternalDAL
+    Nerve: MotorNerveEndpoint
 > {
     public var config: SimulationConfig
     public var disturbance: Disturbance
@@ -14,8 +14,7 @@ public struct WorldSimulator<
     public var plant: Plant
     public var sensor: Sensor
     public var cut: Cut
-    public var externalDal: Dal?
-    public var store: WorldStore
+    public var motorNerve: Nerve?
 
     private var time: WorldTime
 
@@ -26,8 +25,7 @@ public struct WorldSimulator<
         plant: Plant,
         sensor: Sensor,
         cut: Cut,
-        externalDal: Dal? = nil,
-        store: WorldStore
+        motorNerve: Nerve? = nil
     ) throws {
         self.config = config
         self.disturbance = disturbance
@@ -35,25 +33,37 @@ public struct WorldSimulator<
         self.plant = plant
         self.sensor = sensor
         self.cut = cut
-        self.externalDal = externalDal
-        self.store = store
+        self.motorNerve = motorNerve
         self.time = try WorldTime(stepIndex: 0, time: 0.0)
     }
 
     @MainActor
-    public mutating func run(control: SimulationControl? = nil) async throws -> SimulationLog {
+    public mutating func run(
+        control: SimulationControl? = nil,
+        telemetry: ((WorldStepLog) -> Void)? = nil,
+        failureCheck: ((WorldStepLog) -> FailureEvent?)? = nil
+    ) async throws -> SimulationLog {
         let dt = config.scenario.timeStep.delta
         let steps = Int((config.scenario.duration / dt).rounded(.down))
         var logs: [WorldStepLog] = []
         logs.reserveCapacity(steps + 1)
         let configHash = try ConfigHash.hash(config)
+        var failureEvent: FailureEvent?
 
         for _ in 0..<steps {
             if let control {
                 try await control.checkpoint()
             }
             let log = try step(deltaTime: dt)
+            telemetry?(log)
             logs.append(log)
+            if failureEvent == nil, let failureCheck, let event = failureCheck(log) {
+                failureEvent = event
+                break
+            }
+            if (log.time.stepIndex % 20) == 0 {
+                await Task.yield()
+            }
         }
 
         return SimulationLog(
@@ -62,7 +72,9 @@ public struct WorldSimulator<
             timeStep: config.scenario.timeStep,
             determinism: config.determinism,
             configHash: configHash,
-            events: logs
+            events: logs,
+            failureReason: failureEvent?.reason,
+            failureTime: failureEvent?.time
         )
     }
 
@@ -92,45 +104,48 @@ public struct WorldSimulator<
         var output: CutOutput?
         var driveIntents: [DriveIntent] = []
         var reflexCorrections: [ReflexCorrection] = []
+        var motorNerveTrace: MotorNerveTrace?
         if config.schedule.cut.isDue(stepIndex: time.stepIndex) {
             output = try cut.update(samples: samples, time: time)
             events.append(.cutUpdate)
         }
 
-        var commands: [ActuatorCommand] = []
+        var values: [ActuatorValue] = []
         if let output {
             switch output {
-            case .actuatorCommands(let direct):
-                commands = direct
+            case .actuatorValues(let direct):
+                values = direct
             case .driveIntents(let drives, let corrections):
                 driveIntents = drives
                 reflexCorrections = corrections
-                if config.schedule.externalDal?.isDue(stepIndex: time.stepIndex) == true, var dal = externalDal {
-                    let telemetry = ExternalDALTelemetry(motorThrusts: store.motorThrusts)
-                    commands = try dal.update(
-                        drives: drives,
+                if config.schedule.motorNerve?.isDue(stepIndex: time.stepIndex) == true, var nerve = motorNerve {
+                    let telemetry = MotorNerveTelemetry(actuatorTelemetry: actuator.telemetrySnapshot())
+                    values = try nerve.update(
+                        input: drives,
                         corrections: corrections,
                         telemetry: telemetry,
                         time: time
                     )
-                    externalDal = dal
-                    events.append(.externalDalUpdate)
+                    if let traceProvider = nerve as? MotorNerveTraceProvider {
+                        motorNerveTrace = traceProvider.lastTrace
+                    }
+                    motorNerve = nerve
+                    events.append(.motorNerveUpdate)
                 }
             }
         }
 
-        if !commands.isEmpty {
-            try actuator.apply(commands: commands, time: time)
+        if !values.isEmpty {
+            try actuator.apply(values: values, time: time)
             events.append(.applyCommands)
         }
 
         events.append(.logging)
         events.append(.replayCheck)
 
-        let safetyTrace = SafetyTrace(state: store.state)
-        let stateSnapshot = QuadrotorStateSnapshot(state: store.state)
-        let disturbanceTorque = store.disturbances.torqueAxis3()
-        let disturbanceForce = store.disturbances.forceAxis3()
+        let safetyTrace = plant.safetyTrace()
+        let plantState = plant.snapshot()
+        let disturbanceSnapshot = disturbance.snapshot()
 
         return WorldStepLog(
             time: time,
@@ -138,12 +153,12 @@ public struct WorldSimulator<
             sensorSamples: samples,
             driveIntents: driveIntents,
             reflexCorrections: reflexCorrections,
-            actuatorCommands: commands,
-            motorThrusts: store.motorThrusts,
+            actuatorValues: values,
+            actuatorTelemetry: actuator.telemetrySnapshot(),
+            motorNerveTrace: motorNerveTrace,
             safetyTrace: safetyTrace,
-            stateSnapshot: stateSnapshot,
-            disturbanceTorqueBody: disturbanceTorque,
-            disturbanceForceWorld: disturbanceForce
+            plantState: plantState,
+            disturbances: disturbanceSnapshot
         )
     }
 }

@@ -21,4 +21,16 @@ public struct QuaternionSnapshot: Sendable, Codable, Equatable {
     public func dot(_ other: QuaternionSnapshot) -> Double {
         w * other.w + x * other.x + y * other.y + z * other.z
     }
+
+    public var simd: simd_quatd {
+        simd_quatd(vector: SIMD4<Double>(x, y, z, w)).normalizedQuat
+    }
+
+    public func act(_ vector: SIMD3<Double>) -> SIMD3<Double> {
+        simd.act(vector)
+    }
+
+    public var isFinite: Bool {
+        w.isFinite && x.isFinite && y.isFinite && z.isFinite
+    }
 }

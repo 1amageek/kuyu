@@ -1,20 +1,21 @@
 import Foundation
 import KuyuCore
+import KuyuProfiles
 
-struct RobotSceneState: Sendable, Equatable, Identifiable {
-    let id: String
+public struct BodySceneState: Sendable, Equatable, Identifiable {
+    public let id: String
     let position: Axis3
     let velocity: Axis3
     let orientation: QuaternionSnapshot
     let angularVelocity: Axis3
 }
 
-struct SceneState: Sendable, Equatable {
+public struct SceneState: Sendable, Equatable {
     let time: Double
-    let robots: [RobotSceneState]
+    let bodies: [BodySceneState]
 }
 
-struct RenderAssetInfo: Sendable, Equatable {
+public struct RenderAssetInfo: Sendable, Equatable {
     let name: String
     let url: URL
     let format: RenderMeshFormat

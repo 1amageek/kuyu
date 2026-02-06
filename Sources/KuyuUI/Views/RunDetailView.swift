@@ -1,10 +1,10 @@
 import SwiftUI
 import KuyuCore
 
-struct RunDetailView: View {
+public struct RunDetailView: View {
     @Bindable var model: SimulationViewModel
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let run = model.selectedRun {
                 List(selection: $model.selectedScenarioKey) {
@@ -24,11 +24,11 @@ struct RunDetailView: View {
                         .foregroundStyle(KuyuUITheme.textSecondary)
                 }
                 .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             Spacer()
         }
-        .padding(8)
-        .background(Color.clear)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

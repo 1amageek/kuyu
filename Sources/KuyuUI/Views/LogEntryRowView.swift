@@ -1,7 +1,7 @@
 import Logging
 import SwiftUI
 
-struct LogEntryRowView: View {
+public struct LogEntryRowView: View {
     let entry: UILogEntry
 
     static let formatter: DateFormatter = {
@@ -10,7 +10,7 @@ struct LogEntryRowView: View {
         return formatter
     }()
 
-    var body: some View {
+    public var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text(Self.formatter.string(from: entry.timestamp))
                 .font(KuyuUITheme.monoFont(size: 10))

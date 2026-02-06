@@ -1,11 +1,11 @@
 import SwiftUI
 
-struct AttitudeStatValueView: View {
+public struct AttitudeStatValueView: View {
     let label: String
     let value: Double
     let unit: String
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 2) {
             Text(label.uppercased())
                 .font(KuyuUITheme.monoFont(size: 9))

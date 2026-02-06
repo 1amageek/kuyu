@@ -1,9 +1,10 @@
-# KuyuUI Architecture — v2.4 (System/Plugin aligned)
+# KuyuUI Architecture (System/Profile aligned)
 
 ## Purpose
-Define KuyuUI responsibilities under the System/Plugin model. KuyuUI must not
-mutate physics state directly. It issues commands via CommandSystem and renders
-via RenderSystem.
+Define KuyuUI responsibilities under the System/Profile model. KuyuUI is a
+**required** part of Kuyu and must provide full visual inspection of the world.
+It must not mutate physics state directly. It issues commands via CommandSystem
+and renders via RenderSystem.
 
 ---
 
@@ -18,6 +19,8 @@ via RenderSystem.
 - Read‑only consumer of SceneState
 - Renders frames at independent FPS (30–120Hz)
 - Must not mutate physics or sensors
+- Default backend on Apple platforms: **RealityKit**
+- Other backends (e.g., Unreal) must be reachable via view‑only adapters
 
 ### 1.3 CommandSystem (UI gateway)
 - Accepts commands: RunSuite, Pause, ExportLogs, ExportDataset, Train
@@ -28,6 +31,10 @@ via RenderSystem.
 - Issues commands only through CommandSystem
 - Renders through RenderSystem
 - Displays logs and metrics from SimulationLog
+- Manual actuator override channels are generated from `RobotDescriptor.signals.actuator`
+  (fallback: task default count).
+- Manual actuator sliders operate in physical actuator units (descriptor limits/range),
+  not normalized 0..1 UI values.
 
 ---
 
@@ -58,7 +65,17 @@ WorldEngine -> SimulationLog -> KuyuUI (charts/logs)
 
 ---
 
-## 4. Command Types (v2.4)
+## 3.1 Visual Inspection Requirements (Mandatory)
+- 3D viewport with plant, sensors, and environment visible at all times.
+- Overlay toggles for axes, forces/torques, actuator values, and event markers.
+- Timeline scrub/step controls for deterministic replay.
+- Inspector panels for sensor streams and Manas internals
+  (Bundle/Gating/Trunks/DriveIntent/Reflex).
+- World state snapshot export (image or scene JSON) for debugging.
+
+---
+
+## 4. Command Types
 
 - RunSuite(suiteId, determinism, cutPeriod, modelDescriptor)
 - ExportLogs(path)
@@ -81,4 +98,3 @@ WorldEngine -> SimulationLog -> KuyuUI (charts/logs)
 
 - All deterministic state belongs to WorldEngine
 - RenderSystem and KuyuUI are not part of deterministic replay
-

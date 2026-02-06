@@ -1,4 +1,4 @@
-# A2 Capability Profiles and Declarations (v2.4)
+# A2 Capability Profiles and Declarations
 
 ## Purpose
 Profiles communicate which **learning and interface capabilities** are enabled. All evaluation reports must declare a profile.
@@ -16,6 +16,7 @@ Profiles communicate which **learning and interface capabilities** are enabled. 
 
 ### P2 CMI-Experimental (optional)
 - CMI enabled with low-bandwidth latent interaction
+- Must remain **separable** (Manas stable if CMI is absent or disconnected)
 - Must remain ignorable and safety-bounded
 
 ## Declaration Format
@@ -24,7 +25,7 @@ Each report MUST include:
 - Core learning on/off
 - Reflex learning on/off
 - NerveBundle/Gating/Trunks version IDs
-- DAL limits version
+- MotorNerve limits version
 - Kuyu suite ID and seed set
 
 ## Change Control

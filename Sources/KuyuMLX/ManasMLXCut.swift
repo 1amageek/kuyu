@@ -22,8 +22,7 @@ public struct ManasMLXCut: CutInterface {
     ) throws {
         let bundleConfig = Imu6NerveBundle.Configuration(
             gyroRange: -20...20,
-            accelRange: -20...20,
-            qualityFloor: 0.2
+            accelRange: -20...20
         )
         bundle = Imu6NerveBundle(configuration: bundleConfig)
         gate = useQualityGating
@@ -61,7 +60,8 @@ public struct ManasMLXCut: CutInterface {
         let drives = try manasDrives.map { drive in
             try KuyuCore.DriveIntent(
                 index: KuyuCore.DriveIndex(drive.index.rawValue),
-                activation: drive.activation
+                activation: drive.activation,
+                parameters: drive.parameters
             )
         }
         let corrections = try manasCorrections.map { correction in

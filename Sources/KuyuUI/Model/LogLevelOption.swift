@@ -1,6 +1,6 @@
 import Logging
 
-enum LogLevelOption: String, CaseIterable, Identifiable {
+public enum LogLevelOption: String, CaseIterable, Identifiable {
     case trace
     case debug
     case info
@@ -9,9 +9,9 @@ enum LogLevelOption: String, CaseIterable, Identifiable {
     case error
     case critical
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var level: Logger.Level {
+    public var level: Logger.Level {
         switch self {
         case .trace: return .trace
         case .debug: return .debug

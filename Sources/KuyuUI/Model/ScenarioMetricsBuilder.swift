@@ -1,8 +1,8 @@
 import Foundation
 import KuyuCore
 
-struct ScenarioMetricsBuilder {
-    static func build(log: SimulationLog, maxPoints: Int = 1200) -> ScenarioMetrics {
+public struct ScenarioMetricsBuilder {
+    public static func build(log: SimulationLog, maxPoints: Int = 1200) -> ScenarioMetrics {
         let events = log.events
         guard let first = events.first, let last = events.last else {
             return ScenarioMetrics(
@@ -39,9 +39,9 @@ struct ScenarioMetricsBuilder {
             let time = event.time.time
             let tiltDegrees = event.safetyTrace.tiltRadians * 180.0 / Double.pi
             let omega = event.safetyTrace.omegaMagnitude
-            let velocity = event.stateSnapshot.velocity
+            let velocity = event.plantState.root.velocity
             let speed = sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z)
-            let altitude = event.stateSnapshot.position.z
+            let altitude = event.plantState.root.position.z
 
             maxTilt = max(maxTilt, tiltDegrees)
             maxOmega = max(maxOmega, omega)
@@ -60,9 +60,9 @@ struct ScenarioMetricsBuilder {
             let time = lastEvent.time.time
             let tiltDegrees = lastEvent.safetyTrace.tiltRadians * 180.0 / Double.pi
             let omega = lastEvent.safetyTrace.omegaMagnitude
-            let velocity = lastEvent.stateSnapshot.velocity
+            let velocity = lastEvent.plantState.root.velocity
             let speed = sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z)
-            let altitude = lastEvent.stateSnapshot.position.z
+            let altitude = lastEvent.plantState.root.position.z
             maxTilt = max(maxTilt, tiltDegrees)
             maxOmega = max(maxOmega, omega)
             maxSpeed = max(maxSpeed, speed)

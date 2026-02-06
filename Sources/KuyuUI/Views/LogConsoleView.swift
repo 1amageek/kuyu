@@ -1,27 +1,19 @@
 import SwiftUI
 
-struct LogConsoleView: View {
+public struct LogConsoleView: View {
     let entries: [UILogEntry]
     let onClear: () -> Void
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Terminal")
-                    .font(KuyuUITheme.titleFont(size: 14))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
-                Spacer()
-                Button("Clear", action: onClear)
-                    .font(KuyuUITheme.bodyFont(size: 11))
-            }
-            if entries.isEmpty {
-                Text("No logs yet")
-                    .font(KuyuUITheme.bodyFont(size: 12))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
-            } else {
-                ScrollView {
+            ScrollView {
+                if entries.isEmpty {
+                    Text("No logs yet")
+                        .font(KuyuUITheme.bodyFont(size: 12))
+                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                } else {
                     Text(entries.map { line(for: $0) }.joined(separator: "\n"))
                         .font(KuyuUITheme.monoFont(size: 11))
                         .foregroundStyle(KuyuUITheme.textPrimary)
@@ -29,13 +21,9 @@ struct LogConsoleView: View {
                         .textSelection(.enabled)
                         .padding(8)
                 }
-                .background(KuyuUITheme.panelBackground.opacity(0.7))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
-        .padding(10)
-        .background(KuyuUITheme.panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func line(for entry: UILogEntry) -> String {

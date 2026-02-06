@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct RunRowView: View {
+public struct RunRowView: View {
     let run: RunRecord
 
     private static let formatter: DateFormatter = {
@@ -10,7 +10,7 @@ struct RunRowView: View {
         return formatter
     }()
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(Self.formatter.string(from: run.timestamp))

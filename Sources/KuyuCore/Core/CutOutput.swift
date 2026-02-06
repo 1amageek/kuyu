@@ -1,4 +1,4 @@
 public enum CutOutput: Sendable, Codable, Equatable {
-    case actuatorCommands([ActuatorCommand])
+    case actuatorValues([ActuatorValue])
     case driveIntents([DriveIntent], corrections: [ReflexCorrection])
 }

@@ -1,17 +1,18 @@
-# Kuyu Training Environment Specification — v2.4 (M1‑ATT)
+# Kuyu Training Environment Specification (M1‑ATT)
 
 ## Purpose
-Kuyu is the **training world** for Manas. It generates data, injects
-swappability and HF stress, and reports metrics. Kuyu **does not** implement
-learning algorithms.
+Kuyu is the **learning simulator** for Manas. It generates data and injects
+swappability and HF stress for MLX‑based learning. Kuyu **does not** implement
+learning algorithms, and metric computation is external. This document defines
+the **M1‑ATT reference suite**, not the only supported morphology.
 
 ## Training Loop (Conceptual)
 Scenario + Seed
 → World Engine (Plant + Sensor/Actuator Emulation + Events)
 → Sensor Streams
 → Manas (Bundle→Gating→Trunks→Core+Reflex)
-→ DriveIntent + Reflex corrections
-→ DAL → Actuators → Plant → Sensors …
+→ DriveIntent (primitive activations) + Reflex corrections
+→ MotorNerve → Actuator values → Plant → Sensors …
 → Logs + Metrics
 
 ## Required Suites (M1)
@@ -38,16 +39,30 @@ Impulse torque, vibration, brief sensor glitches, brief saturation, latency spik
 - Trunks (Energy / Phase / Quality)
 - DriveIntent
 - Reflex corrections
-- DAL actuator commands
+- MotorNerve actuator values
 - Plant attitude / ω traces
 - Event schedule + seed
 
-## Metrics (M1)
-- No‑sustained‑failure
-- Recovery time after swaps
-- Overshoot and violation budget
-- HF stability score
-- Bundle/Gating stability proxy
+## Metrics (Optional / External)
+Metrics are computed downstream from Kuyu logs as needed. Kuyu only guarantees
+correct state evolution, logs, and fail‑fast termination metadata.
+
+## Failure‑Aware Training (Normative)
+Scenarios are **fail‑fast**. On first failure, the run terminates and the
+training loop treats the run as **terminal**. Failure MUST be logged as:
+- `failureReason` (enum string)
+- `failureTime` (seconds from run start)
+
+Required failure reasons:
+- `simulation-integrity` (NaN/Inf or invalid state)
+- `ground-violation`
+- `sustained-fall`
+- `safety-envelope`
+
+Training loops MUST:
+1. Stop data collection at the failure time (no “continuing past crash”).
+2. Use failure as a negative signal (score penalty and/or curriculum step).
+3. Persist failure metadata in exported datasets.
 
 ## Reproducibility
 - Deterministic seed schedule
@@ -61,7 +76,7 @@ Impulse torque, vibration, brief sensor glitches, brief saturation, latency spik
 
 ## Dataset Export Format (JSONL)
 Kuyu exports a training dataset as a directory containing:
-- `meta.json`: dataset metadata (version, scenario, seed, dt, driveCount, channelCount)
+- `meta.json`: dataset metadata (scenario, seed, dt, driveCount, channelCount)
 - `records.jsonl`: one JSON object per time step
 
 Record fields:
@@ -69,6 +84,10 @@ Record fields:
 - `sensors`: array of `{channelIndex, value, timestamp}`
 - `driveIntents`: array of `{driveIndex, value}`
 - `reflexCorrections`: array of `{driveIndex, clamp, damping, delta}`
+
+`meta.json` MUST include:
+- `failureReason` (nullable)
+- `failureTime` (nullable)
 
 Implementation reference: `TrainingDatasetWriter` in Kuyu.
 

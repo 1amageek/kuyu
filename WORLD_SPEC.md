@@ -1,7 +1,7 @@
-# World Specification (Draft, v2.4 context)
+# World Specification (Draft)
 
 This document defines the **canonical physics** for Kuyu. It is shared across
-all v2.4 training suites (swappability, HF stress, bundle/gating stress).
+all training suites (swappability, HF stress, bundle/gating stress).
 
 ## Purpose
 Define the simulation world rigorously for reproducible verification while allowing fast execution. The world is specified by strict physical equations, with a deterministic *negligibility policy* that can approximate small effects as zero without changing the underlying model.
@@ -14,20 +14,31 @@ Define the simulation world rigorously for reproducible verification while allow
 
 ---
 
-## 0. System/Plugin Architecture (Gazebo-aligned)
+## 0. System/Profile Architecture (Gazebo-aligned)
 Kuyu mirrors Gazebo’s separation of concerns: physics, sensors, rendering, and control
 are treated as distinct systems. Determinism is enforced in physics + sensor systems;
 rendering may be non-deterministic.
 
-### Required systems
+### Core systems (required)
 - PhysicsSystem: rigid-body integration, fixed Δt
 - SensorSystem: IMU6 + optional sensors
 - ActuatorSystem: motor dynamics, saturation, asymmetry
 - EventSystem: swaps, HF stress, latency spikes
 
-### Optional systems
-- RenderSystem: RealityKit or equivalent visualizer (non-deterministic allowed)
+### UI systems (required)
+- RenderSystem: visual inspection renderer (non-deterministic allowed)
 - CommandSystem: UI / automation triggers (does not touch physics state)
+
+### Engine compatibility (view‑only)
+External engines may be attached **only as visualization or verification targets**.
+The PhysicsSystem remains entirely within Kuyu; adapters are **read‑only** and
+consume Kuyu state. Any “shadow physics” run in external engines must never
+write back into Kuyu or affect determinism.
+
+Baseline target:
+- Apple platforms use **RealityKit** as the default render backend.
+- Other engines (e.g., Unreal/Chaos) are supported via view‑only adapters and
+  are not required for correctness.
 
 ### Execution order (fixed)
 1. time advance
@@ -43,6 +54,8 @@ rendering may be non-deterministic.
 - Output: visual frames / UI overlays only
 - Must NOT mutate physics state or sensor outputs
 - Can run at independent frame rate (e.g., 30–120 Hz)
+- Must support debug overlays (axes, forces/torques, actuators, event markers)
+- Must support timeline scrub/step for deterministic replay
 
 ### CommandSystem (spec detail)
 - Input: operator/UI commands (run, pause, export, switch suite)
@@ -52,7 +65,19 @@ rendering may be non-deterministic.
 ## 1. World State and Time
 - Fixed step Δt; all subsystem update periods are integer multiples of Δt.
 - Deterministic execution order per step:
-  time → disturbance → actuator → plant RK4 → sensor → CUT → external DAL → apply → log → replay check.
+  time → disturbance → actuator → plant RK4 → sensor → CUT → external MotorNerve → apply → log → replay check.
+
+## 1.1 Failure & Termination (Normative)
+Failure is **fail‑fast** and terminates the scenario immediately. The world must
+emit `failureReason` and `failureTime` on termination. Minimum conditions:
+
+- **simulation‑integrity**: NaN/Inf in state, sensor output, or command.
+- **ground‑violation**: position.z < groundZ (default 0).
+- **sustained‑fall**: vertical velocity < -fallVelocityThreshold for ≥ fallDurationSeconds.
+- **safety‑envelope**: sustained violation of tilt or |ω| limits.
+
+These conditions are part of the world contract and are enforced during runs
+used for training and evaluation.
 
 ---
 

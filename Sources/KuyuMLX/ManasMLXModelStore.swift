@@ -1,82 +1,341 @@
 import Foundation
+import Logging
 import ManasCore
 import ManasMLXModels
 import ManasMLXTraining
+import MLX
+import MLXNN
 import KuyuCore
+import KuyuProfiles
 
 @MainActor
 public final class ManasMLXModelStore {
     private let lock = NSLock()
+    private let logger = Logger(label: "kuyu.manas")
+    private let uiLogger = Logger(label: "kuyu.ui")
     private var coreModel: ManasMLXCore?
     private var coreConfig: ManasMLXCoreConfig?
     private var reflexModel: ManasMLXReflex?
     private var reflexConfig: ManasMLXReflexConfig?
     private var isBusy: Bool = false
 
+    public var currentCoreConfig: ManasMLXCoreConfig? { coreConfig }
+    public var currentReflexConfig: ManasMLXReflexConfig? { reflexConfig }
+
     public init() {}
 
     public func runManasMLX(
-        parameters: QuadrotorParameters,
+        parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         request: SimulationRunRequest,
-        control: SimulationControl?
+        descriptor: RobotDescriptor?,
+        control: SimulationControl?,
+        telemetry: ((WorldStepLog) -> Void)? = nil
     ) async throws -> KuyAtt1RunOutput {
         try beginExclusive()
         defer { endExclusive() }
 
         var bundle = Imu6NerveBundle(configuration: .init(
             gyroRange: -20...20,
-            accelRange: -20...20,
-            qualityFloor: 0.2
+            accelRange: -20...20
         ))
         var gate: any Gating = request.useQualityGating
             ? QualityGating(configuration: .init(minGate: 0.2, maxGate: 1.0))
             : IdentityGating()
         var trunks = BasicTrunksBuilder()
         let sizing = try ManasMLXCut.computeSizing(bundle: &bundle, gate: &gate, trunks: &trunks)
+        let driveCount = request.taskMode == .singleLift ? 1 : sizing.driveCount
 
         let core = prepareCore(
             inputSize: sizing.trunkSize,
-            driveCount: sizing.driveCount,
+            driveCount: driveCount,
             auxEnabled: request.useAux
         )
-        let reflex = prepareReflex(inputSize: sizing.fastTapCount, driveCount: sizing.driveCount)
+        let reflex = prepareReflex(inputSize: sizing.fastTapCount, driveCount: driveCount)
 
-        let runner = ScenarioRunner<ManasMLXCut, DirectExternalDAL>(
-            parameters: parameters,
-            schedule: schedule,
-            determinism: request.determinism,
-            noise: request.noise,
-            hoverThrustScale: request.gains.hoverThrustScale
-        )
-        let suite = KuyAtt1Suite()
-        let definitions = try suite.scenarios()
-        let manifest = ScenarioManifestBuilder().build(from: definitions)
+        let definitions: [ReferenceQuadrotorScenarioDefinition]
+        switch request.taskMode {
+        case .lift:
+            definitions = try KuyLiftSuite().scenarios()
+        case .singleLift:
+            definitions = try KuySingleLiftSuite().scenarios()
+        case .attitude:
+            definitions = try KuyAtt1Suite().scenarios()
+        }
+        let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
 
         var evaluations: [ScenarioEvaluation] = []
         let replayChecks: [ReplayCheckResult] = []
         var logs: [ScenarioLogEntry] = []
 
-        for definition in definitions {
-            if let control {
-                try await control.checkpoint()
-            }
-            let cut = try ManasMLXCut(
-                coreModel: core,
-                reflexModel: reflex,
-                useQualityGating: request.useQualityGating
-            )
-            let log = try await runner.runScenario(
-                definition: definition,
-                cut: cut,
-                externalDal: DirectExternalDAL(),
-                control: control
-            )
-            let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
-            logs.append(ScenarioLogEntry(key: key, log: log))
+        logger.notice("ManasMLX run started", metadata: [
+            "scenarios": "\(definitions.count)",
+            "controller": "ManasMLX",
+            "task": .string(request.taskMode.rawValue),
+            "driveCount": .string("\(driveCount)")
+        ])
 
-            let evaluation = ScenarioEvaluator().evaluate(definition: definition, log: log)
-            evaluations.append(evaluation)
+        switch request.taskMode {
+        case .lift:
+            if let chainFactory = motorNerveChainFactory(
+                descriptor: descriptor,
+                request: request,
+                expectedDriveCount: driveCount,
+                fallbackProfile: "lift"
+            ) {
+                let runner = ReferenceQuadrotorScenarioRunner<ManasMLXCut, MotorNerveChain>(
+                    parameters: parameters,
+                    schedule: schedule,
+                    determinism: request.determinism,
+                    noise: request.noise,
+                    hoverThrustScale: request.gains.hoverThrustScale
+                )
+                for definition in definitions {
+                    if let control {
+                        try await control.checkpoint()
+                    }
+                    let cut = try ManasMLXCut(
+                        coreModel: core,
+                        reflexModel: reflex,
+                        useQualityGating: request.useQualityGating
+                    )
+                    let log = try await runner.runScenario(
+                        definition: definition,
+                        cut: cut,
+                        motorNerve: try chainFactory(),
+                        control: control,
+                        telemetry: telemetry
+                    )
+                    let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
+                    logs.append(ScenarioLogEntry(key: key, log: log))
+                    if let reason = log.failureReason {
+                        logger.warning("Scenario failed", metadata: [
+                            "scenario": .string(definition.config.id.rawValue),
+                            "seed": .string("\(definition.config.seed.rawValue)"),
+                            "reason": .string(reason.rawValue),
+                            "time": .string(String(format: "%.2f", log.failureTime ?? 0))
+                        ])
+                    }
+                    let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
+                    evaluations.append(evaluation)
+                    await Task.yield()
+                }
+                break
+            }
+            let runner = ReferenceQuadrotorScenarioRunner<ManasMLXCut, LiftMotorNerve>(
+                parameters: parameters,
+                schedule: schedule,
+                determinism: request.determinism,
+                noise: request.noise,
+                hoverThrustScale: request.gains.hoverThrustScale
+            )
+            for definition in definitions {
+                if let control {
+                    try await control.checkpoint()
+                }
+                let cut = try ManasMLXCut(
+                    coreModel: core,
+                    reflexModel: reflex,
+                    useQualityGating: request.useQualityGating
+                )
+                let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
+                let log = try await runner.runScenario(
+                    definition: definition,
+                    cut: cut,
+                    motorNerve: LiftMotorNerve(motorMaxThrusts: maxThrusts),
+                    control: control,
+                    telemetry: telemetry
+                )
+                let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
+                logs.append(ScenarioLogEntry(key: key, log: log))
+                if let reason = log.failureReason {
+                    logger.warning("Scenario failed", metadata: [
+                        "scenario": .string(definition.config.id.rawValue),
+                        "seed": .string("\(definition.config.seed.rawValue)"),
+                        "reason": .string(reason.rawValue),
+                        "time": .string(String(format: "%.2f", log.failureTime ?? 0))
+                    ])
+                }
+                let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
+                evaluations.append(evaluation)
+                await Task.yield()
+            }
+        case .singleLift:
+            if let chainFactory = motorNerveChainFactory(
+                descriptor: descriptor,
+                request: request,
+                expectedDriveCount: driveCount,
+                fallbackProfile: "fixed-single-prop"
+            ) {
+                let runner = ReferenceQuadrotorScenarioRunner<ManasMLXCut, MotorNerveChain>(
+                    parameters: parameters,
+                    schedule: schedule,
+                    determinism: request.determinism,
+                    noise: request.noise,
+                    hoverThrustScale: request.gains.hoverThrustScale
+                )
+                for definition in definitions {
+                    if let control {
+                        try await control.checkpoint()
+                    }
+                    let cut = try ManasMLXCut(
+                        coreModel: core,
+                        reflexModel: reflex,
+                        useQualityGating: request.useQualityGating
+                    )
+                    let log = try await runner.runScenario(
+                        definition: definition,
+                        cut: cut,
+                        motorNerve: try chainFactory(),
+                        control: control,
+                        telemetry: telemetry
+                    )
+                    let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
+                    logs.append(ScenarioLogEntry(key: key, log: log))
+                    if let reason = log.failureReason {
+                        logger.warning("Scenario failed", metadata: [
+                            "scenario": .string(definition.config.id.rawValue),
+                            "seed": .string("\(definition.config.seed.rawValue)"),
+                            "reason": .string(reason.rawValue),
+                            "time": .string(String(format: "%.2f", log.failureTime ?? 0))
+                        ])
+                    }
+                    let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
+                    evaluations.append(evaluation)
+                    await Task.yield()
+                }
+                break
+            }
+            let runner = ReferenceQuadrotorScenarioRunner<ManasMLXCut, FixedSinglePropMotorNerve>(
+                parameters: parameters,
+                schedule: schedule,
+                determinism: request.determinism,
+                noise: request.noise,
+                hoverThrustScale: request.gains.hoverThrustScale
+            )
+            for definition in definitions {
+                if let control {
+                    try await control.checkpoint()
+                }
+                let cut = try ManasMLXCut(
+                    coreModel: core,
+                    reflexModel: reflex,
+                    useQualityGating: request.useQualityGating
+                )
+                let baseThrottle = 0.0
+                let motorNerveConfig = FixedSinglePropMotorNerve.Config(
+                    maxThrust: parameters.maxThrust,
+                    baseThrottle: baseThrottle
+                )
+                let log = try await runner.runScenario(
+                    definition: definition,
+                    cut: cut,
+                    motorNerve: FixedSinglePropMotorNerve(config: motorNerveConfig),
+                    control: control,
+                    telemetry: telemetry
+                )
+                let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
+                logs.append(ScenarioLogEntry(key: key, log: log))
+                if let reason = log.failureReason {
+                    logger.warning("Scenario failed", metadata: [
+                        "scenario": .string(definition.config.id.rawValue),
+                        "seed": .string("\(definition.config.seed.rawValue)"),
+                        "reason": .string(reason.rawValue),
+                        "time": .string(String(format: "%.2f", log.failureTime ?? 0))
+                    ])
+                }
+                let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
+                evaluations.append(evaluation)
+                await Task.yield()
+            }
+        case .attitude:
+            if let chainFactory = motorNerveChainFactory(
+                descriptor: descriptor,
+                request: request,
+                expectedDriveCount: driveCount,
+                fallbackProfile: "fixed-quad"
+            ) {
+                let runner = ReferenceQuadrotorScenarioRunner<ManasMLXCut, MotorNerveChain>(
+                    parameters: parameters,
+                    schedule: schedule,
+                    determinism: request.determinism,
+                    noise: request.noise,
+                    hoverThrustScale: request.gains.hoverThrustScale
+                )
+                for definition in definitions {
+                    if let control {
+                        try await control.checkpoint()
+                    }
+                    let cut = try ManasMLXCut(
+                        coreModel: core,
+                        reflexModel: reflex,
+                        useQualityGating: request.useQualityGating
+                    )
+                    let log = try await runner.runScenario(
+                        definition: definition,
+                        cut: cut,
+                        motorNerve: try chainFactory(),
+                        control: control,
+                        telemetry: telemetry
+                    )
+                    let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
+                    logs.append(ScenarioLogEntry(key: key, log: log))
+                    if let reason = log.failureReason {
+                        logger.warning("Scenario failed", metadata: [
+                            "scenario": .string(definition.config.id.rawValue),
+                            "seed": .string("\(definition.config.seed.rawValue)"),
+                            "reason": .string(reason.rawValue),
+                            "time": .string(String(format: "%.2f", log.failureTime ?? 0))
+                        ])
+                    }
+                    let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
+                    evaluations.append(evaluation)
+                    await Task.yield()
+                }
+                break
+            }
+            let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
+            let motorNerveConfig = FixedQuadMotorNerve.Config(
+                mixer: ReferenceQuadrotorMixer(armLength: parameters.armLength, yawCoefficient: parameters.yawCoefficient),
+                motorMaxThrusts: maxThrusts
+            )
+            let runner = ReferenceQuadrotorScenarioRunner<ManasMLXCut, FixedQuadMotorNerve>(
+                parameters: parameters,
+                schedule: schedule,
+                determinism: request.determinism,
+                noise: request.noise,
+                hoverThrustScale: request.gains.hoverThrustScale
+            )
+            for definition in definitions {
+                if let control {
+                    try await control.checkpoint()
+                }
+                let cut = try ManasMLXCut(
+                    coreModel: core,
+                    reflexModel: reflex,
+                    useQualityGating: request.useQualityGating
+                )
+                let log = try await runner.runScenario(
+                    definition: definition,
+                    cut: cut,
+                    motorNerve: FixedQuadMotorNerve(config: motorNerveConfig),
+                    control: control,
+                    telemetry: telemetry
+                )
+                let key = ScenarioKey(scenarioId: definition.config.id, seed: definition.config.seed)
+                logs.append(ScenarioLogEntry(key: key, log: log))
+                if let reason = log.failureReason {
+                    logger.warning("Scenario failed", metadata: [
+                        "scenario": .string(definition.config.id.rawValue),
+                        "seed": .string("\(definition.config.seed.rawValue)"),
+                        "reason": .string(reason.rawValue),
+                        "time": .string(String(format: "%.2f", log.failureTime ?? 0))
+                    ])
+                }
+                let evaluation = ReferenceQuadrotorScenarioEvaluator().evaluate(definition: definition, log: log)
+                evaluations.append(evaluation)
+                await Task.yield()
+            }
         }
 
         let evaluationPass = evaluations.allSatisfy { $0.passed }
@@ -92,7 +351,57 @@ public final class ManasMLXModelStore {
             aggregate: aggregate
         )
 
+        logger.notice("ManasMLX run completed", metadata: [
+            "passed": "\(summary.suitePassed)",
+            "scenarios": "\(logs.count)"
+        ])
+
         return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
+    }
+
+    private func motorNerveChainFactory(
+        descriptor: RobotDescriptor?,
+        request: SimulationRunRequest,
+        expectedDriveCount: Int,
+        fallbackProfile: String
+    ) -> (() throws -> MotorNerveChain)? {
+        guard let descriptor else { return nil }
+        let modelPath = request.modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if descriptor.control.driveChannels.count != expectedDriveCount {
+            uiLogger.warning("MotorNerveChain disabled due to drive count mismatch", metadata: [
+                "action": "motorNerveFallback",
+                "task": .string(request.taskMode.rawValue),
+                "model": .string(modelPath),
+                "from": "descriptor-chain",
+                "to": .string(fallbackProfile),
+                "reason": "driveCountMismatch",
+                "motorNerveProfile": .string(fallbackProfile)
+            ])
+            return nil
+        }
+
+        if descriptor.motorNerve.stages.contains(where: { $0.type == .custom }) {
+            uiLogger.warning("MotorNerveChain disabled due to unsupported stage", metadata: [
+                "action": "motorNerveFallback",
+                "task": .string(request.taskMode.rawValue),
+                "model": .string(modelPath),
+                "from": "descriptor-chain",
+                "to": .string(fallbackProfile),
+                "reason": "unsupportedCustomStage",
+                "motorNerveProfile": .string(fallbackProfile)
+            ])
+            return nil
+        }
+
+        uiLogger.notice("MotorNerveChain enabled", metadata: [
+            "action": "motorNerveChain",
+            "task": .string(request.taskMode.rawValue),
+            "model": .string(modelPath),
+            "motorNerveProfile": "descriptor-chain"
+        ])
+
+        return { try MotorNerveChain(descriptor: descriptor) }
     }
 
     public func trainCore(
@@ -102,7 +411,7 @@ public final class ManasMLXModelStore {
         epochs: Int,
         useAux: Bool,
         useQualityGating: Bool
-    ) throws -> TrainingResult {
+    ) async throws -> TrainingResult {
         try beginExclusive()
         defer { endExclusive() }
 
@@ -114,6 +423,14 @@ public final class ManasMLXModelStore {
         guard driveCount > 0 else {
             throw NSError(domain: "kuyu.ui", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid drive count"])
         }
+
+        logger.notice("ManasMLX training started", metadata: [
+            "datasets": "\(datasets.count)",
+            "driveCount": "\(driveCount)",
+            "epochs": "\(epochs)",
+            "sequence": "\(sequenceLength)",
+            "aux": "\(useAux)"
+        ])
 
         var allBatches: [ManasMLXSequenceBatch] = []
         var allAuxBatches: [ManasMLXAuxSequenceBatch] = []
@@ -155,21 +472,108 @@ public final class ManasMLXModelStore {
         )
 
         let losses: [Float]
+        let batchCount = allAuxBatches.isEmpty ? allBatches.count : allAuxBatches.count
+        let logStride = max(1, batchCount / 20)
+        logger.notice("ManasMLX training batches", metadata: [
+            "batches": .string("\(batchCount)"),
+            "learningRate": .string(String(format: "%.6f", learningRate))
+        ])
+
         if useAux {
-            losses = try ManasMLXTrainer.trainCoreWithAux(
+            losses = try await ManasMLXTrainer.trainCoreWithAuxAsync(
                 model: core,
                 batches: allAuxBatches,
                 config: trainConfig
-            )
+            ) { [logger] epoch, batch, total, loss in
+                if batch % logStride == 0 || batch == total {
+                    logger.notice("ManasMLX training progress", metadata: [
+                        "epoch": "\(epoch)",
+                        "batch": "\(batch)",
+                        "total": "\(total)",
+                        "loss": .string(String(format: "%.6f", loss))
+                    ])
+                }
+            }
         } else {
-            losses = ManasMLXTrainer.trainCoreSupervised(
+            losses = await ManasMLXTrainer.trainCoreSupervisedAsync(
                 model: core,
                 batches: allBatches,
                 config: trainConfig
-            )
+            ) { [logger] epoch, batch, total, loss in
+                if batch % logStride == 0 || batch == total {
+                    logger.notice("ManasMLX training progress", metadata: [
+                        "epoch": "\(epoch)",
+                        "batch": "\(batch)",
+                        "total": "\(total)",
+                        "loss": .string(String(format: "%.6f", loss))
+                    ])
+                }
+            }
         }
 
+        logger.notice("ManasMLX training completed", metadata: [
+            "finalLoss": .string(String(format: "%.6f", losses.last ?? 0)),
+            "epochs": .string("\(epochs)")
+        ])
+
         return TrainingResult(finalLoss: Double(losses.last ?? 0), epochs: epochs)
+    }
+
+    public func saveModel(to directory: URL, manifest: ManasMLXModelManifest) throws {
+        guard let coreModel else {
+            throw NSError(domain: "kuyu.manas", code: 10, userInfo: [NSLocalizedDescriptionKey: "Core model not initialized"])
+        }
+
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let manifestURL = directory.appendingPathComponent("model.json")
+        try encoder.encode(manifest).write(to: manifestURL)
+
+        let coreArrays = Dictionary(uniqueKeysWithValues: coreModel.parameters().flattened())
+        let coreURL = directory.appendingPathComponent("core.safetensors")
+        try MLX.save(arrays: coreArrays, url: coreURL)
+
+        if let reflexModel, manifest.reflexConfig != nil {
+            let reflexArrays = Dictionary(uniqueKeysWithValues: reflexModel.parameters().flattened())
+            let reflexURL = directory.appendingPathComponent("reflex.safetensors")
+            try MLX.save(arrays: reflexArrays, url: reflexURL)
+        }
+    }
+
+    @discardableResult
+    public func loadModel(from directory: URL) throws -> ManasMLXModelManifest {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifestURL = directory.appendingPathComponent("model.json")
+        let data = try Data(contentsOf: manifestURL)
+        let manifest = try decoder.decode(ManasMLXModelManifest.self, from: data)
+
+        let coreURL = directory.appendingPathComponent("core.safetensors")
+        let core = ManasMLXCore(config: manifest.coreConfig)
+        let coreArrays = try MLX.loadArrays(url: coreURL)
+        let coreParameters = ModuleParameters.unflattened(coreArrays)
+        core.update(parameters: coreParameters)
+
+        coreModel = core
+        coreConfig = manifest.coreConfig
+
+        if let reflexConfig = manifest.reflexConfig {
+            let reflexURL = directory.appendingPathComponent("reflex.safetensors")
+            if FileManager.default.fileExists(atPath: reflexURL.path) {
+                let reflex = ManasMLXReflex(config: reflexConfig)
+                let reflexArrays = try MLX.loadArrays(url: reflexURL)
+                let reflexParameters = ModuleParameters.unflattened(reflexArrays)
+                reflex.update(parameters: reflexParameters)
+                reflexModel = reflex
+                self.reflexConfig = reflexConfig
+            }
+        }
+
+        return manifest
     }
 
     private func prepareCore(inputSize: Int, driveCount: Int, auxEnabled: Bool) -> ManasMLXCore {
@@ -235,8 +639,7 @@ public final class ManasMLXModelStore {
     private func buildTrainingPipeline(useQualityGating: Bool) -> ManasTrunkPipeline {
         let bundle = Imu6NerveBundle(configuration: .init(
             gyroRange: -20...20,
-            accelRange: -20...20,
-            qualityFloor: 0.2
+            accelRange: -20...20
         ))
         let gate: any Gating = useQualityGating
             ? QualityGating(configuration: .init(minGate: 0.2, maxGate: 1.0))

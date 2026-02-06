@@ -1,10 +1,10 @@
 import SwiftUI
 
-struct TimelineSliderView: View {
+public struct TimelineSliderView: View {
     @Binding var time: Double
     let range: ClosedRange<Double>
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Timeline")

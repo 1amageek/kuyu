@@ -1,8 +1,9 @@
 import Foundation
 import KuyuCore
 import KuyuMLX
+import KuyuProfiles
 
-struct TrainingLoopConfig: Sendable, Equatable {
+public struct TrainingLoopConfig: Sendable, Equatable {
     var maxIterations: Int
     var evaluationInterval: Int
     var stopOnPass: Bool
@@ -10,13 +11,17 @@ struct TrainingLoopConfig: Sendable, Equatable {
     var minDelta: Double
     var maxConsecutiveFailures: Int
     var allowAutoBackoff: Bool
+    var enableDatasetExport: Bool
+    var enableTraining: Bool
 }
 
-enum TrainingLoopEvent: Sendable, Equatable {
+public enum TrainingLoopEvent: Sendable, Equatable {
     case started
     case iterationStarted(Int)
     case runStarted(iteration: Int)
     case runCompleted(iteration: Int, output: KuyAtt1RunOutput, score: Double)
+    case teacherRunStarted(iteration: Int, hoverThrustScale: Double)
+    case teacherRunCompleted(iteration: Int, output: KuyAtt1RunOutput)
     case datasetExportStarted(iteration: Int, path: String)
     case datasetExportCompleted(iteration: Int, count: Int)
     case trainingStarted(iteration: Int, path: String, epochs: Int, learningRate: Double)
@@ -29,7 +34,7 @@ enum TrainingLoopEvent: Sendable, Equatable {
     case failed(message: String)
 }
 
-struct TrainingLoopSummary: Sendable, Equatable {
+public struct TrainingLoopSummary: Sendable, Equatable {
     let iterations: Int
     let bestScore: Double
     let lastScore: Double
@@ -38,7 +43,7 @@ struct TrainingLoopSummary: Sendable, Equatable {
 }
 
 @MainActor
-final class TrainingLoopController {
+public final class TrainingLoopController {
     private let lock = NSLock()
     private let runnerService: SimulationRunnerService
     private let trainingService: TrainingService
@@ -47,8 +52,18 @@ final class TrainingLoopController {
     private var loopControl = SimulationControl()
     private var currentSimulationControl: SimulationControl?
     private var task: Task<Void, Never>?
+    private var telemetry: ((WorldStepLog) -> Void)?
 
-    init(
+    private func explorationHoverThrustScale(iteration: Int) -> Double {
+        let schedule: [Double] = [0.7, 1.3, 0.85, 1.15, 0.95, 1.05, 1.0]
+        if iteration <= schedule.count {
+            return schedule[max(iteration - 1, 0)]
+        }
+        let amplitude = max(0.02, 0.1 * pow(0.7, Double(iteration - schedule.count)))
+        return 1.0 + (iteration % 2 == 0 ? -amplitude : amplitude)
+    }
+
+    public init(
         modelStore: ManasMLXModelStore,
         runnerService: SimulationRunnerService? = nil,
         trainingService: TrainingService? = nil,
@@ -59,7 +74,11 @@ final class TrainingLoopController {
         self.datasetExporter = datasetExporter
     }
 
-    func start(
+    public func setTelemetry(_ handler: ((WorldStepLog) -> Void)?) {
+        telemetry = handler
+    }
+
+    public func start(
         config: TrainingLoopConfig,
         runRequest: SimulationRunRequest,
         trainingTemplate: TrainingRequest,
@@ -88,7 +107,7 @@ final class TrainingLoopController {
         _ = control
     }
 
-    func pause() async {
+    public func pause() async {
         let (loop, current) = withLock { (loopControl, currentSimulationControl) }
         await loop.requestPause()
         if let current {
@@ -96,7 +115,7 @@ final class TrainingLoopController {
         }
     }
 
-    func resume() async {
+    public func resume() async {
         let (loop, current) = withLock { (loopControl, currentSimulationControl) }
         await loop.requestResume()
         if let current {
@@ -104,7 +123,7 @@ final class TrainingLoopController {
         }
     }
 
-    func stop() async {
+    public func stop() async {
         let (loop, current) = withLock { (loopControl, currentSimulationControl) }
         await loop.requestStop()
         if let current {
@@ -144,7 +163,11 @@ final class TrainingLoopController {
             let output: KuyAtt1RunOutput
             do {
                 onEvent(.runStarted(iteration: iteration))
-                output = try await runnerService.run(request: runRequest, control: simControl)
+                output = try await runnerService.run(
+                    request: runRequest,
+                    control: simControl,
+                    telemetry: telemetry
+                )
             } catch {
                 withLock { currentSimulationControl = nil }
                 consecutiveFailures += 1
@@ -168,6 +191,7 @@ final class TrainingLoopController {
             let score = score(from: output.summary)
             lastScore = score
             onEvent(.runCompleted(iteration: iteration, output: output, score: score))
+            await Task.yield()
 
             let shouldEvaluate = config.evaluationInterval > 0 ? (iteration % config.evaluationInterval == 0) : true
             if shouldEvaluate {
@@ -201,65 +225,118 @@ final class TrainingLoopController {
                 }
             }
 
-            let iterationDir = datasetRoot.appendingPathComponent("iter-\(iteration)", isDirectory: true)
-            do {
-                onEvent(.datasetExportStarted(iteration: iteration, path: iterationDir.path))
-                let outputs = try datasetExporter.write(output: output, to: iterationDir)
-                onEvent(.datasetExportCompleted(iteration: iteration, count: outputs.count))
-            } catch {
-                failures.append("iteration \(iteration) dataset export failed: \(error)")
-                onEvent(.failed(message: "Dataset export failed: \(error)"))
-                consecutiveFailures += 1
-                if consecutiveFailures >= config.maxConsecutiveFailures {
-                    onEvent(.completed(summary: TrainingLoopSummary(
-                        iterations: iteration,
-                        bestScore: bestScore,
-                        lastScore: lastScore,
-                        passed: false,
-                        failures: failures
-                    )))
-                    return
+            let useTeacher = runRequest.taskMode == .singleLift && (config.enableDatasetExport || config.enableTraining)
+            var datasetOutput = output
+            if useTeacher {
+                do {
+                    try await control.checkpoint()
+                    let hoverScale = explorationHoverThrustScale(iteration: iteration)
+                    onEvent(.teacherRunStarted(iteration: iteration, hoverThrustScale: hoverScale))
+                    let teacherGains = try ImuRateDampingCutGains(
+                        kp: runRequest.gains.kp,
+                        kd: runRequest.gains.kd,
+                        yawDamping: runRequest.gains.yawDamping,
+                        hoverThrustScale: hoverScale
+                    )
+                    let teacherRequest = SimulationRunRequest(
+                        controller: .baseline,
+                        taskMode: runRequest.taskMode,
+                        gains: teacherGains,
+                        cutPeriodSteps: runRequest.cutPeriodSteps,
+                        noise: runRequest.noise,
+                        determinism: runRequest.determinism,
+                        modelDescriptorPath: runRequest.modelDescriptorPath,
+                        overrideParameters: runRequest.overrideParameters,
+                        useAux: runRequest.useAux,
+                        useQualityGating: runRequest.useQualityGating
+                    )
+                    datasetOutput = try await runnerService.run(
+                        request: teacherRequest,
+                        control: SimulationControl(),
+                        telemetry: telemetry
+                    )
+                    onEvent(.teacherRunCompleted(iteration: iteration, output: datasetOutput))
+                } catch {
+                    failures.append("iteration \(iteration) teacher run failed: \(error)")
+                    onEvent(.failed(message: "Teacher run failed: \(error)"))
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= config.maxConsecutiveFailures {
+                        onEvent(.completed(summary: TrainingLoopSummary(
+                            iterations: iteration,
+                            bestScore: bestScore,
+                            lastScore: lastScore,
+                            passed: false,
+                            failures: failures
+                        )))
+                        return
+                    }
+                    continue
                 }
-                continue
             }
 
-            do {
-                var trainingRequest = trainingTemplate
-                trainingRequest = TrainingRequest(
-                    datasetURL: iterationDir,
-                    sequenceLength: trainingTemplate.sequenceLength,
-                    epochs: trainingTemplate.epochs,
-                    learningRate: currentLearningRate,
-                    useAux: trainingTemplate.useAux,
-                    useQualityGating: trainingTemplate.useQualityGating
-                )
-                onEvent(.trainingStarted(
-                    iteration: iteration,
-                    path: iterationDir.path,
-                    epochs: trainingRequest.epochs,
-                    learningRate: trainingRequest.learningRate
-                ))
-                let result = try await trainingService.trainCore(request: trainingRequest)
-                onEvent(.trainingCompleted(iteration: iteration, result: result))
-
-                if config.allowAutoBackoff, let lastLoss, result.finalLoss > lastLoss {
-                    currentLearningRate = max(1e-6, currentLearningRate * 0.5)
-                    onEvent(.backoffApplied(newLearningRate: currentLearningRate))
+            let iterationDir = datasetRoot.appendingPathComponent("iter-\(iteration)", isDirectory: true)
+            if config.enableDatasetExport {
+                do {
+                    onEvent(.datasetExportStarted(iteration: iteration, path: iterationDir.path))
+                    let outputs = try datasetExporter.write(output: datasetOutput, to: iterationDir)
+                    onEvent(.datasetExportCompleted(iteration: iteration, count: outputs.count))
+                } catch {
+                    failures.append("iteration \(iteration) dataset export failed: \(error)")
+                    onEvent(.failed(message: "Dataset export failed: \(error)"))
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= config.maxConsecutiveFailures {
+                        onEvent(.completed(summary: TrainingLoopSummary(
+                            iterations: iteration,
+                            bestScore: bestScore,
+                            lastScore: lastScore,
+                            passed: false,
+                            failures: failures
+                        )))
+                        return
+                    }
+                    continue
                 }
-                lastLoss = result.finalLoss
-            } catch {
-                failures.append("iteration \(iteration) training failed: \(error)")
-                onEvent(.failed(message: "Training failed: \(error)"))
-                consecutiveFailures += 1
-                if consecutiveFailures >= config.maxConsecutiveFailures {
-                    onEvent(.completed(summary: TrainingLoopSummary(
-                        iterations: iteration,
-                        bestScore: bestScore,
-                        lastScore: lastScore,
-                        passed: false,
-                        failures: failures
-                    )))
-                    return
+            }
+
+            if config.enableTraining {
+                do {
+                    var trainingRequest = trainingTemplate
+                    trainingRequest = TrainingRequest(
+                        datasetURL: iterationDir,
+                        sequenceLength: trainingTemplate.sequenceLength,
+                        epochs: trainingTemplate.epochs,
+                        learningRate: currentLearningRate,
+                        useAux: trainingTemplate.useAux,
+                        useQualityGating: trainingTemplate.useQualityGating
+                    )
+                    onEvent(.trainingStarted(
+                        iteration: iteration,
+                        path: iterationDir.path,
+                        epochs: trainingRequest.epochs,
+                        learningRate: trainingRequest.learningRate
+                    ))
+                    let result = try await trainingService.trainCore(request: trainingRequest)
+                    onEvent(.trainingCompleted(iteration: iteration, result: result))
+
+                    if config.allowAutoBackoff, let lastLoss, result.finalLoss > lastLoss {
+                        currentLearningRate = max(1e-6, currentLearningRate * 0.5)
+                        onEvent(.backoffApplied(newLearningRate: currentLearningRate))
+                    }
+                    lastLoss = result.finalLoss
+                } catch {
+                    failures.append("iteration \(iteration) training failed: \(error)")
+                    onEvent(.failed(message: "Training failed: \(error)"))
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= config.maxConsecutiveFailures {
+                        onEvent(.completed(summary: TrainingLoopSummary(
+                            iterations: iteration,
+                            bestScore: bestScore,
+                            lastScore: lastScore,
+                            passed: false,
+                            failures: failures
+                        )))
+                        return
+                    }
                 }
             }
         }

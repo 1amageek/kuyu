@@ -1,8 +1,9 @@
 import Foundation
 import KuyuCore
 import KuyuMLX
+import KuyuProfiles
 
-enum KuyuCommand: Sendable {
+public enum KuyuCommand: Sendable {
     case runSuite(SimulationRunRequest)
     case pause
     case stop
@@ -11,7 +12,7 @@ enum KuyuCommand: Sendable {
     case trainCore(TrainingRequest)
 }
 
-enum KuyuCommandResult: Sendable {
+public enum KuyuCommandResult: Sendable {
     case runCompleted(KuyAtt1RunOutput)
     case runPaused
     case runStopped
@@ -21,7 +22,7 @@ enum KuyuCommandResult: Sendable {
 }
 
 @MainActor
-final class CommandSystem {
+public final class CommandSystem {
     private struct QueuedCommand {
         let command: KuyuCommand
         let continuation: CheckedContinuation<KuyuCommandResult, Error>
@@ -31,26 +32,37 @@ final class CommandSystem {
     private var queue: [QueuedCommand] = []
     private var isProcessing = false
     private var activeControl: SimulationControl?
+    private var telemetry: ((WorldStepLog) -> Void)?
 
-    private let runnerService: SimulationRunnerService
+    private let modelStore: ManasMLXModelStore
+    private var runnerService: SimulationRunnerService
     private let logWriter: KuyAtt1LogWriter
     private let datasetExporter: TrainingDatasetExporter
     private let trainingService: TrainingService
 
-    init(
+    public init(
         modelStore: ManasMLXModelStore,
         runnerService: SimulationRunnerService? = nil,
         logWriter: KuyAtt1LogWriter = KuyAtt1LogWriter(),
         datasetExporter: TrainingDatasetExporter = TrainingDatasetExporter(),
         trainingService: TrainingService? = nil
     ) {
+        self.modelStore = modelStore
         self.runnerService = runnerService ?? SimulationRunnerService(modelStore: modelStore)
         self.logWriter = logWriter
         self.datasetExporter = datasetExporter
         self.trainingService = trainingService ?? TrainingService(modelStore: modelStore)
     }
 
-    func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {
+    public func setTelemetry(_ handler: ((WorldStepLog) -> Void)?) {
+        telemetry = handler
+    }
+
+    public func setManualActuatorStore(_ store: ManualActuatorStore?) {
+        runnerService = SimulationRunnerService(modelStore: modelStore, manualActuatorStore: store)
+    }
+
+    public func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {
         switch command {
         case .pause:
             let control = withLock { activeControl }
@@ -106,7 +118,7 @@ final class CommandSystem {
             let control = SimulationControl()
             withLock { activeControl = control }
             defer { withLock { activeControl = nil } }
-            let output = try await runSuite(request: request, control: control)
+            let output = try await runSuite(request: request, control: control, telemetry: telemetry)
             return .runCompleted(output)
         case .pause:
             let control = withLock { activeControl }
@@ -134,9 +146,10 @@ final class CommandSystem {
 
     private func runSuite(
         request: SimulationRunRequest,
-        control: SimulationControl
+        control: SimulationControl,
+        telemetry: ((WorldStepLog) -> Void)?
     ) async throws -> KuyAtt1RunOutput {
-        try await runnerService.run(request: request, control: control)
+        try await runnerService.run(request: request, control: control, telemetry: telemetry)
     }
 
     @discardableResult

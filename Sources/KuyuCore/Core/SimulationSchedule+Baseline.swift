@@ -4,7 +4,7 @@ public extension SimulationSchedule {
             sensor: SubsystemSchedule(periodSteps: 1),
             actuator: SubsystemSchedule(periodSteps: 1),
             cut: SubsystemSchedule(periodSteps: cutPeriodSteps),
-            externalDal: SubsystemSchedule(periodSteps: cutPeriodSteps)
+            motorNerve: SubsystemSchedule(periodSteps: cutPeriodSteps)
         )
     }
 }

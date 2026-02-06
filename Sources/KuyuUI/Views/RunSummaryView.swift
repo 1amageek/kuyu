@@ -1,10 +1,10 @@
 import Foundation
 import SwiftUI
 
-struct RunSummaryView: View {
+public struct RunSummaryView: View {
     let run: RunRecord
 
-    var body: some View {
+    public var body: some View {
         let determinism = run.scenarios.first?.log.determinism.tier.rawValue.uppercased() ?? "N/A"
         let aggregate = run.output.summary.aggregate
         let recoveryText = aggregate.averageRecoveryTime.map { String(format: "%.2fs", $0) } ?? "n/a"

@@ -1,9 +1,8 @@
 import Foundation
 import Logging
 import KuyuCore
-import KuyuMLX
-
-enum KuyuUIPreviewFactory {
+import KuyuProfiles
+public enum KuyuUIPreviewFactory {
     private static func placeholderOutput() -> KuyAtt1RunOutput {
         let scenarioId = try! ScenarioID("PREVIEW-SCN")
         let seed = ScenarioSeed(1)
@@ -59,34 +58,16 @@ enum KuyuUIPreviewFactory {
     }
 
     @MainActor
-    static func model() -> SimulationViewModel {
+    public static func model() -> SimulationViewModel {
         let store = UILogStore(buffer: UILogBuffer())
         let model = SimulationViewModel(logStore: store)
         let output = placeholderOutput()
         model.insertRun(runRecord(output: output))
         for entry in logEntries(output: output) { store.emit(entry) }
-
-        let request = placeholderRequest()
-        Task {
-            let service = SimulationRunnerService(modelStore: ManasMLXModelStore())
-            do {
-                let output = try await service.run(request: request)
-                model.insertRun(runRecord(output: output))
-                for entry in logEntries(output: output) { store.emit(entry) }
-            } catch {
-                store.emit(UILogEntry(
-                    timestamp: Date(),
-                    level: .error,
-                    label: "kuyu.ui",
-                    message: "Preview run failed",
-                    metadata: ["error": "\(error)"]
-                ))
-            }
-        }
         return model
     }
 
-    static func runRecord(output: KuyAtt1RunOutput) -> RunRecord {
+    public static func runRecord(output: KuyAtt1RunOutput) -> RunRecord {
         let evaluationsByKey = Dictionary(
             uniqueKeysWithValues: output.result.evaluations.map {
                 (ScenarioKey(scenarioId: $0.scenarioId, seed: $0.seed), $0)
@@ -112,15 +93,15 @@ enum KuyuUIPreviewFactory {
         return RunRecord(output: output, scenarios: scenarios)
     }
 
-    static func runRecord() -> RunRecord {
+    public static func runRecord() -> RunRecord {
         runRecord(output: placeholderOutput())
     }
 
-    static func scenario() -> ScenarioRunRecord {
+    public static func scenario() -> ScenarioRunRecord {
         runRecord().scenarios.first!
     }
 
-    static func logEntries(output: KuyAtt1RunOutput) -> [UILogEntry] {
+    public static func logEntries(output: KuyAtt1RunOutput) -> [UILogEntry] {
         let tier = output.logs.first?.log.determinism.tier.rawValue ?? "unknown"
         return [
             UILogEntry(
@@ -140,7 +121,7 @@ enum KuyuUIPreviewFactory {
         ]
     }
 
-    static func samples() -> [MetricSample] {
+    public static func samples() -> [MetricSample] {
         scenario().metrics.tiltDegrees
     }
 }

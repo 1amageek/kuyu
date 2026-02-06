@@ -1,10 +1,12 @@
 import RealityKit
 import SwiftUI
+import KuyuCore
 
-struct WorldRealityView: View {
+public struct WorldRealityView: View {
     let roll: Double
     let pitch: Double
     let yaw: Double
+    let position: Axis3
     let label: String
     let renderInfo: RenderAssetInfo?
 
@@ -12,6 +14,7 @@ struct WorldRealityView: View {
     @State private var proxyEntity: Entity?
     @State private var loadedEntity: Entity?
     @State private var loadedURL: URL?
+    @State private var loadFailed = false
     @State private var cameraEntity: PerspectiveCamera?
     @State private var cameraYaw: Float = 0.6
     @State private var cameraPitch: Float = 1.1
@@ -24,8 +27,9 @@ struct WorldRealityView: View {
     private static let defaultCameraPitch: Float = 1.1
     private static let defaultCameraDistance: Float = 3.2
     private static let defaultCameraTarget = SIMD3<Float>(0, 0.15, 0)
+    private static let baseHeight: Float = 0.18
 
-    var body: some View {
+    public var body: some View {
         RealityView { content in
             let world = makeWorld()
             content.add(world)
@@ -35,7 +39,7 @@ struct WorldRealityView: View {
             root.addChild(makeBody())
             let proxy = makeProxy()
             root.addChild(proxy)
-            root.position = [0, 0.18, 0]
+            root.position = realityPosition()
 
             content.add(root)
             rootEntity = root
@@ -58,22 +62,17 @@ struct WorldRealityView: View {
         } update: { _ in
             guard let rootEntity else { return }
             rootEntity.transform.rotation = rotationQuaternion()
+            rootEntity.position = realityPosition()
             updateCamera()
         }
         .onChange(of: renderInfo?.url) { _, _ in
-            guard let info = renderInfo else { return }
+            guard let info = renderInfo, !loadFailed else { return }
             loadRenderAssetIfNeeded(info: info)
         }
         .onAppear {
-            if let info = renderInfo { loadRenderAssetIfNeeded(info: info) }
+            if let info = renderInfo, !loadFailed { loadRenderAssetIfNeeded(info: info) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(KuyuUITheme.panelBackground.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(KuyuUITheme.panelHighlight, lineWidth: 1)
-        )
         .overlay {
             Color.clear
                 .contentShape(Rectangle())
@@ -145,6 +144,13 @@ struct WorldRealityView: View {
         let z = cameraTarget.z + cameraDistance * cos(cameraPitch) * cos(cameraYaw)
         cameraEntity.position = [x, y, z]
         cameraEntity.look(at: cameraTarget, from: cameraEntity.position, relativeTo: nil)
+    }
+
+    private func realityPosition() -> SIMD3<Float> {
+        let x = Float(position.x)
+        let y = Float(position.z) + Self.baseHeight
+        let z = Float(position.y)
+        return [x, y, z]
     }
 
     private func resetCamera() {
@@ -309,7 +315,9 @@ struct WorldRealityView: View {
                     rootEntity?.addChild(entity)
                 }
             } catch {
-                // Keep proxy if load fails.
+                await MainActor.run {
+                    loadFailed = true
+                }
             }
         }
     }
@@ -324,8 +332,15 @@ struct WorldRealityView: View {
 }
 
 #Preview {
-    WorldRealityView(roll: 0.1, pitch: -0.2, yaw: 0.3, label: "Robot proxy", renderInfo: nil)
-        .frame(width: 320, height: 240)
-        .padding()
-        .background(KuyuUITheme.background)
+    WorldRealityView(
+        roll: 0.1,
+        pitch: -0.2,
+        yaw: 0.3,
+        position: Axis3(x: 0, y: 0, z: 0),
+        label: "Robot proxy",
+        renderInfo: nil
+    )
+    .frame(width: 320, height: 240)
+    .padding()
+    .background(KuyuUITheme.background)
 }

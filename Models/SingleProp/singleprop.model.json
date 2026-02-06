@@ -1,0 +1,232 @@
+{
+  "robot": {
+    "robotID": "singleprop-v0",
+    "name": "Single Prop Reference",
+    "category": "aerial",
+    "tags": [
+      "reference"
+    ]
+  },
+  "physics": {
+    "model": {
+      "format": "urdf",
+      "path": "../QuadRef/quadref.urdf"
+    },
+    "engine": {
+      "id": "singleprop",
+      "parameters": {}
+    }
+  },
+  "render": {
+    "assets": [
+      {
+        "id": "body",
+        "name": "Body",
+        "format": "glb",
+        "path": "../QuadRef/quadref.glb",
+        "frame": "base_link",
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    ]
+  },
+  "signals": {
+    "sensor": [
+      {
+        "id": "imu_gyro_x",
+        "index": 0,
+        "name": "Gyro X",
+        "units": "rad/s",
+        "rateHz": 1000,
+        "group": "imu/gyro"
+      },
+      {
+        "id": "imu_gyro_y",
+        "index": 1,
+        "name": "Gyro Y",
+        "units": "rad/s",
+        "rateHz": 1000,
+        "group": "imu/gyro"
+      },
+      {
+        "id": "imu_gyro_z",
+        "index": 2,
+        "name": "Gyro Z",
+        "units": "rad/s",
+        "rateHz": 1000,
+        "group": "imu/gyro"
+      },
+      {
+        "id": "imu_accel_x",
+        "index": 3,
+        "name": "Accel X",
+        "units": "m/s^2",
+        "rateHz": 1000,
+        "group": "imu/accel"
+      },
+      {
+        "id": "imu_accel_y",
+        "index": 4,
+        "name": "Accel Y",
+        "units": "m/s^2",
+        "rateHz": 1000,
+        "group": "imu/accel"
+      },
+      {
+        "id": "imu_accel_z",
+        "index": 5,
+        "name": "Accel Z",
+        "units": "m/s^2",
+        "rateHz": 1000,
+        "group": "imu/accel"
+      }
+    ],
+    "actuator": [
+      {
+        "id": "motor1",
+        "index": 0,
+        "name": "Motor 1",
+        "units": "N",
+        "range": [
+          0,
+          12
+        ],
+        "group": "motors"
+      }
+    ],
+    "drive": [
+      {
+        "id": "drive0",
+        "index": 0,
+        "name": "Drive 0",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "drive"
+      }
+    ],
+    "reflex": [
+      {
+        "id": "reflex0",
+        "index": 0,
+        "name": "Reflex 0",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "reflex"
+      }
+    ]
+  },
+  "sensors": [
+    {
+      "id": "imu6",
+      "type": "imu6",
+      "frame": "base_link",
+      "channels": [
+        "imu_gyro_x",
+        "imu_gyro_y",
+        "imu_gyro_z",
+        "imu_accel_x",
+        "imu_accel_y",
+        "imu_accel_z"
+      ],
+      "rateHz": 1000,
+      "latencyMs": 0,
+      "noise": {
+        "bias": 0,
+        "std": 0,
+        "randomWalkStd": 0
+      },
+      "dropout": {
+        "prob": 0,
+        "burstMs": 0
+      },
+      "swapProfile": {
+        "gainRange": [
+          1,
+          1
+        ],
+        "biasRange": [
+          0,
+          0
+        ],
+        "delayMsRange": [
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "actuators": [
+    {
+      "id": "motor_set",
+      "type": "single-motor",
+      "frame": "base_link",
+      "channels": [
+        "motor1"
+      ],
+      "limits": {
+        "min": 0,
+        "max": 12,
+        "rateLimit": 100
+      },
+      "dynamics": {
+        "timeConstant": 0.03,
+        "deadzone": 0
+      },
+      "swapProfile": {
+        "gainRange": [
+          0.8,
+          1.2
+        ],
+        "maxRange": [
+          0.7,
+          1.1
+        ],
+        "lagMsRange": [
+          0,
+          20
+        ]
+      }
+    }
+  ],
+  "control": {
+    "driveChannels": [
+      "drive0"
+    ],
+    "reflexChannels": [
+      "reflex0"
+    ],
+    "constraints": {
+      "driveClamp": [
+        0,
+        1
+      ],
+      "reflexClamp": [
+        -1,
+        1
+      ]
+    }
+  },
+  "motorNerve": {
+    "stages": [
+      {
+        "id": "stage-0",
+        "type": "direct",
+        "inputs": [
+          "drive0"
+        ],
+        "outputs": [
+          "motor1"
+        ]
+      }
+    ]
+  }
+}

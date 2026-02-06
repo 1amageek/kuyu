@@ -1,7 +1,7 @@
 import Logging
 
-enum UILoggingBootstrap {
-    static let buffer: UILogBuffer = {
+public enum UILoggingBootstrap {
+    public static let buffer: UILogBuffer = {
         let buffer = UILogBuffer()
         LoggingSystem.bootstrap { label in
             UILogHandler(label: label, buffer: buffer)

@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import KuyuCore
 import KuyuMLX
+import KuyuProfiles
 
 @main
 struct KuyuCLI: AsyncParsableCommand {
@@ -70,6 +71,7 @@ struct Run: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = loadParameters(modelPath: model)
+        let descriptor = loadDescriptor(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -105,6 +107,7 @@ struct Run: AsyncParsableCommand {
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
+                descriptor: descriptor,
                 control: nil
             )
         }
@@ -182,6 +185,7 @@ struct Loop: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = loadParameters(modelPath: model)
+        let descriptor = loadDescriptor(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -218,6 +222,7 @@ struct Loop: AsyncParsableCommand {
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
+                descriptor: descriptor,
                 control: nil
             )
             let score = score(from: output.summary)
@@ -230,7 +235,7 @@ struct Loop: AsyncParsableCommand {
             let outputs = try exporter.write(output: output, to: iterDir)
             print("[loop] iter=\(iteration) dataset exported count=\(outputs.count) path=\(iterDir.path)")
 
-            let trainResult = try store.trainCore(
+            let trainResult = try await store.trainCore(
                 datasetURL: iterDir,
                 sequenceLength: sequenceLength,
                 learningRate: learningRate,
@@ -259,15 +264,31 @@ private func makeDeterminism(tier: TierChoice) throws -> DeterminismConfig {
     }
 }
 
-private func loadParameters(modelPath: String) -> QuadrotorParameters {
+private func loadParameters(modelPath: String) -> ReferenceQuadrotorParameters {
     let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return .baseline }
     do {
-        let loader = RobotModelLoader()
+        let loader = RobotDescriptorLoader()
         let descriptor = try loader.loadDescriptor(path: trimmed)
-        return try loader.loadQuadrotorParameters(descriptor: descriptor)
+        let inertial = try loader.loadPlantInertialProperties(descriptor: descriptor)
+        return try ReferenceQuadrotorParameters.reference(
+            from: inertial,
+            robotID: descriptor.descriptor.robot.robotID
+        )
     } catch {
         return .baseline
+    }
+}
+
+private func loadDescriptor(modelPath: String) -> RobotDescriptor? {
+    let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    do {
+        let loader = RobotDescriptorLoader()
+        let descriptor = try loader.loadDescriptor(path: trimmed)
+        return descriptor.descriptor
+    } catch {
+        return nil
     }
 }
 

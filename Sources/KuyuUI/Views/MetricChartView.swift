@@ -1,16 +1,16 @@
 import Charts
 import SwiftUI
 
-struct MetricChartView: View {
+public struct MetricChartView: View {
     let title: String
     let unit: String
     let samples: [MetricSample]
     let lineColor: Color
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(KuyuUITheme.titleFont(size: 14))
+                .font(KuyuUITheme.titleFont(size: 12))
                 .foregroundStyle(KuyuUITheme.textPrimary)
             Chart(samples) { sample in
                 LineMark(
@@ -30,10 +30,10 @@ struct MetricChartView: View {
                 plot.background(KuyuUITheme.panelHighlight.opacity(0.15))
             }
             Text(unit)
-                .font(KuyuUITheme.bodyFont(size: 11))
+                .font(KuyuUITheme.bodyFont(size: 10))
                 .foregroundStyle(KuyuUITheme.textSecondary)
         }
-        .padding(12)
+        .padding(8)
         .background(KuyuUITheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(

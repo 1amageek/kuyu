@@ -6,12 +6,12 @@ public struct WorldStepLog: Sendable, Codable, Equatable {
     public let sensorSamples: [ChannelSample]
     public let driveIntents: [DriveIntent]
     public let reflexCorrections: [ReflexCorrection]
-    public let actuatorCommands: [ActuatorCommand]
-    public let motorThrusts: MotorThrusts
+    public let actuatorValues: [ActuatorValue]
+    public let actuatorTelemetry: ActuatorTelemetrySnapshot
+    public let motorNerveTrace: MotorNerveTrace?
     public let safetyTrace: SafetyTrace
-    public let stateSnapshot: QuadrotorStateSnapshot
-    public let disturbanceTorqueBody: Axis3
-    public let disturbanceForceWorld: Axis3
+    public let plantState: PlantStateSnapshot
+    public let disturbances: DisturbanceSnapshot
 
     public init(
         time: WorldTime,
@@ -19,23 +19,23 @@ public struct WorldStepLog: Sendable, Codable, Equatable {
         sensorSamples: [ChannelSample],
         driveIntents: [DriveIntent],
         reflexCorrections: [ReflexCorrection],
-        actuatorCommands: [ActuatorCommand],
-        motorThrusts: MotorThrusts,
+        actuatorValues: [ActuatorValue],
+        actuatorTelemetry: ActuatorTelemetrySnapshot,
+        motorNerveTrace: MotorNerveTrace? = nil,
         safetyTrace: SafetyTrace,
-        stateSnapshot: QuadrotorStateSnapshot,
-        disturbanceTorqueBody: Axis3,
-        disturbanceForceWorld: Axis3
+        plantState: PlantStateSnapshot,
+        disturbances: DisturbanceSnapshot
     ) {
         self.time = time
         self.events = events
         self.sensorSamples = sensorSamples
         self.driveIntents = driveIntents
         self.reflexCorrections = reflexCorrections
-        self.actuatorCommands = actuatorCommands
-        self.motorThrusts = motorThrusts
+        self.actuatorValues = actuatorValues
+        self.actuatorTelemetry = actuatorTelemetry
+        self.motorNerveTrace = motorNerveTrace
         self.safetyTrace = safetyTrace
-        self.stateSnapshot = stateSnapshot
-        self.disturbanceTorqueBody = disturbanceTorqueBody
-        self.disturbanceForceWorld = disturbanceForceWorld
+        self.plantState = plantState
+        self.disturbances = disturbances
     }
 }

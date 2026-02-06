@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import KuyuProfiles
 
 @testable import KuyuCore
 
@@ -12,15 +13,16 @@ private struct HoverCut: CutInterface {
 
     mutating func update(samples: [ChannelSample], time: WorldTime) throws -> CutOutput {
         let commands = try [
-            ActuatorCommand(index: ActuatorIndex(0), value: hoverThrust),
-            ActuatorCommand(index: ActuatorIndex(1), value: hoverThrust),
-            ActuatorCommand(index: ActuatorIndex(2), value: hoverThrust),
-            ActuatorCommand(index: ActuatorIndex(3), value: hoverThrust),
+            ActuatorValue(index: ActuatorIndex(0), value: hoverThrust),
+            ActuatorValue(index: ActuatorIndex(1), value: hoverThrust),
+            ActuatorValue(index: ActuatorIndex(2), value: hoverThrust),
+            ActuatorValue(index: ActuatorIndex(3), value: hoverThrust),
         ]
-        return .actuatorCommands(commands)
+        return .actuatorValues(commands)
     }
 }
 
+@MainActor
 @Test("World simulation benchmark")
 func worldSimulationBenchmark() async {
     do {
@@ -31,7 +33,7 @@ func worldSimulationBenchmark() async {
             cut: try SubsystemSchedule(periodSteps: 1)
         )
         let determinism = try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
-        let parameters = QuadrotorParameters.baseline
+        let parameters = ReferenceQuadrotorParameters.baseline
         let environment = try WorldEnvironment(
             gravity: parameters.gravity,
             windVelocityWorld: Axis3(x: 5.0, y: 0.0, z: 0.0),
@@ -39,7 +41,7 @@ func worldSimulationBenchmark() async {
             airTemperature: 288.15,
             usage: .full
         )
-        let runner = ScenarioRunner<HoverCut, UnusedExternalDAL>(
+        let runner = ReferenceQuadrotorScenarioRunner<HoverCut, UnusedMotorNerve>(
             parameters: parameters,
             schedule: schedule,
             determinism: determinism,
@@ -54,11 +56,15 @@ func worldSimulationBenchmark() async {
         let envelope = try SafetyEnvelope(
             omegaSafeMax: 20.0,
             tiltSafeMaxDegrees: 60.0,
-            sustainedViolationSeconds: 0.2
+            sustainedViolationSeconds: 0.2,
+            groundZ: 0.0,
+            fallDurationSeconds: 0.5,
+            fallVelocityThreshold: 0.0
         )
-        let scenario = ScenarioDefinition(
+        let scenario = ReferenceQuadrotorScenarioDefinition(
             config: config,
             kind: .hoverStart,
+            initialPosition: Axis3(x: 0, y: 0, z: 2.0),
             initialAttitude: EulerAngles.degrees(roll: 5, pitch: 0, yaw: 0),
             initialAngularVelocity: Axis3(x: 0, y: 0, z: 0),
             safetyEnvelope: envelope,

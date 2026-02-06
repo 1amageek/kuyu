@@ -1,10 +1,15 @@
 import SwiftUI
 
-struct NumberFieldView: View {
+public struct NumberFieldView: View {
     let label: String
     @Binding var value: Double
+    
+    public init(label: String, value: Binding<Double>) {
+        self.label = label
+        self._value = value
+    }
 
-    var body: some View {
+    public var body: some View {
         HStack {
             Text(label.uppercased())
                 .font(KuyuUITheme.monoFont(size: 10))

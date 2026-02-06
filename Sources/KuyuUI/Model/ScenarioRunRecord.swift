@@ -1,7 +1,8 @@
 import KuyuCore
+import KuyuProfiles
 
-struct ScenarioRunRecord: Identifiable {
-    let id: ScenarioKey
+public struct ScenarioRunRecord: Identifiable {
+    public let id: ScenarioKey
     let evaluation: ScenarioEvaluation
     let log: SimulationLog
     let metrics: ScenarioMetrics

@@ -1,9 +1,9 @@
 import SwiftUI
 
-struct ScenarioRowView: View {
+public struct ScenarioRowView: View {
     let scenario: ScenarioRunRecord
 
-    var body: some View {
+    public var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(scenario.id.scenarioId.rawValue)

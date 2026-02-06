@@ -1,10 +1,11 @@
 import SwiftUI
 import KuyuCore
+import KuyuProfiles
 
-struct ConfigPanelView: View {
+public struct ConfigPanelView: View {
     @Bindable var model: SimulationViewModel
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Configuration")
                 .font(KuyuUITheme.titleFont(size: 16))
@@ -57,13 +58,28 @@ struct ConfigPanelView: View {
             }
 
             GroupBox("Training Suite") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("KUY-ATT-1 (M1)")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
-                    Text("Attitude stabilization, swappability events, HF stress.")
-                        .font(KuyuUITheme.bodyFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Picker("Task", selection: $model.taskMode) {
+                        ForEach(SimulationTaskMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    switch model.taskMode {
+                    case .lift:
+                        Text("KUY-LIFT-1: Z-axis lift hold (quad, no attitude scoring).")
+                            .font(KuyuUITheme.bodyFont(size: 10))
+                            .foregroundStyle(KuyuUITheme.textSecondary)
+                    case .singleLift:
+                        Text("KUY-SLIFT-1: Single-prop takeoff from ground to 0.5m hover.")
+                            .font(KuyuUITheme.bodyFont(size: 10))
+                            .foregroundStyle(KuyuUITheme.textSecondary)
+                    case .attitude:
+                        Text("KUY-ATT-1 (M1): Attitude stabilization, swappability, HF stress.")
+                            .font(KuyuUITheme.bodyFont(size: 10))
+                            .foregroundStyle(KuyuUITheme.textSecondary)
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -72,12 +88,20 @@ struct ConfigPanelView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     TextField("Descriptor path", text: $model.modelDescriptorPath)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            model.emitUIAction(level: .info, message: "Descriptor path updated", action: "setDescriptorPath", metadata: [
+                                "path": model.modelDescriptorPath
+                            ])
+                        }
                     HStack(spacing: 8) {
                         Button("Use Bundled") {
                             if let path = KuyuUIModelPaths.bundledDescriptorPath() {
                                 model.setModelDescriptorPath(path, source: "bundled")
                             } else {
-                                model.emitTerminal(level: .warning, message: "Bundled model not found")
+                                model.emitUIAction(level: .warning, message: "Bundled model not found", action: "setDescriptorPath", metadata: [
+                                    "source": "bundled",
+                                    "reason": "notFound"
+                                ])
                             }
                         }
                         Button("Use Local") {
@@ -86,131 +110,36 @@ struct ConfigPanelView: View {
                             } else if let source = KuyuUIModelPaths.sourceRootDescriptorPath() {
                                 model.setModelDescriptorPath(source, source: "source")
                             } else {
-                                model.emitTerminal(level: .warning, message: "Local model not found")
+                                model.emitUIAction(level: .warning, message: "Local model not found", action: "setDescriptorPath", metadata: [
+                                    "source": "local",
+                                    "reason": "notFound"
+                                ])
                             }
                         }
                     }
                     .font(KuyuUITheme.bodyFont(size: 11))
-                    Text("URDF/SDF descriptor (e.g. Models/QuadRef/quadref.model.json)")
+                    Toggle("Render asset", isOn: $model.useRenderAssets)
+                    Text("RobotDescriptor (e.g. Models/Robot/robot.robot.json)")
                         .font(KuyuUITheme.bodyFont(size: 10))
                         .foregroundStyle(KuyuUITheme.textSecondary)
                 }
                 .padding(.top, 6)
             }
 
-            GroupBox("UI Profile") {
-                Picker("Robot profile", selection: $model.robotProfileSelection) {
-                    ForEach(RobotProfileSelection.allCases) { profile in
-                        Text(profile.rawValue).tag(profile)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
-            GroupBox("Training Dataset") {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Dataset output directory", text: $model.trainingDatasetDirectory)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Export Training Dataset") {
-                        model.exportTrainingDataset()
-                    }
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .disabled(model.selectedRun == nil)
-                    Text("Exports per-scenario datasets (meta.json + records.jsonl).")
-                        .font(KuyuUITheme.bodyFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
-                }
-                .padding(.top, 6)
-            }
-
-            GroupBox("Training (MLX)") {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Training dataset directory", text: $model.trainingInputDirectory)
-                        .textFieldStyle(.roundedBorder)
-                    HStack(spacing: 10) {
-                        Stepper(value: $model.trainingSequenceLength, in: 4...64) {
-                            Text("Sequence: \(model.trainingSequenceLength)")
-                                .font(KuyuUITheme.bodyFont(size: 11))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
-                        }
-                        Stepper(value: $model.trainingEpochs, in: 1...50) {
-                            Text("Epochs: \(model.trainingEpochs)")
-                                .font(KuyuUITheme.bodyFont(size: 11))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
-                        }
-                    }
-                    NumberFieldView(label: "lr", value: $model.trainingLearningRate)
-                    Toggle("Use aux loss", isOn: $model.trainingUseAux)
-                    Toggle("Quality gating", isOn: $model.trainingUseQualityGating)
-
-                    HStack(spacing: 8) {
-                        Button(model.isTraining ? "Training…" : "Train Core") {
-                            model.trainCoreModel()
-                        }
-                        .disabled(model.isTraining)
-
-                        if let loss = model.lastTrainingLoss {
-                            Text("loss \(String(format: "%.6f", loss))")
-                                .font(KuyuUITheme.monoFont(size: 10))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
-                        }
-                    }
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                }
-                .padding(.top, 6)
-            }
-
-            GroupBox("Training Loop") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Stepper(value: $model.loopMaxIterations, in: 1...200) {
-                        Text("Iterations: \(model.loopMaxIterations)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
-                    }
-                    Stepper(value: $model.loopEvaluationInterval, in: 1...20) {
-                        Text("Eval interval: \(model.loopEvaluationInterval)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
-                    }
-                    Stepper(value: $model.loopPatience, in: 0...20) {
-                        Text("Patience: \(model.loopPatience)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
-                    }
-                    Stepper(value: $model.loopMaxFailures, in: 1...10) {
-                        Text("Max failures: \(model.loopMaxFailures)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
-                    }
-                    NumberFieldView(label: "minΔ", value: $model.loopMinDelta)
-                    Toggle("Stop on pass", isOn: $model.loopStopOnPass)
-                    Toggle("Auto backoff", isOn: $model.loopAllowAutoBackoff)
-
-                    HStack(spacing: 8) {
-                        Button("Start Loop") { model.startTrainingLoop() }
-                            .disabled(model.isLoopRunning || model.isRunning)
-                        Button(model.isLoopPaused ? "Resume" : "Pause") {
-                            model.isLoopPaused ? model.resumeTrainingLoop() : model.pauseTrainingLoop()
-                        }
-                        .disabled(!model.isLoopRunning)
-                        Button("Stop") { model.stopTrainingLoop() }
-                            .disabled(!model.isLoopRunning)
-                    }
-                    .font(KuyuUITheme.bodyFont(size: 11))
-
-                    if model.isLoopRunning || model.loopIteration > 0 {
-                        HStack(spacing: 12) {
-                            Text("Iter \(model.loopIteration)")
-                            if let best = model.loopBestScore {
-                                Text("Best \(String(format: "%.3f", best))")
-                            }
-                            if let last = model.loopLastScore {
-                                Text("Last \(String(format: "%.3f", last))")
-                            }
-                        }
-                        .font(KuyuUITheme.monoFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
-                        Text(model.loopStatusMessage)
+            GroupBox("Descriptor Summary") {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let descriptor = model.currentDescriptor() {
+                        SummaryLine(label: "robotID", value: descriptor.robot.robotID)
+                        SummaryLine(label: "name", value: descriptor.robot.name)
+                        SummaryLine(label: "category", value: descriptor.robot.category)
+                        SummaryLine(label: "engine", value: descriptor.physics.engine.id)
+                        SummaryLine(label: "motorNerve stages", value: "\(descriptor.motorNerve.stages.count)")
+                    } else if let error = model.currentDescriptorError() {
+                        Text("Descriptor error: \(error)")
+                            .font(KuyuUITheme.bodyFont(size: 10))
+                            .foregroundStyle(KuyuUITheme.warning)
+                    } else {
+                        Text("Descriptor not loaded")
                             .font(KuyuUITheme.bodyFont(size: 10))
                             .foregroundStyle(KuyuUITheme.textSecondary)
                     }
@@ -227,12 +156,20 @@ struct ConfigPanelView: View {
                             } else {
                                 model.refreshLogger()
                             }
+                            model.emitUIAction(level: .info, message: "Environment logging config toggled", action: "toggleEnvLogging", metadata: [
+                                "enabled": "\(enabled)"
+                            ])
                         }
 
                     TextField("Label", text: $model.logLabel)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: model.logLabel) { _, _ in
                             model.refreshLogger()
+                        }
+                        .onSubmit {
+                            model.emitUIAction(level: .info, message: "Log label updated", action: "setLogLabel", metadata: [
+                                "label": model.logLabel
+                            ])
                         }
 
                     Picker("Level", selection: $model.logLevel) {
@@ -241,25 +178,43 @@ struct ConfigPanelView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .onChange(of: model.logLevel) { _, _ in
+                    .onChange(of: model.logLevel) { _, level in
                         model.refreshLogger()
+                        model.emitUIAction(level: .info, message: "Log level updated", action: "setLogLevel", metadata: [
+                            "level": level.rawValue
+                        ])
                     }
 
                     TextField("Log directory", text: $model.logDirectory)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            model.emitUIAction(level: .info, message: "Log directory updated", action: "setLogDirectory", metadata: [
+                                "path": model.logDirectory
+                            ])
+                        }
                 }
                 .padding(.top, 6)
             }
         }
         .font(KuyuUITheme.bodyFont(size: 12))
         .foregroundStyle(KuyuUITheme.textPrimary)
-        .padding(12)
-        .background(KuyuUITheme.panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(KuyuUITheme.panelHighlight, lineWidth: 1)
-        )
+    }
+}
+
+private struct SummaryLine: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(KuyuUITheme.bodyFont(size: 10))
+                .foregroundStyle(KuyuUITheme.textSecondary)
+            Spacer()
+            Text(value)
+                .font(KuyuUITheme.monoFont(size: 10))
+                .foregroundStyle(KuyuUITheme.textPrimary)
+        }
     }
 }
 

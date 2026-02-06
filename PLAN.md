@@ -1,4 +1,4 @@
-# Kuyu Implementation Plan — v2.4
+# Kuyu Implementation Plan
 
 ## 目的
 Manasの学習と評価のため、swappability/HFストレスに強い訓練世界を実装する。
@@ -9,7 +9,7 @@ Manasの学習と評価のため、swappability/HFストレスに強い訓練世
 - Seedとログに完全反映
 
 ### 2) 訓練ループ
-- DriveIntent + Reflex corrections → DAL → Actuator の統合経路
+- DriveIntent + Reflex corrections → MotorNerve → Actuator values の統合経路
 - 監視指標（HF/回復/過渡/違反）をログ化
 
 ### 3) M1‑ATT スイート

@@ -2,11 +2,11 @@ import Foundation
 import SwiftUI
 import KuyuCore
 
-struct ScenarioDetailView: View {
+public struct ScenarioDetailView: View {
     @Bindable var model: SimulationViewModel
     @State private var cursorTime: Double = 0
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let scenario = model.selectedScenario {
                 let metrics = scenario.metrics
@@ -38,19 +38,29 @@ struct ScenarioDetailView: View {
                     StatBadgeView(passed: scenario.evaluation.passed)
                 }
 
-                let scene = model.sceneState(at: cursorTime)
-                let robot = scene?.robots.first
+                let scene = model.currentSceneState(at: cursorTime)
+                let robot = scene?.bodies.first
                 let angles = robot.map { eulerAngles(from: $0.orientation) } ?? (roll: 0, pitch: 0, yaw: 0)
+                let position = robot?.position ?? Axis3(x: 0, y: 0, z: 0)
                 let renderInfo = model.renderAssetInfo()
-                let profile = model.resolvedProfile(for: scenario)
-
-                gridLayout(
-                    columns: 2,
-                    profile: profile,
-                    angles: angles,
-                    metrics: metrics,
-                    renderInfo: renderInfo
-                )
+                HSplitView {
+                    WorldRealityView(
+                        roll: angles.roll,
+                        pitch: angles.pitch,
+                        yaw: angles.yaw,
+                        position: position,
+                        label: renderInfo?.name ?? "Robot proxy",
+                        renderInfo: renderInfo
+                    )
+                    ScrollView {
+                        gridLayout(
+                            columns: 1,
+                            angles: angles,
+                            metrics: metrics,
+                            renderInfo: renderInfo
+                        )
+                    }
+                }
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Scenario detail")
@@ -60,13 +70,9 @@ struct ScenarioDetailView: View {
                         .font(KuyuUITheme.bodyFont(size: 13))
                         .foregroundStyle(KuyuUITheme.textSecondary)
                 }
-                .padding(16)
-                .background(KuyuUITheme.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            Spacer()
         }
-        .padding(16)
+        .padding(16)        
         .onChange(of: model.selectedScenarioKey) { _, _ in
             if let range = model.selectedScenario?.metrics.timeRange {
                 cursorTime = range.lowerBound
@@ -102,40 +108,42 @@ struct ScenarioDetailView: View {
     @ViewBuilder
     private func gridLayout(
         columns: Int,
-        profile: RobotProfile,
         angles: (roll: Double, pitch: Double, yaw: Double),
         metrics: ScenarioMetrics,
         renderInfo: RenderAssetInfo?
     ) -> some View {
-        Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 8) {
-            ForEach(profile.rows.indices, id: \.self) { rowIndex in
-                let row = profile.rows[rowIndex]
-                if columns == 1 {
-                    ForEach(row.items) { item in
-                        GridRow {
-                            panelView(
-                                item: item,
-                                columns: columns,
-                                angles: angles,
-                                metrics: metrics,
-                                renderInfo: renderInfo
-                            )
-                        }
-                    }
-                } else {
-                    GridRow {
-                        ForEach(row.items) { item in
-                            panelView(
-                                item: item,
-                                columns: columns,
-                                angles: angles,
-                                metrics: metrics,
-                                renderInfo: renderInfo
-                            )
-                            .gridCellColumns(item.span)
-                        }
-                    }
-                }
+        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+            GridRow {
+                panelView(
+                    kind: .timeline,
+                    angles: angles,
+                    metrics: metrics,
+                    renderInfo: renderInfo
+                )
+                .gridCellColumns(columns)
+                .frame(minHeight: 70)
+            }
+            GridRow {
+                panelView(
+                    kind: .tilt,
+                    angles: angles,
+                    metrics: metrics,
+                    renderInfo: renderInfo
+                )
+                .gridCellColumns(columns)
+                .frame(minHeight: 220)
+            }
+            GridRow {
+                panelView(kind: .attitude, angles: angles, metrics: metrics, renderInfo: renderInfo)
+                    .frame(minHeight: 220)
+                panelView(kind: .omega, angles: angles, metrics: metrics, renderInfo: renderInfo)
+                    .frame(minHeight: 220)
+            }
+            GridRow {
+                panelView(kind: .speed, angles: angles, metrics: metrics, renderInfo: renderInfo)
+                    .frame(minHeight: 220)
+                panelView(kind: .altitude, angles: angles, metrics: metrics, renderInfo: renderInfo)
+                    .frame(minHeight: 220)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -143,23 +151,14 @@ struct ScenarioDetailView: View {
 
     @ViewBuilder
     private func panelView(
-        item: RobotPanelItem,
-        columns: Int,
+        kind: ScenarioPanelKind,
         angles: (roll: Double, pitch: Double, yaw: Double),
         metrics: ScenarioMetrics,
         renderInfo: RenderAssetInfo?
     ) -> some View {
-        switch item.kind {
+        switch kind {
         case .timeline:
             TimelineSliderView(time: $cursorTime, range: metrics.timeRange)
-        case .render:
-            WorldRealityView(
-                roll: angles.roll,
-                pitch: angles.pitch,
-                yaw: angles.yaw,
-                label: renderInfo?.name ?? "Robot proxy",
-                renderInfo: renderInfo
-            )
         case .attitude:
             AttitudeIndicatorView(roll: angles.roll, pitch: angles.pitch, yaw: angles.yaw)
         case .tilt:
@@ -192,6 +191,15 @@ struct ScenarioDetailView: View {
             )
         }
     }
+}
+
+private enum ScenarioPanelKind {
+    case timeline
+    case attitude
+    case tilt
+    case omega
+    case speed
+    case altitude
 }
 
 #Preview {

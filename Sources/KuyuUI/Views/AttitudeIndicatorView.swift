@@ -1,11 +1,17 @@
 import SwiftUI
 
-struct AttitudeIndicatorView: View {
+public struct AttitudeIndicatorView: View {
     let roll: Double
     let pitch: Double
     let yaw: Double
+    
+    public init(roll: Double, pitch: Double, yaw: Double) {
+        self.roll = roll
+        self.pitch = pitch
+        self.yaw = yaw
+    }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 8) {
             GeometryReader { proxy in
                 let size = min(proxy.size.width, proxy.size.height)

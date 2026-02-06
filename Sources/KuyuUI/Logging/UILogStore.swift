@@ -3,34 +3,39 @@ import Observation
 
 @Observable
 @MainActor
-final class UILogStore {
+public final class UILogStore {
     private(set) var entries: [UILogEntry] = []
     private let buffer: UILogBuffer
     private var streamTask: Task<Void, Never>?
+    private var entryObserver: ((UILogEntry) -> Void)?
 
-    init(buffer: UILogBuffer) {
+    public init(buffer: UILogBuffer) {
         self.buffer = buffer
         startStreaming()
     }
 
-    func clear() {
+    public func clear() {
         entries.removeAll()
         Task {
             await buffer.clear()
         }
     }
 
-    func append(_ entry: UILogEntry) {
+    public func append(_ entry: UILogEntry) {
         entries.append(entry)
         Task {
             await buffer.append(entry)
         }
     }
 
-    func emit(_ entry: UILogEntry) {
+    public func emit(_ entry: UILogEntry) {
         Task {
             await buffer.append(entry)
         }
+    }
+
+    public func setEntryObserver(_ observer: @escaping (UILogEntry) -> Void) {
+        entryObserver = observer
     }
 
     private func startStreaming() {
@@ -40,6 +45,7 @@ final class UILogStore {
             for await entry in stream {
                 await MainActor.run {
                     self.entries.append(entry)
+                    self.entryObserver?(entry)
                 }
             }
         }

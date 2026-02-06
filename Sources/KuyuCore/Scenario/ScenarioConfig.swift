@@ -26,4 +26,3 @@ public struct ScenarioConfig: Sendable, Codable, Equatable {
         self.timeStep = timeStep
     }
 }
-

@@ -15,6 +15,10 @@ let package = Package(
             targets: ["KuyuCore"]
         ),
         .library(
+            name: "KuyuProfiles",
+            targets: ["KuyuProfiles"]
+        ),
+        .library(
             name: "KuyuMLX",
             targets: ["KuyuMLX"]
         ),
@@ -44,9 +48,18 @@ let package = Package(
             ]
         ),
         .target(
+            name: "KuyuProfiles",
+            dependencies: [
+                "KuyuCore",
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Configuration", package: "swift-configuration"),
+            ]
+        ),
+        .target(
             name: "KuyuMLX",
             dependencies: [
                 "KuyuCore",
+                "KuyuProfiles",
                 .product(name: "ManasCore", package: "manas"),
                 .product(name: "ManasMLXModels", package: "manas"),
                 .product(name: "ManasMLXRuntime", package: "manas"),
@@ -57,6 +70,7 @@ let package = Package(
             name: "KuyuUI",
             dependencies: [
                 "KuyuCore",
+                "KuyuProfiles",
                 "KuyuMLX",
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Configuration", package: "swift-configuration"),
@@ -69,13 +83,14 @@ let package = Package(
             name: "KuyuCLI",
             dependencies: [
                 "KuyuCore",
+                "KuyuProfiles",
                 "KuyuMLX",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .testTarget(
             name: "kuyuTests",
-            dependencies: ["KuyuCore"]
+            dependencies: ["KuyuCore", "KuyuProfiles"]
         ),
     ]
 )
