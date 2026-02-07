@@ -3,7 +3,7 @@ import SwiftUI
 public struct NumberFieldView: View {
     let label: String
     @Binding var value: Double
-    
+
     public init(label: String, value: Binding<Double>) {
         self.label = label
         self._value = value
@@ -12,8 +12,8 @@ public struct NumberFieldView: View {
     public var body: some View {
         HStack {
             Text(label.uppercased())
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
                 .frame(width: 50, alignment: .leading)
             TextField(label, value: $value, format: .number.precision(.fractionLength(2)))
                 .textFieldStyle(.roundedBorder)
@@ -24,5 +24,4 @@ public struct NumberFieldView: View {
 #Preview {
     NumberFieldView(label: "kp", value: .constant(2.0))
         .padding()
-        .background(KuyuUITheme.background)
 }

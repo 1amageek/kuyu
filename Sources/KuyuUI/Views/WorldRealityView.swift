@@ -108,11 +108,11 @@ public struct WorldRealityView: View {
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(KuyuUITheme.bodyFont(size: 10))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(statusLine)
-                    .font(KuyuUITheme.monoFont(size: 9))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
             .padding(8)
         }
@@ -121,8 +121,8 @@ public struct WorldRealityView: View {
                 resetCamera()
             }
             .buttonStyle(.borderless)
-            .font(KuyuUITheme.bodyFont(size: 10))
-            .foregroundStyle(KuyuUITheme.textSecondary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
             .padding(8)
         }
         .onChange(of: cameraYaw) { _, _ in updateCamera() }
@@ -342,5 +342,4 @@ public struct WorldRealityView: View {
     )
     .frame(width: 320, height: 240)
     .padding()
-    .background(KuyuUITheme.background)
 }

@@ -16,8 +16,10 @@ public struct ContentView: View {
                 simulationModel: model.simulationViewModel,
                 trainingModel: model.simulationViewModel
             )
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
             detailView
+                .frame(minWidth: 500, minHeight: 400)
         }
         .inspector(isPresented: $showInspector) {
             InspectorView(
@@ -25,6 +27,7 @@ public struct ContentView: View {
                 simulationModel: model.simulationViewModel,
                 trainingModel: model.simulationViewModel
             )
+            .inspectorColumnWidth(min: 220, ideal: 260, max: 360)
         }
         .navigationTitle("Kuyu")
         .toolbar {
@@ -156,20 +159,18 @@ public struct ContentView: View {
 
     @ViewBuilder
     private var simulationDetailView: some View {
-        VSplitView {
+        VStack(spacing: 0) {
             ScenarioDetailView(model: model.simulationViewModel)
-                .fixedSize(horizontal: false, vertical: false)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            VStack(spacing: 0) {
-                suiteResultBand
-                HSplitView {
-                    RunDetailView(model: model.simulationViewModel)
-                        .layoutPriority(1)
-                    LogConsoleView(entries: model.simulationViewModel.logStore.entries, onClear: model.simulationViewModel.logStore.clear)
-                        .layoutPriority(1)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minHeight: 200, maxHeight: .infinity)
+            suiteResultBand
+            HStack(spacing: 0) {
+                RunDetailView(model: model.simulationViewModel)
+                    .frame(minWidth: 250, maxWidth: .infinity)
+                Divider()
+                LogConsoleView(entries: model.simulationViewModel.logStore.entries, onClear: model.simulationViewModel.logStore.clear)
+                    .frame(minWidth: 250, maxWidth: .infinity, minHeight: 100, maxHeight: 300)
             }
+            .frame(minHeight: 150, idealHeight: 200, maxHeight: 350)
         }
     }
 
@@ -218,32 +219,27 @@ public struct ContentView: View {
         let run = model.simulationViewModel.selectedRun
         return HStack(spacing: 12) {
             Text("Suite Result")
-                .font(KuyuUITheme.titleFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             if let run {
                 StatBadgeView(passed: run.output.summary.suitePassed)
                 Text("Scenarios \(run.scenarios.count)")
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 if let best = model.simulationViewModel.loopBestScore {
                     Text("Best \(String(format: "%.3f", best))")
-                        .font(KuyuUITheme.monoFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
             } else {
                 Text("No run selected")
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(KuyuUITheme.panelBackground)
-        .overlay(
-            Rectangle()
-                .stroke(KuyuUITheme.panelHighlight, lineWidth: 1)
-        )
     }
 }
 
@@ -252,5 +248,6 @@ public struct ContentView: View {
     let logStore = UILogStore(buffer: buffer)
     let appModel = AppViewModel(logStore: logStore)
     return ContentView(model: appModel)
-        .frame(width: 1280, height: 800)
+        .frame(minWidth: 900, minHeight: 600)
+        .frame(width: 1200, height: 800)
 }

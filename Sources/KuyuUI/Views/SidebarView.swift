@@ -27,11 +27,11 @@ public struct SidebarView: View {
             Section("Training Suite") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("KUY-ATT-1 (M1)")
-                        .font(KuyuUITheme.titleFont(size: 14))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
                     Text("Attitude stabilization + swappability + HF stress")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 6)
             }
@@ -39,8 +39,8 @@ public struct SidebarView: View {
             Section("Runs") {
                 if simulationModel.runs.isEmpty {
                     Text("No runs yet")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(simulationModel.runs) { run in
                         RunRowView(run: run)
@@ -49,8 +49,7 @@ public struct SidebarView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(KuyuUITheme.panelBackground)
+        .controlSize(.small)
     }
 
     // MARK: - Training Sidebar
@@ -61,13 +60,13 @@ public struct SidebarView: View {
                 ForEach(trainingModel.availableModels) { model in
                     HStack(spacing: 8) {
                         Text(model.name)
-                            .font(KuyuUITheme.titleFont(size: 13))
-                            .foregroundStyle(KuyuUITheme.textPrimary)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
                         Spacer()
                         if model.id == trainingModel.selectedModelID {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(KuyuUITheme.accent)
+                                .foregroundStyle(.tint)
                         }
                     }
                     .padding(.vertical, 4)
@@ -90,11 +89,11 @@ public struct SidebarView: View {
             Section("Training Suite") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("KUY-ATT-1 (M1)")
-                        .font(KuyuUITheme.titleFont(size: 14))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
                     Text("Attitude stabilization + swappability + HF stress")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 6)
             }
@@ -102,8 +101,8 @@ public struct SidebarView: View {
             Section("Runs") {
                 if trainingModel.runs.isEmpty {
                     Text("No runs yet")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(trainingModel.runs) { run in
                         RunRowView(run: run)
@@ -112,8 +111,7 @@ public struct SidebarView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(KuyuUITheme.panelBackground)
+        .controlSize(.small)
     }
 }
 

@@ -49,7 +49,6 @@ public struct TrainingDashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(KuyuUITheme.background)
     }
 }
 
@@ -85,11 +84,11 @@ private struct TrainingStatusPanel: View {
     private var statusHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Training Status")
-                .font(KuyuUITheme.titleFont(size: 16))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.headline)
+                .foregroundStyle(.primary)
             Text(currentStatus)
-                .font(KuyuUITheme.bodyFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.body)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -121,56 +120,56 @@ private struct TrainingStatusPanel: View {
     private var controlBoundaryPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Control Boundary")
-                .font(KuyuUITheme.titleFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             HStack(spacing: 6) {
                 Text("MotorNerve: Descriptor-defined mapping")
-                    .font(KuyuUITheme.monoFont(size: 10))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
                 Text("Manas: Learnable Core + Reflex")
-                    .font(KuyuUITheme.monoFont(size: 10))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
             Text("MotorNerve is a protocol mapping, not a safety filter. Reflex applies bounded corrections and MotorNerve remains deterministic for a given descriptor.")
-                .font(KuyuUITheme.bodyFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var trainingSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Loop")
-                .font(KuyuUITheme.titleFont(size: 13))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             Text(model.loopStatusMessage.isEmpty ? "Idle" : model.loopStatusMessage)
-                .font(KuyuUITheme.bodyFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.body)
+                .foregroundStyle(.secondary)
             if model.isTraining {
                 Text("Supervised training running")
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.accent)
+                    .font(.callout)
+                    .foregroundStyle(.tint)
             }
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var manasSignalFlowPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Manas Signal Flow")
-                .font(KuyuUITheme.titleFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             Text("Runtime control path (signals flow left → right)")
-                .font(KuyuUITheme.bodyFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             ManasSignalFlowDiagram()
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -178,11 +177,11 @@ private struct TrainingStatusPanel: View {
         let isLocked = model.isLoopRunning || model.isTraining
         return VStack(alignment: .leading, spacing: 6) {
             Text("RealityView Hover Test")
-                .font(KuyuUITheme.titleFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             Text("Adjust hover thrust scale to verify vertical motion.")
-                .font(KuyuUITheme.bodyFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 Button("0.9 ↓") {
                     model.setHoverThrustScale(0.9, source: "ui.hoverTestDown")
@@ -199,15 +198,15 @@ private struct TrainingStatusPanel: View {
             .opacity(isLocked ? 0.5 : 1.0)
             if isLocked {
                 Text("Disabled while training loop is running.")
-                    .font(KuyuUITheme.bodyFont(size: 10))
-                    .foregroundStyle(KuyuUITheme.warning)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
             Text("Current: \(String(format: "%.2f", model.hoverThrustScale))")
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -277,15 +276,14 @@ private struct FlowNode: View {
 
     var body: some View {
         Text(label)
-            .font(KuyuUITheme.monoFont(size: 9))
-            .foregroundStyle(KuyuUITheme.textPrimary)
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(.primary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(KuyuUITheme.background.opacity(0.6))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(KuyuUITheme.textSecondary.opacity(0.3), lineWidth: 1)
+                    .stroke(.secondary.opacity(0.3), lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 6))
     }
@@ -294,8 +292,8 @@ private struct FlowNode: View {
 private struct FlowArrow: View {
     var body: some View {
         Text("→")
-            .font(KuyuUITheme.monoFont(size: 10))
-            .foregroundStyle(KuyuUITheme.textSecondary)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 2)
     }
 }
@@ -307,12 +305,12 @@ private struct TrainingStatLine: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(KuyuUITheme.bodyFont(size: 11))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
             Spacer()
             Text(value)
-                .font(KuyuUITheme.monoFont(size: 11))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.primary)
         }
     }
 }
@@ -324,8 +322,8 @@ private struct ActuatorSignalsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Kuyu Actuators")
-                .font(KuyuUITheme.titleFont(size: 13))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             Picker("Actuator View", selection: $viewMode) {
                 ForEach(ActuatorViewMode.allCases, id: \.self) { mode in
                     Text(mode.label).tag(mode)
@@ -342,8 +340,8 @@ private struct ActuatorSignalsPanel: View {
                 case .motorNerve:
                     if motorNerveOutputs.isEmpty {
                         Text("No MotorNerve output")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(motorNerveOutputs.enumerated()), id: \.offset) { index, output in
                             let definition = index < actuatorDefinitions.count ? actuatorDefinitions[index] : nil
@@ -385,14 +383,14 @@ private struct ActuatorSignalsPanel: View {
                         }
                     } else {
                         Text("No actuator output")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -451,14 +449,14 @@ private struct SensorSignalsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Sensor Signals")
-                .font(KuyuUITheme.titleFont(size: 13))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             VStack(spacing: 6) {
                 if sensorDefinitions.isEmpty {
                     if model.lastSensorSamples.isEmpty {
                         Text("No sensor samples")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     } else {
                         ForEach(sortedSamples, id: \.channelIndex) { sample in
                             SignalBar(
@@ -486,7 +484,7 @@ private struct SensorSignalsPanel: View {
             }
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -522,13 +520,13 @@ private struct ManasSignalsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Manas Signals")
-                .font(KuyuUITheme.titleFont(size: 13))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             VStack(spacing: 6) {
                 if sortedDriveIntents.isEmpty {
                     Text("No drive intents")
-                        .font(KuyuUITheme.bodyFont(size: 11))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(sortedDriveIntents, id: \.index.rawValue) { intent in
                         let definition = driveDefinitions[safe: Int(intent.index.rawValue)]
@@ -546,7 +544,7 @@ private struct ManasSignalsPanel: View {
             reflexSection
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -557,30 +555,30 @@ private struct ManasSignalsPanel: View {
     private var reflexSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Reflex Corrections")
-                .font(KuyuUITheme.titleFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             if sortedReflexCorrections.isEmpty {
                 Text("No reflex corrections")
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             } else {
                 ForEach(sortedReflexCorrections, id: \.driveIndex.rawValue) { correction in
                     let definition = reflexDefinitions[safe: Int(correction.driveIndex.rawValue)]
                     let label = definition.map { $0.name } ?? "D\(correction.driveIndex.rawValue)"
                     HStack(spacing: 8) {
                         Text(label)
-                            .font(KuyuUITheme.monoFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
                             .frame(minWidth: 24, alignment: .leading)
                         Text(String(format: "Δ %.3f", correction.delta))
-                            .font(KuyuUITheme.monoFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textPrimary)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.primary)
                         Text(String(format: "Clamp %.2f", correction.clampMultiplier))
-                            .font(KuyuUITheme.monoFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
                         Text(String(format: "Damp %.2f", correction.damping))
-                            .font(KuyuUITheme.monoFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -618,24 +616,24 @@ private struct MotorNerveChainPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("MotorNerve Chain")
-                .font(KuyuUITheme.titleFont(size: 13))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             if stages.isEmpty {
                 Text("No MotorNerve stages")
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             } else {
                 ForEach(Array(stages.enumerated()), id: \.offset) { _, stage in
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(stage.id) [\(stage.type.rawValue)]")
-                            .font(KuyuUITheme.monoFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textPrimary)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.primary)
                         Text("in: \(stage.inputs.map(signalLabel).joined(separator: ", "))")
-                            .font(KuyuUITheme.monoFont(size: 9))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
                         Text("out: \(stage.outputs.map(signalLabel).joined(separator: ", "))")
-                            .font(KuyuUITheme.monoFont(size: 9))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                     if stage.id != stages.last?.id {
@@ -645,7 +643,7 @@ private struct MotorNerveChainPanel: View {
             }
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -688,15 +686,15 @@ private struct SignalBar: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(label)
-                    .font(KuyuUITheme.monoFont(size: 10))
-                    .foregroundStyle(KuyuUITheme.textSecondary)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Text(String(format: "%.3f", displayValue))
-                    .font(KuyuUITheme.monoFont(size: 10))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.primary)
             }
             ProgressView(value: clamp(value), total: maxValue)
-                .tint(KuyuUITheme.accent)
+                .tint(.accentColor)
         }
     }
 
@@ -711,12 +709,12 @@ private struct MissingSignalRow: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
             Spacer()
             Text("missing")
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.warning)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.orange)
         }
     }
 }
@@ -735,18 +733,18 @@ private struct ManualActuatorControlPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Manual Actuator Override")
-                    .font(KuyuUITheme.titleFont(size: 13))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
                 Spacer()
                 Toggle("", isOn: $model.manualActuatorEnabled)
                     .labelsHidden()
             }
             Text("Forces baseline controller during single runs")
-                .font(KuyuUITheme.bodyFont(size: 11))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
             Toggle("Link all actuators", isOn: $model.manualActuatorLinked)
-                .font(KuyuUITheme.bodyFont(size: 11))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
                 .toggleStyle(.switch)
 
             Group {
@@ -754,18 +752,18 @@ private struct ManualActuatorControlPanel: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text("Linked ratio")
-                                .font(KuyuUITheme.monoFont(size: 10))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
                             Spacer()
                             Text(String(format: "%.0f%%", model.manualActuatorMaster * 100.0))
-                                .font(KuyuUITheme.monoFont(size: 10))
-                                .foregroundStyle(KuyuUITheme.textPrimary)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.primary)
                         }
                         Slider(value: $model.manualActuatorMaster, in: 0.0...1.0)
                         if !linkedPreviewText.isEmpty {
                             Text(linkedPreviewText)
-                                .font(KuyuUITheme.monoFont(size: 10))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         }
                     }
@@ -775,13 +773,13 @@ private struct ManualActuatorControlPanel: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(labelWithUnit(for: index, label: label))
-                                        .font(KuyuUITheme.monoFont(size: 10))
-                                        .foregroundStyle(KuyuUITheme.textSecondary)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                     Spacer()
                                     Text(formattedValue(for: index))
-                                        .font(KuyuUITheme.monoFont(size: 10))
-                                        .foregroundStyle(KuyuUITheme.textPrimary)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.primary)
                                 }
                                 Slider(value: binding(for: index), in: range(for: index))
                                 HStack {
@@ -789,8 +787,8 @@ private struct ManualActuatorControlPanel: View {
                                     Spacer()
                                     Text(formattedRangeBound(range(for: index).upperBound, unit: unit(for: index)))
                                 }
-                                .font(KuyuUITheme.monoFont(size: 9))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -799,7 +797,7 @@ private struct ManualActuatorControlPanel: View {
             .disabled(!model.manualActuatorEnabled)
         }
         .padding(10)
-        .background(KuyuUITheme.panelHighlight.opacity(0.2))
+        .background(.quaternary.opacity(0.2))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -879,31 +877,31 @@ private struct TrainingChartsGrid: View {
                     title: "Supervised Loss",
                     unit: "loss",
                     samples: model.trainingLossSamples,
-                    lineColor: KuyuUITheme.accent
+                    lineColor: .accentColor
                 )
                 MetricChartView(
                     title: "Loop Score",
                     unit: "score",
                     samples: model.loopScoreSamples,
-                    lineColor: KuyuUITheme.success
+                    lineColor: .green
                 )
                 MetricChartView(
                     title: "Worst Overshoot",
                     unit: "deg",
                     samples: model.overshootSamples,
-                    lineColor: KuyuUITheme.warning
+                    lineColor: .orange
                 )
                 MetricChartView(
                     title: "Recovery Time",
                     unit: "sec",
                     samples: model.recoverySamples,
-                    lineColor: KuyuUITheme.accent
+                    lineColor: .accentColor
                 )
                 MetricChartView(
                     title: "HF Stability",
                     unit: "score",
                     samples: model.hfSamples,
-                    lineColor: KuyuUITheme.success
+                    lineColor: .green
                 )
             }
             .padding(12)

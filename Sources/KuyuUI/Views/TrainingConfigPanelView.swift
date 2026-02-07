@@ -6,14 +6,14 @@ public struct TrainingConfigPanelView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Training")
-                .font(KuyuUITheme.titleFont(size: 16))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.headline)
+                .foregroundStyle(.primary)
 
             GroupBox("Model") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(model.selectedModel?.name ?? "Unselected")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .font(.body)
+                        .foregroundStyle(.primary)
                     HStack(spacing: 8) {
                         Button("New Model") {
                             model.createModel()
@@ -24,7 +24,7 @@ public struct TrainingConfigPanelView: View {
                         }
                         .disabled(model.isRunning || model.isTraining || model.isLoopRunning)
                     }
-                    .font(KuyuUITheme.bodyFont(size: 11))
+                    .font(.callout)
                 }
                 .padding(.top, 6)
             }
@@ -36,11 +36,11 @@ public struct TrainingConfigPanelView: View {
                     Button("Export Training Dataset") {
                         model.exportTrainingDataset()
                     }
-                    .font(KuyuUITheme.bodyFont(size: 11))
+                    .font(.callout)
                     .disabled(model.selectedRun == nil)
                     Text("Exports per-scenario datasets (meta.json + records.jsonl).")
-                        .font(KuyuUITheme.bodyFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.top, 6)
             }
@@ -52,13 +52,13 @@ public struct TrainingConfigPanelView: View {
                     HStack(spacing: 10) {
                         Stepper(value: $model.trainingSequenceLength, in: 4...64) {
                             Text("Sequence: \(model.trainingSequenceLength)")
-                                .font(KuyuUITheme.bodyFont(size: 11))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
                         Stepper(value: $model.trainingEpochs, in: 1...50) {
                             Text("Epochs: \(model.trainingEpochs)")
-                                .font(KuyuUITheme.bodyFont(size: 11))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     NumberFieldView(label: "lr", value: $model.trainingLearningRate)
@@ -73,11 +73,11 @@ public struct TrainingConfigPanelView: View {
 
                         if let loss = model.lastTrainingLoss {
                             Text("loss \(String(format: "%.6f", loss))")
-                                .font(KuyuUITheme.monoFont(size: 10))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .font(KuyuUITheme.bodyFont(size: 11))
+                    .font(.callout)
                 }
                 .padding(.top, 6)
             }
@@ -86,23 +86,23 @@ public struct TrainingConfigPanelView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Stepper(value: $model.loopMaxIterations, in: 1...200) {
                         Text("Iterations: \(model.loopMaxIterations)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     Stepper(value: $model.loopEvaluationInterval, in: 1...20) {
                         Text("Eval interval: \(model.loopEvaluationInterval)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     Stepper(value: $model.loopPatience, in: 0...20) {
                         Text("Patience: \(model.loopPatience)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     Stepper(value: $model.loopMaxFailures, in: 1...10) {
                         Text("Max failures: \(model.loopMaxFailures)")
-                            .font(KuyuUITheme.bodyFont(size: 11))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                     NumberFieldView(label: "minΔ", value: $model.loopMinDelta)
                     Toggle("Stop on pass", isOn: $model.loopStopOnPass)
@@ -118,7 +118,7 @@ public struct TrainingConfigPanelView: View {
                         Button("Stop") { model.stopTrainingLoop() }
                             .disabled(!model.isLoopRunning)
                     }
-                    .font(KuyuUITheme.bodyFont(size: 11))
+                    .font(.callout)
 
                     if model.isLoopRunning || model.loopIteration > 0 {
                         HStack(spacing: 12) {
@@ -130,23 +130,22 @@ public struct TrainingConfigPanelView: View {
                                 Text("Last \(String(format: "%.3f", last))")
                             }
                         }
-                        .font(KuyuUITheme.monoFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
                         Text(model.loopStatusMessage)
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 6)
             }
         }
-        .font(KuyuUITheme.bodyFont(size: 12))
-        .foregroundStyle(KuyuUITheme.textPrimary)
+        .font(.body)
+        .foregroundStyle(.primary)
     }
 }
 
 #Preview {
     TrainingConfigPanelView(model: KuyuUIPreviewFactory.model())
         .frame(width: 280)
-        .background(KuyuUITheme.background)
 }

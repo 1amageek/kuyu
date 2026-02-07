@@ -14,12 +14,12 @@ public struct ScenarioDetailView: View {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(scenario.id.scenarioId.rawValue)
-                            .font(KuyuUITheme.titleFont(size: 18))
-                            .foregroundStyle(KuyuUITheme.textPrimary)
+                            .font(.title3)
+                            .foregroundStyle(.primary)
                         HStack {
                             Text("Seed \(scenario.id.seed.rawValue)")
-                                .font(KuyuUITheme.bodyFont(size: 12))
-                                .foregroundStyle(KuyuUITheme.textSecondary)
+                                .font(.body)
+                                .foregroundStyle(.secondary)
                             let recoveryText = scenario.evaluation.recoveryTimeSeconds.map { String(format: "%.2fs", $0) } ?? "n/a"
                             let overshootText = scenario.evaluation.overshootDegrees.map { String(format: "%.2f", $0) } ?? "n/a"
                             let hfText = scenario.evaluation.hfStabilityScore.map { String(format: "%.2f", $0) } ?? "n/a"
@@ -29,8 +29,8 @@ public struct ScenarioDetailView: View {
                                 Label("Overshoot: \(overshootText)", systemImage: "arrow.up.right")
                                 Label("HF: \(hfText)", systemImage: "waveform.path")
                             }
-                            .font(KuyuUITheme.bodyFont(size: 12))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
                         }
 
                     }
@@ -64,11 +64,11 @@ public struct ScenarioDetailView: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Scenario detail")
-                        .font(KuyuUITheme.titleFont(size: 18))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .font(.title3)
+                        .foregroundStyle(.primary)
                     Text("Select a run and scenario to inspect the dynamics.")
-                        .font(KuyuUITheme.bodyFont(size: 13))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -135,17 +135,18 @@ public struct ScenarioDetailView: View {
             }
             GridRow {
                 panelView(kind: .attitude, angles: angles, metrics: metrics, renderInfo: renderInfo)
-                    .frame(minHeight: 220)
+                    .frame(minWidth: 200, minHeight: 120)
                 panelView(kind: .omega, angles: angles, metrics: metrics, renderInfo: renderInfo)
-                    .frame(minHeight: 220)
+                    .frame(minWidth: 200, minHeight: 120)
             }
             GridRow {
                 panelView(kind: .speed, angles: angles, metrics: metrics, renderInfo: renderInfo)
-                    .frame(minHeight: 220)
+                    .frame(minWidth: 200, minHeight: 120)
                 panelView(kind: .altitude, angles: angles, metrics: metrics, renderInfo: renderInfo)
-                    .frame(minHeight: 220)
+                    .frame(minWidth: 200, minHeight: 120)
             }
         }
+        .frame(minHeight: 150, idealHeight: 250, maxHeight: 400)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -166,28 +167,28 @@ public struct ScenarioDetailView: View {
                 title: "Tilt",
                 unit: "degrees",
                 samples: metrics.tiltDegrees,
-                lineColor: KuyuUITheme.accent
+                lineColor: .accentColor
             )
         case .omega:
             MetricChartView(
                 title: "Omega",
                 unit: "rad/s",
                 samples: metrics.omega,
-                lineColor: KuyuUITheme.warning
+                lineColor: .orange
             )
         case .speed:
             MetricChartView(
                 title: "Speed",
                 unit: "m/s",
                 samples: metrics.speed,
-                lineColor: KuyuUITheme.accent
+                lineColor: .accentColor
             )
         case .altitude:
             MetricChartView(
                 title: "Altitude",
                 unit: "m",
                 samples: metrics.altitude,
-                lineColor: KuyuUITheme.warning
+                lineColor: .orange
             )
         }
     }
@@ -205,5 +206,4 @@ private enum ScenarioPanelKind {
 #Preview {
     ScenarioDetailView(model: KuyuUIPreviewFactory.model())
         .frame(width: 840, height: 700)
-        .background(KuyuUITheme.background)
 }

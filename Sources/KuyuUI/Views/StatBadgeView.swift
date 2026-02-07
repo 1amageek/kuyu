@@ -2,18 +2,18 @@ import SwiftUI
 
 public struct StatBadgeView: View {
     let passed: Bool
-    
+
     public init(passed: Bool) {
         self.passed = passed
     }
 
     public var body: some View {
         Text(passed ? "PASS" : "FAIL")
-            .font(KuyuUITheme.monoFont(size: 10))
+            .font(.system(.caption, design: .monospaced))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(passed ? KuyuUITheme.success.opacity(0.2) : KuyuUITheme.warning.opacity(0.2))
-            .foregroundStyle(passed ? KuyuUITheme.success : KuyuUITheme.warning)
+            .background(passed ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
+            .foregroundStyle(passed ? .green : .orange)
             .clipShape(Capsule())
     }
 }
@@ -24,5 +24,4 @@ public struct StatBadgeView: View {
         StatBadgeView(passed: false)
     }
     .padding()
-    .background(KuyuUITheme.panelBackground)
 }

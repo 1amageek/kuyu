@@ -17,11 +17,11 @@ public struct RunDetailView: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No run selected")
-                        .font(KuyuUITheme.titleFont(size: 14))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
                     Text("Run the KUY-ATT-1 suite to see scenario details and charts.")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -35,5 +35,4 @@ public struct RunDetailView: View {
 #Preview {
     RunDetailView(model: KuyuUIPreviewFactory.model())
         .frame(width: 520, height: 640)
-        .background(KuyuUITheme.background)
 }

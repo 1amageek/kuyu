@@ -14,14 +14,14 @@ public struct RunRowView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(Self.formatter.string(from: run.timestamp))
-                    .font(KuyuUITheme.bodyFont(size: 12))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+                    .font(.body)
+                    .foregroundStyle(.primary)
                 Spacer()
                 StatBadgeView(passed: run.output.summary.suitePassed)
             }
             Text("Scenarios: \(run.scenarios.count)")
-                .font(KuyuUITheme.bodyFont(size: 11))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
     }
@@ -31,5 +31,4 @@ public struct RunRowView: View {
     RunRowView(run: KuyuUIPreviewFactory.runRecord())
         .frame(width: 260)
         .padding()
-        .background(KuyuUITheme.panelBackground)
 }

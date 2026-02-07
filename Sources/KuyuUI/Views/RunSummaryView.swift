@@ -13,8 +13,8 @@ public struct RunSummaryView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Suite Result")
-                    .font(KuyuUITheme.titleFont(size: 16))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
                 Spacer()
                 StatBadgeView(passed: run.output.summary.suitePassed)
             }
@@ -22,29 +22,23 @@ public struct RunSummaryView: View {
                 Label("Scenarios: \(run.scenarios.count)", systemImage: "checklist")
                 Label("Determinism: \(determinism)", systemImage: "speedometer")
             }
-            .font(KuyuUITheme.bodyFont(size: 12))
-            .foregroundStyle(KuyuUITheme.textSecondary)
+            .font(.body)
+            .foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
                 Label("Avg Recovery: \(recoveryText)", systemImage: "waveform.path.ecg")
                 Label("Worst Overshoot: \(overshootText)", systemImage: "arrow.up.right")
                 Label("Avg HF: \(hfText)", systemImage: "waveform.path")
             }
-            .font(KuyuUITheme.bodyFont(size: 12))
-            .foregroundStyle(KuyuUITheme.textSecondary)
+            .font(.body)
+            .foregroundStyle(.secondary)
         }
         .padding(12)
-        .background(KuyuUITheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(KuyuUITheme.panelHighlight, lineWidth: 1)
-        )
     }
 }
 
 #Preview {
     RunSummaryView(run: KuyuUIPreviewFactory.runRecord())
         .padding()
-        .background(KuyuUITheme.background)
 }

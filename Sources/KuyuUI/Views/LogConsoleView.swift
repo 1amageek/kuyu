@@ -9,21 +9,21 @@ public struct LogConsoleView: View {
             ScrollView {
                 if entries.isEmpty {
                     Text("No logs yet")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 8)
                 } else {
                     Text(entries.map { line(for: $0) }.joined(separator: "\n"))
-                        .font(KuyuUITheme.monoFont(size: 11))
-                        .foregroundStyle(KuyuUITheme.textPrimary)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                         .padding(8)
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 100, maxHeight: 300)
     }
 
     private func line(for entry: UILogEntry) -> String {
@@ -40,5 +40,4 @@ public struct LogConsoleView: View {
 
 #Preview {
     LogConsoleView(entries: KuyuUIPreviewFactory.logEntries(output: KuyuUIPreviewFactory.runRecord().output), onClear: {})
-        .background(KuyuUITheme.background)
 }

@@ -10,8 +10,8 @@ public struct MetricChartView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(KuyuUITheme.titleFont(size: 12))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
             Chart(samples) { sample in
                 LineMark(
                     x: .value("Time", sample.time),
@@ -27,18 +27,18 @@ public struct MetricChartView: View {
                 AxisMarks(values: .automatic(desiredCount: 4))
             }
             .chartPlotStyle { plot in
-                plot.background(KuyuUITheme.panelHighlight.opacity(0.15))
+                plot.background(.quaternary.opacity(0.15))
             }
             Text(unit)
-                .font(KuyuUITheme.bodyFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(8)
-        .background(KuyuUITheme.panelBackground)
+        .frame(minHeight: 120)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(KuyuUITheme.panelHighlight, lineWidth: 1)
+                .stroke(.separator, lineWidth: 1)
         )
     }
 }
@@ -48,8 +48,7 @@ public struct MetricChartView: View {
         title: "Tilt",
         unit: "degrees",
         samples: KuyuUIPreviewFactory.samples(),
-        lineColor: KuyuUITheme.accent
+        lineColor: .accentColor
     )
     .padding()
-    .background(KuyuUITheme.background)
 }

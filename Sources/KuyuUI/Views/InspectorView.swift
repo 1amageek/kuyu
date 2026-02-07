@@ -23,7 +23,7 @@ public struct InspectorView: View {
             }
             .padding(12)
         }
-        .background(KuyuUITheme.panelBackground)
+        .controlSize(.small)
     }
 
     // MARK: - Simulation Inspector
@@ -51,7 +51,6 @@ public struct InspectorView: View {
     let simModel = SimulationViewModel(logStore: logStore)
     return InspectorView(mode: .simulation, simulationModel: simModel, trainingModel: simModel)
         .frame(width: 300, height: 700)
-        .background(KuyuUITheme.background)
 }
 
 #Preview("Training") {
@@ -60,5 +59,4 @@ public struct InspectorView: View {
     let simModel = SimulationViewModel(logStore: logStore)
     return InspectorView(mode: .training, simulationModel: simModel, trainingModel: simModel)
         .frame(width: 300, height: 700)
-        .background(KuyuUITheme.background)
 }

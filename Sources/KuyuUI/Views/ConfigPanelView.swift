@@ -8,8 +8,8 @@ public struct ConfigPanelView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Configuration")
-                .font(KuyuUITheme.titleFont(size: 16))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.headline)
+                .foregroundStyle(.primary)
 
             GroupBox("Controller") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -21,8 +21,8 @@ public struct ConfigPanelView: View {
                     .pickerStyle(.menu)
                     if model.controllerSelection == .manasMLX {
                         Text("ManasMLX uses learned Core/Reflex. Gains are ignored.")
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 6)
@@ -42,8 +42,8 @@ public struct ConfigPanelView: View {
             GroupBox("Schedule") {
                 Stepper(value: $model.cutPeriodSteps, in: 1...10) {
                     Text("CUT period steps: \(model.cutPeriodSteps)")
-                        .font(KuyuUITheme.bodyFont(size: 12))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.top, 4)
             }
@@ -69,16 +69,16 @@ public struct ConfigPanelView: View {
                     switch model.taskMode {
                     case .lift:
                         Text("KUY-LIFT-1: Z-axis lift hold (quad, no attitude scoring).")
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     case .singleLift:
                         Text("KUY-SLIFT-1: Single-prop takeoff from ground to 0.5m hover.")
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     case .attitude:
                         Text("KUY-ATT-1 (M1): Attitude stabilization, swappability, HF stress.")
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 4)
@@ -117,11 +117,11 @@ public struct ConfigPanelView: View {
                             }
                         }
                     }
-                    .font(KuyuUITheme.bodyFont(size: 11))
+                    .font(.callout)
                     Toggle("Render asset", isOn: $model.useRenderAssets)
                     Text("RobotDescriptor (e.g. Models/Robot/robot.robot.json)")
-                        .font(KuyuUITheme.bodyFont(size: 10))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.top, 6)
             }
@@ -136,12 +136,12 @@ public struct ConfigPanelView: View {
                         SummaryLine(label: "motorNerve stages", value: "\(descriptor.motorNerve.stages.count)")
                     } else if let error = model.currentDescriptorError() {
                         Text("Descriptor error: \(error)")
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.warning)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     } else {
                         Text("Descriptor not loaded")
-                            .font(KuyuUITheme.bodyFont(size: 10))
-                            .foregroundStyle(KuyuUITheme.textSecondary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 6)
@@ -196,8 +196,9 @@ public struct ConfigPanelView: View {
                 .padding(.top, 6)
             }
         }
-        .font(KuyuUITheme.bodyFont(size: 12))
-        .foregroundStyle(KuyuUITheme.textPrimary)
+        .font(.body)
+        .foregroundStyle(.primary)
+        .controlSize(.small)
     }
 }
 
@@ -208,12 +209,12 @@ private struct SummaryLine: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(KuyuUITheme.bodyFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Spacer()
             Text(value)
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textPrimary)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.primary)
         }
     }
 }
@@ -221,5 +222,4 @@ private struct SummaryLine: View {
 #Preview {
     ConfigPanelView(model: KuyuUIPreviewFactory.model())
         .frame(width: 280)
-        .background(KuyuUITheme.background)
 }

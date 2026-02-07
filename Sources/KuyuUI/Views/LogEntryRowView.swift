@@ -13,25 +13,25 @@ public struct LogEntryRowView: View {
     public var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text(Self.formatter.string(from: entry.timestamp))
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .leading)
             Text(entry.level.rawValue.uppercased())
-                .font(KuyuUITheme.monoFont(size: 10))
+                .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(levelColor(entry.level))
                 .frame(width: 54, alignment: .leading)
             Text(entry.label)
-                .font(KuyuUITheme.monoFont(size: 10))
-                .foregroundStyle(KuyuUITheme.textSecondary)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
                 .frame(width: 110, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.message)
-                    .font(KuyuUITheme.bodyFont(size: 11))
-                    .foregroundStyle(KuyuUITheme.textPrimary)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
                 if !entry.metadata.isEmpty {
                     Text(entry.metadata.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
-                        .font(KuyuUITheme.monoFont(size: 9))
-                        .foregroundStyle(KuyuUITheme.textSecondary)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -41,11 +41,11 @@ public struct LogEntryRowView: View {
     private func levelColor(_ level: Logger.Level) -> Color {
         switch level {
         case .trace, .debug:
-            return KuyuUITheme.textSecondary
+            return Color.secondary
         case .info, .notice:
-            return KuyuUITheme.accent
+            return Color.accentColor
         case .warning:
-            return KuyuUITheme.warning
+            return Color.orange
         case .error, .critical:
             return Color.red
         }
@@ -55,5 +55,4 @@ public struct LogEntryRowView: View {
 #Preview {
     LogEntryRowView(entry: KuyuUIPreviewFactory.logEntries(output: KuyuUIPreviewFactory.runRecord().output).first!)
         .padding()
-        .background(KuyuUITheme.background)
 }

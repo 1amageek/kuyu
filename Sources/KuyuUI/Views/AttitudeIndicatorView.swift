@@ -4,7 +4,7 @@ public struct AttitudeIndicatorView: View {
     let roll: Double
     let pitch: Double
     let yaw: Double
-    
+
     public init(roll: Double, pitch: Double, yaw: Double) {
         self.roll = roll
         self.pitch = pitch
@@ -18,10 +18,10 @@ public struct AttitudeIndicatorView: View {
                 let frame = CGSize(width: size, height: size)
                 ZStack {
                     Circle()
-                        .fill(KuyuUITheme.panelBackground)
+                        .fill(.background)
                         .overlay(
                             Circle()
-                                .stroke(KuyuUITheme.panelHighlight, lineWidth: 2)
+                                .stroke(.separator, lineWidth: 2)
                         )
 
                     Canvas { context, canvasSize in
@@ -54,7 +54,7 @@ public struct AttitudeIndicatorView: View {
                     .clipShape(Circle())
 
                     Circle()
-                        .fill(KuyuUITheme.accent)
+                        .fill(.tint)
                         .frame(width: 6, height: 6)
                 }
                 .frame(width: frame.width, height: frame.height)
@@ -68,11 +68,10 @@ public struct AttitudeIndicatorView: View {
             }
         }
         .padding(12)
-        .background(KuyuUITheme.panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(KuyuUITheme.panelHighlight, lineWidth: 1)
+                .stroke(.separator, lineWidth: 1)
         )
     }
 
@@ -84,5 +83,4 @@ public struct AttitudeIndicatorView: View {
 #Preview {
     AttitudeIndicatorView(roll: 0.3, pitch: -0.2, yaw: 1.2)
         .padding()
-        .background(KuyuUITheme.background)
 }
