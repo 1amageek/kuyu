@@ -1,6 +1,6 @@
 # kuyu
 
-Application layer for the Kuyu simulation environment. Integrates all Kuyu sub-packages and Manas controllers into a unified UI, CLI, and MLX training bridge.
+Application layer for the Kuyu simulation environment. Integrates Kuyu sub-packages and Manas controllers into a unified UI, CLI, and MLX training bridge.
 
 ## Overview
 
@@ -10,26 +10,17 @@ Kuyu is a simulation environment for training and evaluating [Manas](https://git
 
 | Module | Description |
 |--------|-------------|
-| **KuyuMLX** | Fused environment assembly, Manas-MLX bridge, ascending channel mapping |
+| **KuyuMLX** | Manas-MLX bridge on top of physics scenario runners |
 | **KuyuUI** | SwiftUI-based GUI for simulation, training, and visualization |
 | **KuyuCLI** | Command-line interface for headless simulation and training |
 
-### Fused Environment
+### Runtime Basis
 
-KuyuMLX assembles the fused environment that combines physics and learned world models:
+Current `kuyu` runtime uses physics simulation as the source of truth.
+The world-model package is not part of the active execution path.
 
-```
-FusedEnvironment<QuadrotorAnalyticalModel, MLXWorldModelController, SensorField>
-```
-
-**`AscendingChannelMapper`** converts `FusedState` into Manas ascending channels:
-
-| Channel Type | Source | Description |
-|---|---|---|
-| Type S | SensorField | Raw sensor observations |
-| Type P | AnalyticalModel | Physics predictions |
-| Type R | WorldModel | Residual corrections |
-| Type E | WorldModel | Latent extensions |
+`AscendingChannelMapper` includes world-model-compatible channel layout helpers, but
+runtime simulation and evaluation are currently physics-based.
 
 ### CLI Usage
 
@@ -51,7 +42,7 @@ kuyu (this package)
   |
   +-- KuyuMLX
   |     depends: KuyuCore, KuyuPhysics, KuyuScenarios,
-  |              KuyuTraining, KuyuWorldModel,
+  |              KuyuTraining,
   |              ManasCore, ManasMLXModels, ManasMLXRuntime, ManasMLXTraining
   |
   +-- KuyuUI
@@ -67,16 +58,14 @@ kuyu (this package)
 
 ```
 KuyuCore ------------------- (zero dependencies)
-  |           |           |
-KuyuPhysics  KuyuWorldModel  (independent of each other)
-  |           |
-KuyuScenarios |
-  |           |
-KuyuTraining  |
-  |           |
-  +-----+-----+
-        |
-   kuyu (this package) + manas
+  |
+KuyuPhysics
+  |
+KuyuScenarios
+  |
+KuyuTraining
+  |
+kuyu (this package) + manas
 ```
 
 ## Requirements
@@ -91,7 +80,6 @@ KuyuTraining  |
 - [kuyu-physics](https://github.com/1amageek/kuyu-physics) — Physics engines and analytical models
 - [kuyu-scenarios](https://github.com/1amageek/kuyu-scenarios) — Evaluation scenarios and logging
 - [kuyu-training](https://github.com/1amageek/kuyu-training) — Training data collection and pipeline
-- [kuyu-world-model](https://github.com/1amageek/kuyu-world-model) — DreamerV3-based learned world model
 - [manas](https://github.com/1amageek/manas) — CNS-style robotic control system
 
 ## License
