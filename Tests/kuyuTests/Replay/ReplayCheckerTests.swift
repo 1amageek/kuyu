@@ -1,5 +1,7 @@
 import Testing
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 @testable import KuyuCore
 
 @Test(.timeLimit(.minutes(1))) func replayCheckerTier0ExactMatch() async throws {
@@ -114,7 +116,7 @@ private func makeLog(
             actuatorTelemetry: ActuatorTelemetrySnapshot(
                 channels: [ActuatorChannelSnapshot(id: "motor1", value: 1.0, units: "N")]
             ),
-            safetyTrace: SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
+            safetyTrace: try SafetyTrace(omegaMagnitude: 0, tiltRadians: 0),
             plantState: stateSnapshot,
             disturbances: DisturbanceSnapshot(
                 forceWorld: Axis3(x: 0, y: 0, z: 0),

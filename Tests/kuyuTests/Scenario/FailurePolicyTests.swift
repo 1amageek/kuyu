@@ -1,5 +1,7 @@
 import Testing
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 @testable import KuyuCore
 
 @Test func failurePolicyDetectsSimulationIntegrity() async throws {
@@ -15,9 +17,9 @@ import KuyuProfiles
 
     let log = try makeLog(
         time: 0.1,
-        omega: .nan,
+        omega: 0.0,
         tilt: 0.0,
-        positionZ: 1.0,
+        positionZ: .nan,
         velocityZ: 0.0
     )
 
@@ -90,7 +92,7 @@ private func makeLog(
         orientation: QuaternionSnapshot(w: 1, x: 0, y: 0, z: 0),
         angularVelocity: Axis3(x: 0, y: 0, z: 0)
     )
-    let safety = SafetyTrace(omegaMagnitude: omega, tiltRadians: tilt)
+    let safety = try SafetyTrace(omegaMagnitude: omega, tiltRadians: tilt)
     return WorldStepLog(
         time: worldTime,
         events: [],
