@@ -1,7 +1,8 @@
 import KuyuCore
 import KuyuMLX
 import Logging
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 @MainActor
 public struct SimulationRunnerService {

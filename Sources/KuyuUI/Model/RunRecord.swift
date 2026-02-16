@@ -1,6 +1,7 @@
 import Foundation
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public struct RunRecord: Identifiable {
     public let id: UUID

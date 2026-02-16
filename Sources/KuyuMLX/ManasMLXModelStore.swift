@@ -3,10 +3,12 @@ import Logging
 import ManasCore
 import ManasMLXModels
 import ManasMLXTraining
+import ManasTrainingData
 import MLX
 import MLXNN
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 @MainActor
 public final class ManasMLXModelStore {
@@ -49,7 +51,8 @@ public final class ManasMLXModelStore {
         let core = prepareCore(
             inputSize: sizing.trunkSize,
             driveCount: driveCount,
-            auxEnabled: request.useAux
+            auxEnabled: request.useAux,
+            descriptor: descriptor
         )
         let reflex = prepareReflex(inputSize: sizing.fastTapCount, driveCount: driveCount)
 
@@ -97,7 +100,9 @@ public final class ManasMLXModelStore {
                     let cut = try ManasMLXCut(
                         coreModel: core,
                         reflexModel: reflex,
-                        useQualityGating: request.useQualityGating
+                        useQualityGating: request.useQualityGating,
+                        descendingVector: request.descendingVector,
+                        descendingProgram: request.descendingProgram
                     )
                     let log = try await runner.runScenario(
                         definition: definition,
@@ -136,7 +141,9 @@ public final class ManasMLXModelStore {
                 let cut = try ManasMLXCut(
                     coreModel: core,
                     reflexModel: reflex,
-                    useQualityGating: request.useQualityGating
+                    useQualityGating: request.useQualityGating,
+                    descendingVector: request.descendingVector,
+                    descendingProgram: request.descendingProgram
                 )
                 let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
                 let log = try await runner.runScenario(
@@ -181,7 +188,9 @@ public final class ManasMLXModelStore {
                     let cut = try ManasMLXCut(
                         coreModel: core,
                         reflexModel: reflex,
-                        useQualityGating: request.useQualityGating
+                        useQualityGating: request.useQualityGating,
+                        descendingVector: request.descendingVector,
+                        descendingProgram: request.descendingProgram
                     )
                     let log = try await runner.runScenario(
                         definition: definition,
@@ -220,7 +229,9 @@ public final class ManasMLXModelStore {
                 let cut = try ManasMLXCut(
                     coreModel: core,
                     reflexModel: reflex,
-                    useQualityGating: request.useQualityGating
+                    useQualityGating: request.useQualityGating,
+                    descendingVector: request.descendingVector,
+                    descendingProgram: request.descendingProgram
                 )
                 let baseThrottle = 0.0
                 let motorNerveConfig = FixedSinglePropMotorNerve.Config(
@@ -269,7 +280,9 @@ public final class ManasMLXModelStore {
                     let cut = try ManasMLXCut(
                         coreModel: core,
                         reflexModel: reflex,
-                        useQualityGating: request.useQualityGating
+                        useQualityGating: request.useQualityGating,
+                        descendingVector: request.descendingVector,
+                        descendingProgram: request.descendingProgram
                     )
                     let log = try await runner.runScenario(
                         definition: definition,
@@ -313,7 +326,9 @@ public final class ManasMLXModelStore {
                 let cut = try ManasMLXCut(
                     coreModel: core,
                     reflexModel: reflex,
-                    useQualityGating: request.useQualityGating
+                    useQualityGating: request.useQualityGating,
+                    descendingVector: request.descendingVector,
+                    descendingProgram: request.descendingProgram
                 )
                 let log = try await runner.runScenario(
                     definition: definition,
@@ -576,16 +591,17 @@ public final class ManasMLXModelStore {
         return manifest
     }
 
-    private func prepareCore(inputSize: Int, driveCount: Int, auxEnabled: Bool) -> ManasMLXCore {
-        let config = ManasMLXCoreConfig(
+    private func prepareCore(
+        inputSize: Int,
+        driveCount: Int,
+        auxEnabled: Bool,
+        descriptor: RobotDescriptor? = nil
+    ) -> ManasMLXCore {
+        let config = Self.makeCoreConfig(
             inputSize: inputSize,
-            embeddingSize: 128,
-            fastHiddenSize: 256,
-            slowHiddenSize: 128,
             driveCount: driveCount,
-            driveScale: 1.0,
-            auxSize: inputSize,
-            auxEnabled: auxEnabled
+            auxEnabled: auxEnabled,
+            descriptor: descriptor
         )
         return withLock {
             if let model = coreModel, coreConfig == config {
@@ -596,6 +612,162 @@ public final class ManasMLXModelStore {
             coreConfig = config
             return model
         }
+    }
+
+    static func makeCoreConfig(
+        inputSize: Int,
+        driveCount: Int,
+        auxEnabled: Bool,
+        descriptor: RobotDescriptor?
+    ) -> ManasMLXCoreConfig {
+        guard let descriptor else {
+            return ManasMLXCoreConfig(
+                inputSize: inputSize,
+                embeddingSize: 128,
+                fastHiddenSize: 256,
+                slowHiddenSize: 128,
+                driveCount: driveCount,
+                driveScale: 1.0,
+                auxSize: inputSize,
+                auxEnabled: auxEnabled
+            )
+        }
+
+        let typeLayout = buildTypeLayout(
+            inputSize: inputSize,
+            driveCount: driveCount,
+            descriptor: descriptor
+        )
+
+        return ManasMLXCoreConfig(
+            inputSize: inputSize,
+            embeddingSize: 128,
+            fastHiddenSize: 256,
+            slowHiddenSize: 128,
+            driveCount: driveCount,
+            driveScale: 1.0,
+            auxSize: inputSize,
+            auxEnabled: auxEnabled,
+            descendingSize: typeLayout.descendingTypeIndices.count,
+            descendingEmbeddingSize: typeLayout.descendingTypeIndices.isEmpty ? 0 : 16,
+            typeEmbeddingDim: 16,
+            typeEmbeddingCount: typeLayout.typeCount,
+            ascendingTypeIndices: typeLayout.ascendingTypeIndices,
+            descendingTypeIndices: typeLayout.descendingTypeIndices.isEmpty ? nil : typeLayout.descendingTypeIndices,
+            actuatorTypeIndices: typeLayout.driveTypeIndices,
+            useSharedEncoder: true,
+            useSharedDecoder: true,
+            actuatorCount: driveCount
+        )
+    }
+
+    private struct TypeLayout {
+        let typeCount: Int
+        let ascendingTypeIndices: [Int]
+        let descendingTypeIndices: [Int]
+        let driveTypeIndices: [Int]
+    }
+
+    private static func buildTypeLayout(
+        inputSize: Int,
+        driveCount: Int,
+        descriptor: RobotDescriptor
+    ) -> TypeLayout {
+        var typeToIndex: [String: Int] = [:]
+        var nextIndex = 0
+
+        func resolve(_ type: String) -> Int {
+            if let existing = typeToIndex[type] {
+                return existing
+            }
+            typeToIndex[type] = nextIndex
+            nextIndex += 1
+            return nextIndex - 1
+        }
+
+        let ascendingTypeIndices = ascendingTypePattern(inputSize: inputSize, resolve: resolve)
+        let descendingTypes = descriptorDescendingTypes(descriptor: descriptor)
+        let descendingTypeIndices = descendingTypes.map(resolve)
+        let driveTypes = descriptorDriveTypes(descriptor: descriptor, driveCount: driveCount)
+        let driveTypeIndices = driveTypes.map(resolve)
+
+        return TypeLayout(
+            typeCount: nextIndex,
+            ascendingTypeIndices: ascendingTypeIndices,
+            descendingTypeIndices: descendingTypeIndices,
+            driveTypeIndices: driveTypeIndices
+        )
+    }
+
+    private static func descriptorDescendingTypes(descriptor: RobotDescriptor) -> [String] {
+        guard let descendingChannels = descriptor.control.descendingChannels,
+              !descendingChannels.isEmpty else {
+            return []
+        }
+
+        let descendingSignalsByID = Dictionary(
+            uniqueKeysWithValues: (descriptor.signals.descending ?? []).map { ($0.id, $0) }
+        )
+
+        return descendingChannels.map { id in
+            if let definition = descendingSignalsByID[id] {
+                let semantic = definition.group?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let semantic, !semantic.isEmpty {
+                    return semantic
+                }
+                return definition.name
+            }
+            return id
+        }
+    }
+
+    private static func descriptorDriveTypes(descriptor: RobotDescriptor, driveCount: Int) -> [String] {
+        let driveSignalsByID = Dictionary(
+            uniqueKeysWithValues: descriptor.signals.drive.map { ($0.id, $0) }
+        )
+
+        var types: [String] = []
+        types.reserveCapacity(driveCount)
+
+        for id in descriptor.control.driveChannels.prefix(driveCount) {
+            if let definition = driveSignalsByID[id] {
+                let semantic = definition.group?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let semantic, !semantic.isEmpty {
+                    types.append(semantic)
+                } else {
+                    types.append(definition.name)
+                }
+            } else {
+                types.append(id)
+            }
+        }
+
+        while types.count < driveCount {
+            types.append("drive_channel_\(types.count)")
+        }
+        return types
+    }
+
+    private static func ascendingTypePattern(
+        inputSize: Int,
+        resolve: (String) -> Int
+    ) -> [Int] {
+        guard inputSize > 0 else { return [] }
+
+        // TrunkBundle is [energy..., phase..., quality..., spike...].
+        // Prefer semantic type sharing across channels over per-index embeddings.
+        if inputSize % 4 == 0 {
+            let perBand = inputSize / 4
+            var indices: [Int] = []
+            indices.reserveCapacity(inputSize)
+            indices.append(contentsOf: Array(repeating: resolve("trunk.energy"), count: perBand))
+            indices.append(contentsOf: Array(repeating: resolve("trunk.phase"), count: perBand))
+            indices.append(contentsOf: Array(repeating: resolve("trunk.quality"), count: perBand))
+            indices.append(contentsOf: Array(repeating: resolve("trunk.spike"), count: perBand))
+            return indices
+        }
+
+        return (0..<inputSize).map { resolve("trunk.channel.\($0)") }
     }
 
     private func prepareReflex(inputSize: Int, driveCount: Int) -> ManasMLXReflex {

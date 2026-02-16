@@ -1,6 +1,8 @@
 import Foundation
 import Testing
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 @testable import KuyuCore
 

@@ -1,5 +1,7 @@
 import Testing
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 @Test func robotDescriptorValidationAcceptsDescriptorWithoutFrameBindings() async throws {
     let descriptor = makeDescriptor(engineID: "kuyu.physics")
@@ -49,6 +51,207 @@ import KuyuProfiles
         #expect(Bool(false))
     } catch let error as RobotDescriptor.ValidationError {
         #expect(error == .invalidPhysicsFormat("physics.model.format"))
+    }
+}
+
+@Test func robotDescriptorValidationAcceptsDescendingChannelsWhenDefined() async throws {
+    var descriptor = makeDescriptor(engineID: "kuyu.physics")
+    descriptor = RobotDescriptor(
+        robot: descriptor.robot,
+        physics: descriptor.physics,
+        render: descriptor.render,
+        signals: RobotDescriptor.Signals(
+            sensor: descriptor.signals.sensor,
+            actuator: descriptor.signals.actuator,
+            drive: descriptor.signals.drive,
+            reflex: descriptor.signals.reflex,
+            descending: [
+                RobotDescriptor.SignalDefinition(id: "intent.thrust", index: 0, name: "intent.thrust", units: "norm")
+            ],
+            motorNerve: descriptor.signals.motorNerve
+        ),
+        sensors: descriptor.sensors,
+        actuators: descriptor.actuators,
+        control: RobotDescriptor.Control(
+            driveChannels: descriptor.control.driveChannels,
+            reflexChannels: descriptor.control.reflexChannels,
+            descendingChannels: ["intent.thrust"],
+            constraints: descriptor.control.constraints
+        ),
+        motorNerve: descriptor.motorNerve
+    )
+
+    try descriptor.validate()
+}
+
+@Test func robotDescriptorValidationRejectsUnknownDescendingChannelRef() async throws {
+    let base = makeDescriptor(engineID: "kuyu.physics")
+    let descriptor = RobotDescriptor(
+        robot: base.robot,
+        physics: base.physics,
+        render: base.render,
+        signals: base.signals,
+        sensors: base.sensors,
+        actuators: base.actuators,
+        control: RobotDescriptor.Control(
+            driveChannels: base.control.driveChannels,
+            reflexChannels: base.control.reflexChannels,
+            descendingChannels: ["intent.missing"],
+            constraints: base.control.constraints
+        ),
+        motorNerve: base.motorNerve
+    )
+
+    do {
+        try descriptor.validate()
+        #expect(Bool(false))
+    } catch let error as RobotDescriptor.ValidationError {
+        #expect(error == .unknownSignalRef("intent.missing"))
+    }
+}
+
+@Test func robotDescriptorValidationAcceptsObservationMetadata() async throws {
+    let base = makeDescriptor(engineID: "kuyu.physics")
+    let descriptor = RobotDescriptor(
+        robot: base.robot,
+        physics: base.physics,
+        render: base.render,
+        signals: base.signals,
+        sensors: base.sensors,
+        actuators: base.actuators,
+        control: base.control,
+        observation: RobotDescriptor.Observation(
+            clock: RobotDescriptor.ObservationClock(
+                timebase: "monotonic",
+                epoch: "boot",
+                maxSkewMs: 4.0,
+                syncPolicy: .soft
+            ),
+            modalities: [
+                RobotDescriptor.ModalityDefinition(
+                    id: "imu",
+                    type: .state,
+                    channels: ["imu_accel_z"],
+                    timestampSource: "imuClock",
+                    provenance: RobotDescriptor.ObservationProvenance(
+                        producer: "imu-sensorhub",
+                        transport: "shared-memory",
+                        notes: "primary path"
+                    )
+                )
+            ]
+        ),
+        motorNerve: base.motorNerve
+    )
+
+    try descriptor.validate()
+}
+
+@Test func robotDescriptorValidationRejectsObservationUnknownChannelRef() async throws {
+    let base = makeDescriptor(engineID: "kuyu.physics")
+    let descriptor = RobotDescriptor(
+        robot: base.robot,
+        physics: base.physics,
+        render: base.render,
+        signals: base.signals,
+        sensors: base.sensors,
+        actuators: base.actuators,
+        control: base.control,
+        observation: RobotDescriptor.Observation(
+            clock: RobotDescriptor.ObservationClock(
+                timebase: "monotonic",
+                maxSkewMs: 2.0,
+                syncPolicy: .hard
+            ),
+            modalities: [
+                RobotDescriptor.ModalityDefinition(
+                    id: "cameraFront",
+                    type: .vision,
+                    channels: ["missing.signal"],
+                    timestampSource: "camClock"
+                )
+            ]
+        ),
+        motorNerve: base.motorNerve
+    )
+
+    do {
+        try descriptor.validate()
+        #expect(Bool(false))
+    } catch let error as RobotDescriptor.ValidationError {
+        #expect(error == .unknownSignalRef("missing.signal"))
+    }
+}
+
+@Test func robotDescriptorValidationRejectsObservationNegativeSkew() async throws {
+    let base = makeDescriptor(engineID: "kuyu.physics")
+    let descriptor = RobotDescriptor(
+        robot: base.robot,
+        physics: base.physics,
+        render: base.render,
+        signals: base.signals,
+        sensors: base.sensors,
+        actuators: base.actuators,
+        control: base.control,
+        observation: RobotDescriptor.Observation(
+            clock: RobotDescriptor.ObservationClock(
+                timebase: "monotonic",
+                maxSkewMs: -0.1,
+                syncPolicy: .hard
+            )
+        ),
+        motorNerve: base.motorNerve
+    )
+
+    do {
+        try descriptor.validate()
+        #expect(Bool(false))
+    } catch let error as RobotDescriptor.ValidationError {
+        #expect(error == .invalidRange("observation.clock.maxSkewMs"))
+    }
+}
+
+@Test func robotDescriptorValidationRejectsDescendingAsMotorNerveInput() async throws {
+    let base = makeDescriptor(engineID: "kuyu.physics")
+    let descriptor = RobotDescriptor(
+        robot: base.robot,
+        physics: base.physics,
+        render: base.render,
+        signals: RobotDescriptor.Signals(
+            sensor: base.signals.sensor,
+            actuator: base.signals.actuator,
+            drive: base.signals.drive,
+            reflex: base.signals.reflex,
+            descending: [
+                RobotDescriptor.SignalDefinition(id: "intent.thrust", index: 0, name: "intent.thrust", units: "norm")
+            ],
+            motorNerve: base.signals.motorNerve
+        ),
+        sensors: base.sensors,
+        actuators: base.actuators,
+        control: RobotDescriptor.Control(
+            driveChannels: base.control.driveChannels,
+            reflexChannels: base.control.reflexChannels,
+            descendingChannels: ["intent.thrust"],
+            constraints: base.control.constraints
+        ),
+        motorNerve: RobotDescriptor.MotorNerveDescriptor(
+            stages: [
+                RobotDescriptor.MotorNerveStage(
+                    id: "invalid",
+                    type: .direct,
+                    inputs: ["intent.thrust"],
+                    outputs: ["motor_1"]
+                )
+            ]
+        )
+    )
+
+    do {
+        try descriptor.validate()
+        #expect(Bool(false))
+    } catch let error as RobotDescriptor.ValidationError {
+        #expect(error == .unknownSignalRef("intent.thrust"))
     }
 }
 

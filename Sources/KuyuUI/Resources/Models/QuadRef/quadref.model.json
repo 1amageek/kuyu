@@ -221,6 +221,52 @@
         ],
         "group": "reflex"
       }
+    ],
+    "descending": [
+      {
+        "id": "intent.thrust",
+        "index": 0,
+        "name": "Intent Thrust",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "intent.thrust"
+      },
+      {
+        "id": "intent.roll",
+        "index": 1,
+        "name": "Intent Roll",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "intent.roll"
+      },
+      {
+        "id": "intent.pitch",
+        "index": 2,
+        "name": "Intent Pitch",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "intent.pitch"
+      },
+      {
+        "id": "intent.yaw",
+        "index": 3,
+        "name": "Intent Yaw",
+        "units": "unitless",
+        "range": [
+          -1,
+          1
+        ],
+        "group": "intent.yaw"
+      }
     ]
   },
   "sensors": [
@@ -311,6 +357,12 @@
       "reflex1",
       "reflex2",
       "reflex3"
+    ],
+    "descendingChannels": [
+      "intent.thrust",
+      "intent.roll",
+      "intent.pitch",
+      "intent.yaw"
     ],
     "constraints": {
       "driveClamp": [

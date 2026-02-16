@@ -1,5 +1,6 @@
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public struct ScenarioRunRecord: Identifiable {
     public let id: ScenarioKey

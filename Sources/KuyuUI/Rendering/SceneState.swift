@@ -1,6 +1,7 @@
 import Foundation
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public struct BodySceneState: Sendable, Equatable, Identifiable {
     public let id: String

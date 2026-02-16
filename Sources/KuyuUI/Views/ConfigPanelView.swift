@@ -1,6 +1,7 @@
 import SwiftUI
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public struct ConfigPanelView: View {
     @Bindable var model: SimulationViewModel
@@ -126,6 +127,41 @@ public struct ConfigPanelView: View {
                 .padding(.top, 6)
             }
 
+            GroupBox("Descending Intent") {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Comma-separated values (e.g. 0.5,0.0,-0.1)", text: $model.descendingVectorText)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            model.emitUIAction(level: .info, message: "Descending channels updated", action: "setDescendingChannels", metadata: [
+                                "raw": model.descendingVectorText
+                            ])
+                        }
+
+                    TextField("Program (e.g. 0:0.4,0,0,0;1.0:0.6,0,0,0)", text: $model.descendingProgramText)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            model.emitUIAction(level: .info, message: "Descending program updated", action: "setDescendingProgram", metadata: [
+                                "raw": model.descendingProgramText
+                            ])
+                        }
+
+                    let descendingChannels = model.descriptorDescendingChannelIDs()
+                    if descendingChannels.isEmpty {
+                        Text("Current descriptor does not define control.descendingChannels. Input is ignored.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Channel order: \(descendingChannels.joined(separator: ", "))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Set either vector or program (not both). Leave both empty for zero intent.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 6)
+            }
+
             GroupBox("Descriptor Summary") {
                 VStack(alignment: .leading, spacing: 6) {
                     if let descriptor = model.currentDescriptor() {
@@ -134,6 +170,8 @@ public struct ConfigPanelView: View {
                         SummaryLine(label: "category", value: descriptor.robot.category)
                         SummaryLine(label: "engine", value: descriptor.physics.engine.id)
                         SummaryLine(label: "motorNerve stages", value: "\(descriptor.motorNerve.stages.count)")
+                        SummaryLine(label: "descending signals", value: "\((descriptor.signals.descending ?? []).count)")
+                        SummaryLine(label: "descending channels", value: "\((descriptor.control.descendingChannels ?? []).count)")
                     } else if let error = model.currentDescriptorError() {
                         Text("Descriptor error: \(error)")
                             .font(.caption)

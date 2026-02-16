@@ -1,5 +1,7 @@
 # Kuyu Specification
 
+This document is the authoritative normative specification for Kuyu.
+
 ## Purpose (Normative)
 Kuyu is a **learning simulator** for Manas. It is **not** a general‑purpose
 simulator; it exists to provide the environment, realism, and logs required
@@ -52,6 +54,7 @@ Minimum capabilities:
 ## Interface Boundary
 - Inputs: sensor streams only (no ground truth).
 - Outputs: DriveIntent (primitive activations) + Reflex corrections → MotorNerve → actuator values.
+- M2+ observability output: descending snapshots, upward summaries, and arbitration traces for conscious/unconscious interop validation.
 
 MotorNerve is the peripheral routing protocol. The **MotorNerveEndpoint**
 maps DriveIntent + Reflex corrections to actuator values. Intermediate

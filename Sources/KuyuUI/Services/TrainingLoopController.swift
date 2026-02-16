@@ -1,7 +1,9 @@
 import Foundation
 import KuyuCore
 import KuyuMLX
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 public struct TrainingLoopConfig: Sendable, Equatable {
     var maxIterations: Int
@@ -248,7 +250,9 @@ public final class TrainingLoopController {
                         modelDescriptorPath: runRequest.modelDescriptorPath,
                         overrideParameters: runRequest.overrideParameters,
                         useAux: runRequest.useAux,
-                        useQualityGating: runRequest.useQualityGating
+                        useQualityGating: runRequest.useQualityGating,
+                        descendingVector: runRequest.descendingVector,
+                        descendingProgram: runRequest.descendingProgram
                     )
                     datasetOutput = try await runnerService.run(
                         request: teacherRequest,

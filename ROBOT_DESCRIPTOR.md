@@ -26,6 +26,7 @@ Required keys:
 
 Optional keys:
 - `render`
+- `observation` (M2+ optional extension)
 
 ## Common Types (Normative)
 - `Vector3`: array of 3 numbers `[x, y, z]` in meters for positions, or in SI for velocities/forces where applicable.
@@ -72,6 +73,8 @@ Fields:
 - `actuator` (array of SignalDefinition, required)
 - `drive` (array of SignalDefinition, required)
 - `reflex` (array of SignalDefinition, required)
+- `descending` (array of SignalDefinition, optional): planner/context channels.
+- `summary` (array of SignalDefinition, optional): Manas upward summary channels.
 - `motorNerve` (array of SignalDefinition, optional): intermediate MotorNerve signals.
 
 SignalDefinition:
@@ -144,11 +147,48 @@ swapProfile object fields:
 Fields:
 - `driveChannels` (array of SignalRef, required): references `signals.drive` IDs.
 - `reflexChannels` (array of SignalRef, required): references `signals.reflex` IDs.
+- `descendingChannels` (array of SignalRef, optional): references `signals.descending` IDs.
+- `summaryChannels` (array of SignalRef, optional): references `signals.summary` IDs.
 - `constraints` (object, optional): clamp ranges.
+- `latencyBudgetsMs` (object, optional): per-path latency budgets.
+  Required for M2+ interoperability profiles.
 
 constraints object fields:
 - `driveClamp` (Range, optional)
 - `reflexClamp` (Range, optional)
+
+latencyBudgetsMs object fields:
+- `reflexPathBudgetMs` (number, required if object present)
+- `corePathBudgetMs` (number, required if object present)
+- `descendingApplyBudgetMs` (number, required if object present)
+- `summaryExportBudgetMs` (number, required if object present)
+
+## observation (M2+ Optional Extension)
+Forward-compatible metadata for multimodal observation synchronization.
+Current runtimes MAY ignore this object, but producers SHOULD include it when
+using multimodal datasets or planner interfaces.
+
+Fields:
+- `clock` (object, optional): synchronization clock metadata.
+- `modalities` (array of ModalityDefinition, optional): modality provenance map.
+
+clock object fields:
+- `timebase` (string, required): source clock ID (e.g., monotonic, sensorHubClock).
+- `epoch` (string, optional): epoch origin label.
+- `maxSkewMs` (number, required): tolerated cross-modality skew.
+- `syncPolicy` (string, required): `hard` or `soft`.
+
+ModalityDefinition fields:
+- `id` (string, required): modality ID (e.g., imu, cameraFront, tactilePalm).
+- `type` (string, required): `state`, `event`, `vision`, `audio`, or `tactile`.
+- `channels` (array of SignalRef, optional): linked signals in descriptor catalog.
+- `timestampSource` (string, required): source timestamp domain.
+- `provenance` (object, optional): producer/runtime metadata.
+
+provenance object fields:
+- `producer` (string, optional): device or subsystem producer ID.
+- `transport` (string, optional): acquisition transport name.
+- `notes` (string, optional): free-form provenance annotations.
 
 ## motorNerve (Normative)
 MotorNerve defines the output protocol between DriveIntent/Reflex and actuator values.
@@ -188,12 +228,18 @@ Execution semantics:
 - `physics.model.format` MUST be `urdf`.
 - MotorNerve stage inputs MUST reference `signals.drive` or `signals.motorNerve`.
 - MotorNerve stage outputs MUST reference `signals.motorNerve` or `signals.actuator`.
+- If `control.descendingChannels` is present, all refs MUST exist in `signals.descending`.
+- `signals.descending` IDs MUST be globally unique like other signal categories.
+- If `control.summaryChannels` is present, all refs MUST exist in `signals.summary`.
+- `signals.summary` IDs MUST be globally unique like other signal categories.
 - MotorNerve stages MUST be ordered so motorNerve inputs are produced earlier.
 - MotorNerve outputs to `signals.motorNerve` MUST be consumed by later stages.
 - If any stage references `signals.motorNerve`, the catalog MUST be present.
 - All actuator signals MUST be produced by MotorNerve stages.
 - All `Range` values MUST satisfy `min <= max`.
 - All required numeric fields MUST be finite.
+- If `observation.clock` is present, `maxSkewMs` MUST be finite and non-negative.
+- If `control.latencyBudgetsMs` is present, all budget fields MUST be finite and > 0.
 
 ## UI Behavior (Informative)
 - KuyuUI enumerates signals from `signals.*` and allows the operator to select which signals to display.

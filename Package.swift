@@ -9,15 +9,6 @@ let package = Package(
         .macOS(.v26)
     ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
-        .library(
-            name: "KuyuCore",
-            targets: ["KuyuCore"]
-        ),
-        .library(
-            name: "KuyuProfiles",
-            targets: ["KuyuProfiles"]
-        ),
         .library(
             name: "KuyuMLX",
             targets: ["KuyuMLX"]
@@ -32,45 +23,38 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../kuyu-core"),
+        .package(path: "../kuyu-physics"),
+        .package(path: "../kuyu-scenarios"),
+        .package(path: "../kuyu-training"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
+        .package(path: "../manas-training-data"),
         .package(path: "../manas"),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
-        .target(
-            name: "KuyuCore",
-            dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Configuration", package: "swift-configuration"),
-            ]
-        ),
-        .target(
-            name: "KuyuProfiles",
-            dependencies: [
-                "KuyuCore",
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Configuration", package: "swift-configuration"),
-            ]
-        ),
         .target(
             name: "KuyuMLX",
             dependencies: [
-                "KuyuCore",
-                "KuyuProfiles",
+                .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "KuyuPhysics", package: "kuyu-physics"),
+                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+                .product(name: "KuyuTraining", package: "kuyu-training"),
                 .product(name: "ManasCore", package: "manas"),
                 .product(name: "ManasMLXModels", package: "manas"),
                 .product(name: "ManasMLXRuntime", package: "manas"),
                 .product(name: "ManasMLXTraining", package: "manas"),
+                .product(name: "ManasTrainingData", package: "manas-training-data"),
             ]
         ),
         .target(
             name: "KuyuUI",
             dependencies: [
-                "KuyuCore",
-                "KuyuProfiles",
+                .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "KuyuPhysics", package: "kuyu-physics"),
+                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+                .product(name: "KuyuTraining", package: "kuyu-training"),
                 "KuyuMLX",
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Configuration", package: "swift-configuration"),
@@ -82,15 +66,22 @@ let package = Package(
         .executableTarget(
             name: "KuyuCLI",
             dependencies: [
-                "KuyuCore",
-                "KuyuProfiles",
+                .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "KuyuPhysics", package: "kuyu-physics"),
+                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+                .product(name: "KuyuTraining", package: "kuyu-training"),
                 "KuyuMLX",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
         .testTarget(
             name: "kuyuTests",
-            dependencies: ["KuyuCore", "KuyuProfiles"]
+            dependencies: [
+                .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "KuyuPhysics", package: "kuyu-physics"),
+                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+                "KuyuMLX",
+            ]
         ),
     ]
 )

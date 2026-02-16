@@ -2,24 +2,36 @@ import ManasCore
 import ManasMLXModels
 import ManasMLXRuntime
 import KuyuCore
+import KuyuPhysics
+import KuyuScenarios
 
 public struct ManasMLXCut: CutInterface {
     public enum CutError: Error, Equatable {
         case trunkSizeMismatch(expected: Int, actual: Int)
         case reflexInputMismatch(expected: Int, actual: Int)
+        case conflictingDescendingInputs
+        case nonFiniteDescending
     }
 
     private var bundle: Imu6NerveBundle
     private var gate: any Gating
     private var trunks: BasicTrunksBuilder
-    private var core: ManasMLXCoreController
+    private var core: MLXDescendingCoreController
     private var reflex: ManasMLXReflexController
+    private let descendingTargetSize: Int
+    private let fixedDescendingVector: [Double]?
+    private let descendingProgram: DescendingIntentProgram?
 
     public init(
         coreModel: ManasMLXCore,
         reflexModel: ManasMLXReflex,
-        useQualityGating: Bool
+        useQualityGating: Bool,
+        descendingVector: [Double]? = nil,
+        descendingProgram: DescendingIntentProgram? = nil
     ) throws {
+        if descendingVector != nil, descendingProgram != nil {
+            throw CutError.conflictingDescendingInputs
+        }
         let bundleConfig = Imu6NerveBundle.Configuration(
             gyroRange: -20...20,
             accelRange: -20...20
@@ -37,8 +49,11 @@ public struct ManasMLXCut: CutInterface {
         if reflexModel.config.inputSize != sizing.fastTapCount {
             throw CutError.reflexInputMismatch(expected: reflexModel.config.inputSize, actual: sizing.fastTapCount)
         }
-        core = ManasMLXCoreController(model: coreModel)
+        core = MLXDescendingCoreController(model: coreModel)
         reflex = ManasMLXReflexController(model: reflexModel)
+        descendingTargetSize = coreModel.config.descendingSize
+        fixedDescendingVector = descendingVector
+        self.descendingProgram = descendingProgram
     }
 
     public mutating func update(samples: [ChannelSample], time: WorldTime) throws -> CutOutput {
@@ -53,8 +68,9 @@ public struct ManasMLXCut: CutInterface {
         let bundled = try bundle.process(samples: signalSamples, time: time.time)
         let gated = try gate.apply(bundle: bundled, time: time.time)
         let trunkBundle = try trunks.build(from: gated, time: time.time)
+        let goals = try buildGoals(at: time.time)
 
-        let manasDrives = try core.update(trunks: trunkBundle, time: time.time)
+        let manasDrives = try core.update(trunks: trunkBundle, goals: goals, time: time.time)
         let manasCorrections = try reflex.update(bundle: bundled, trunks: trunkBundle, time: time.time)
 
         let drives = try manasDrives.map { drive in
@@ -99,5 +115,36 @@ public struct ManasMLXCut: CutInterface {
         + bundle.phase.map(Float.init)
         + bundle.quality.map(Float.init)
         + bundle.spike.map(Float.init)
+    }
+
+    private static func normalizeDescending(
+        _ descendingVector: [Double]?,
+        targetSize: Int
+    ) throws -> [Double] {
+        guard targetSize > 0 else { return [] }
+        guard let descendingVector else { return [] }
+        guard descendingVector.allSatisfy({ $0.isFinite }) else {
+            throw CutError.nonFiniteDescending
+        }
+
+        if descendingVector.count >= targetSize {
+            return Array(descendingVector.prefix(targetSize))
+        }
+        return descendingVector + [Double](repeating: 0, count: targetSize - descendingVector.count)
+    }
+
+    private func buildGoals(at time: Double) throws -> [ControlGoal] {
+        let rawDescending: [Double]?
+        if let descendingProgram {
+            rawDescending = descendingProgram.vector(at: time)
+        } else {
+            rawDescending = fixedDescendingVector
+        }
+
+        let descending = try Self.normalizeDescending(rawDescending, targetSize: descendingTargetSize)
+        guard !descending.isEmpty else {
+            return []
+        }
+        return [try ControlGoal(kind: .referenceSignal, vector: descending)]
     }
 }

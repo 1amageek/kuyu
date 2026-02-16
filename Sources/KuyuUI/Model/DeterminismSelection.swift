@@ -1,5 +1,6 @@
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public enum DeterminismSelection: String, CaseIterable, Identifiable {
     case tier0 = "Tier0 (Bitwise)"

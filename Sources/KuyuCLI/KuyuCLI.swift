@@ -2,7 +2,9 @@ import ArgumentParser
 import Foundation
 import KuyuCore
 import KuyuMLX
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 @main
 struct KuyuCLI: AsyncParsableCommand {
@@ -51,6 +53,12 @@ struct Run: AsyncParsableCommand {
     @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
     var hoverScale: Double = 1.0
 
+    @Option(name: .customLong("descending"), help: "Optional descending channels as comma-separated values (e.g. 0.8,0.0,-0.2).")
+    var descending: String = ""
+
+    @Option(name: .customLong("descending-program"), help: "Optional descending program as 'time:values;time:values' (e.g. 0:0.4,0,0,0;1.0:0.6,0,0,0).")
+    var descendingProgram: String = ""
+
     @Flag(name: .customLong("no-aux"), help: "Disable aux prediction loss for MLX.")
     var noAux: Bool = false
 
@@ -78,6 +86,11 @@ struct Run: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
+        let descendingVector = try parseDescendingVector(descending)
+        let parsedDescendingProgram = try parseDescendingProgram(descendingProgram)
+        if descendingVector != nil, parsedDescendingProgram != nil {
+            throw ValidationError("Specify either --descending or --descending-program, not both.")
+        }
 
         let output: KuyAtt1RunOutput
         switch controller {
@@ -100,7 +113,9 @@ struct Run: AsyncParsableCommand {
                 modelDescriptorPath: model,
                 overrideParameters: model.isEmpty ? nil : parameters,
                 useAux: !noAux,
-                useQualityGating: !noQualityGate
+                useQualityGating: !noQualityGate,
+                descendingVector: descendingVector,
+                descendingProgram: parsedDescendingProgram
             )
             let store = ManasMLXModelStore()
             output = try await store.runManasMLX(
@@ -180,6 +195,12 @@ struct Loop: AsyncParsableCommand {
     @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
     var hoverScale: Double = 1.0
 
+    @Option(name: .customLong("descending"), help: "Optional descending channels as comma-separated values (e.g. 0.8,0.0,-0.2).")
+    var descending: String = ""
+
+    @Option(name: .customLong("descending-program"), help: "Optional descending program as 'time:values;time:values' (e.g. 0:0.4;1.0:0.7).")
+    var descendingProgram: String = ""
+
     @MainActor
     mutating func run() async throws {
         let determinism = try makeDeterminism(tier: tier)
@@ -192,6 +213,11 @@ struct Loop: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
+        let descendingVector = try parseDescendingVector(descending)
+        let parsedDescendingProgram = try parseDescendingProgram(descendingProgram)
+        if descendingVector != nil, parsedDescendingProgram != nil {
+            throw ValidationError("Specify either --descending or --descending-program, not both.")
+        }
 
         let datasetRoot: URL
         if let datasetRootPath, !datasetRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -210,7 +236,9 @@ struct Loop: AsyncParsableCommand {
             modelDescriptorPath: model,
             overrideParameters: model.isEmpty ? nil : parameters,
             useAux: !noAux,
-            useQualityGating: !noQualityGate
+            useQualityGating: !noQualityGate,
+            descendingVector: descendingVector,
+            descendingProgram: parsedDescendingProgram
         )
 
         let store = ManasMLXModelStore()
@@ -313,4 +341,73 @@ private func printSummary(output: KuyAtt1RunOutput) {
     let recovery = aggregate.averageRecoveryTime.map { String(format: "%.2f", $0) } ?? "n/a"
     let hf = aggregate.averageHfStabilityScore.map { String(format: "%.2f", $0) } ?? "n/a"
     print("passed=\(summary.suitePassed) scenarios=\(summary.evaluations.count) overshoot=\(overshoot) recovery=\(recovery) hf=\(hf)")
+}
+
+private func parseDescendingVector(_ raw: String, optionName: String = "--descending") throws -> [Double]? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return nil
+    }
+
+    let parts = trimmed.split(separator: ",", omittingEmptySubsequences: false)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    guard !parts.isEmpty else {
+        return nil
+    }
+
+    var vector: [Double] = []
+    vector.reserveCapacity(parts.count)
+    for part in parts {
+        guard !part.isEmpty else {
+            throw ValidationError("Invalid \(optionName) value ''. Use comma-separated finite numbers.")
+        }
+        guard let value = Double(part), value.isFinite else {
+            throw ValidationError("Invalid \(optionName) value '\(part)'. Use comma-separated finite numbers.")
+        }
+        vector.append(value)
+    }
+    return vector
+}
+
+private func parseDescendingProgram(_ raw: String) throws -> DescendingIntentProgram? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return nil
+    }
+
+    let frameSpecs = trimmed.split(separator: ";", omittingEmptySubsequences: false)
+    var keyframes: [DescendingIntentProgram.Keyframe] = []
+    keyframes.reserveCapacity(frameSpecs.count)
+
+    for frameSpec in frameSpecs {
+        let entry = frameSpec.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !entry.isEmpty else {
+            throw ValidationError("Invalid --descending-program frame ''. Use 'time:values;time:values'.")
+        }
+        guard let separator = entry.firstIndex(of: ":") else {
+            throw ValidationError("Invalid --descending-program frame '\(entry)'. Missing ':'.")
+        }
+
+        let timeToken = String(entry[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let valuesToken = String(entry[entry.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let time = Double(timeToken), time.isFinite else {
+            throw ValidationError("Invalid --descending-program time '\(timeToken)'.")
+        }
+        guard let values = try parseDescendingVector(valuesToken, optionName: "--descending-program") else {
+            throw ValidationError("Invalid --descending-program values '\(valuesToken)'.")
+        }
+
+        do {
+            let frame = try DescendingIntentProgram.Keyframe(time: time, values: values)
+            keyframes.append(frame)
+        } catch {
+            throw ValidationError("Invalid --descending-program frame '\(entry)': \(error)")
+        }
+    }
+
+    do {
+        return try DescendingIntentProgram(keyframes: keyframes)
+    } catch {
+        throw ValidationError("Invalid --descending-program: \(error)")
+    }
 }

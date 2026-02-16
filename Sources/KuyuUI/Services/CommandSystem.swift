@@ -1,14 +1,20 @@
 import Foundation
 import KuyuCore
 import KuyuMLX
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 public enum KuyuCommand: Sendable {
     case runSuite(SimulationRunRequest)
     case pause
     case stop
     case exportLogs(output: KuyAtt1RunOutput, directory: URL)
-    case exportDataset(output: KuyAtt1RunOutput, directory: URL)
+    case exportDataset(
+        output: KuyAtt1RunOutput,
+        directory: URL,
+        observationMetadata: TrainingObservationMetadata?
+    )
     case trainCore(TrainingRequest)
 }
 
@@ -135,8 +141,12 @@ public final class CommandSystem {
         case .exportLogs(let output, let directory):
             let bundle = try logWriter.write(output: output, to: directory)
             return .logsExported(bundle)
-        case .exportDataset(let output, let directory):
-            let outputs = try datasetExporter.write(output: output, to: directory)
+        case .exportDataset(let output, let directory, let observationMetadata):
+            let outputs = try datasetExporter.write(
+                output: output,
+                to: directory,
+                observation: observationMetadata
+            )
             return .datasetExported(count: outputs.count)
         case .trainCore(let request):
             let result = try await trainingService.trainCore(request: request)

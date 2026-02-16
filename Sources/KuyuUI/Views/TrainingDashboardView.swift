@@ -1,6 +1,7 @@
 import SwiftUI
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public struct TrainingDashboardView: View {
     @Bindable var model: SimulationViewModel

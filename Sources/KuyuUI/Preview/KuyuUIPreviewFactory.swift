@@ -1,7 +1,8 @@
 import Foundation
 import Logging
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 public enum KuyuUIPreviewFactory {
     private static func placeholderOutput() -> KuyAtt1RunOutput {
         let scenarioId = try! ScenarioID("PREVIEW-SCN")

@@ -3,6 +3,10 @@
 ## 目的
 Manasの学習と評価のため、swappability/HFストレスに強い訓練世界を実装する。
 
+## 仕様参照
+- 仕様要件は `kuyu/SPEC.md` と `kuyu/TRAINING_SPEC.md` を参照。
+- この文書は実装計画のみを扱う（非仕様）。
+
 ## 実装フェーズ
 ### 1) イベント注入
 - Sensor swap / Actuator swap / HF stress の定義と実装
@@ -24,3 +28,8 @@ Manasの学習と評価のため、swappability/HFストレスに強い訓練世
 - ContentView = 実行環境（Previewも同一経路）
 - Terminalに全エラー/警告を集約
 - Reflex/Gating/Trunksの可視化を追加
+
+### 6) M2+ 意識/無意識 I/F 検証
+- descending snapshot / upward summary / arbitration trace のログ契約実装
+- latency budget 契約と violation ログ実装
+- A4 の M2+ Partial/Missing を Covered へ移行

@@ -122,6 +122,19 @@
         ],
         "group": "reflex"
       }
+    ],
+    "descending": [
+      {
+        "id": "intent.thrust",
+        "index": 0,
+        "name": "Intent Thrust",
+        "units": "unitless",
+        "range": [
+          0,
+          1
+        ],
+        "group": "intent.thrust"
+      }
     ]
   },
   "sensors": [
@@ -203,6 +216,9 @@
     ],
     "reflexChannels": [
       "reflex0"
+    ],
+    "descendingChannels": [
+      "intent.thrust"
     ],
     "constraints": {
       "driveClamp": [

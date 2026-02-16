@@ -1,6 +1,8 @@
 import Testing
 import KuyuCore
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 @Test func quadrotorReferenceUsesDescriptorMassAndInertia() async throws {
     let inertial = PlantInertialProperties(

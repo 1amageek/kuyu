@@ -4,7 +4,9 @@ import Logging
 import Observation
 import KuyuCore
 import KuyuMLX
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
+import KuyuTraining
 
 @Observable
 @MainActor
@@ -72,6 +74,8 @@ public final class SimulationViewModel {
             descriptorCacheError = nil
         }
     }
+    var descendingVectorText: String = ""
+    var descendingProgramText: String = ""
     var useRenderAssets: Bool = false {
         didSet {
             emitUIAction(level: .info, message: "Render assets toggled", action: "toggleRenderAssets", metadata: [
@@ -631,6 +635,18 @@ public final class SimulationViewModel {
             effectiveController = controllerSelection
         }
 
+        let descendingIntent: ResolvedDescendingIntent
+        do {
+            descendingIntent = try resolvedDescendingIntent(
+                controller: effectiveController,
+                action: "runBaseline"
+            )
+        } catch {
+            isRunning = false
+            emitError("Invalid descending channels", error: error)
+            return
+        }
+
         let request = SimulationRunRequest(
             controller: effectiveController,
             taskMode: taskMode,
@@ -641,7 +657,9 @@ public final class SimulationViewModel {
             modelDescriptorPath: resolvedPath,
             overrideParameters: preflightParameters(modelPath: resolvedPath),
             useAux: trainingUseAux,
-            useQualityGating: trainingUseQualityGating
+            useQualityGating: trainingUseQualityGating,
+            descendingVector: descendingIntent.vector,
+            descendingProgram: descendingIntent.program
         )
         activeParameters = request.overrideParameters
 
@@ -763,7 +781,13 @@ public final class SimulationViewModel {
         let url = URL(fileURLWithPath: trimmed, isDirectory: true)
         Task {
             do {
-                let result = try await commandSystem.submit(.exportDataset(output: run.output, directory: url))
+                let result = try await commandSystem.submit(
+                    .exportDataset(
+                        output: run.output,
+                        directory: url,
+                        observationMetadata: trainingObservationMetadata()
+                    )
+                )
                 if case .datasetExported(let count) = result {
                     emitUIAction(
                         level: .info,
@@ -899,6 +923,16 @@ public final class SimulationViewModel {
         }
 
         let resolvedPath = ensureDescriptorForTask(reason: "startTrainingLoop")
+        let descendingIntent: ResolvedDescendingIntent
+        do {
+            descendingIntent = try resolvedDescendingIntent(
+                controller: loopController,
+                action: "startTrainingLoop"
+            )
+        } catch {
+            emitError("Invalid descending channels", error: error)
+            return
+        }
         let runRequest = SimulationRunRequest(
             controller: loopController,
             taskMode: taskMode,
@@ -909,7 +943,9 @@ public final class SimulationViewModel {
             modelDescriptorPath: resolvedPath,
             overrideParameters: preflightParameters(modelPath: resolvedPath),
             useAux: trainingUseAux,
-            useQualityGating: trainingUseQualityGating
+            useQualityGating: trainingUseQualityGating,
+            descendingVector: descendingIntent.vector,
+            descendingProgram: descendingIntent.program
         )
         activeParameters = runRequest.overrideParameters
 
@@ -1274,6 +1310,11 @@ public final class SimulationViewModel {
             refreshManualActuatorLayout()
             return nil
         }
+    }
+
+    private func trainingObservationMetadata() -> TrainingObservationMetadata? {
+        guard let observation = descriptorSnapshot()?.descriptor.observation else { return nil }
+        return TrainingObservationMetadata(observation: observation)
     }
 
     private func refreshManualActuatorLayout() {
@@ -1781,6 +1822,21 @@ public final class SimulationViewModel {
         return orderedSignals(ids: descriptor.control.reflexChannels, from: descriptor.signals.reflex)
     }
 
+    func descriptorDescendingChannelIDs() -> [String] {
+        guard let descriptor = descriptorSnapshot()?.descriptor else { return [] }
+        return descriptor.control.descendingChannels ?? []
+    }
+
+    func descendingSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
+        guard let descriptor = descriptorSnapshot()?.descriptor else { return [] }
+        let definitions = descriptor.signals.descending ?? []
+        guard let descendingChannels = descriptor.control.descendingChannels,
+              !descendingChannels.isEmpty else {
+            return definitions.sorted { $0.index < $1.index }
+        }
+        return orderedSignals(ids: descendingChannels, from: definitions)
+    }
+
     func actuatorSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
         let definitions = descriptorSnapshot()?.descriptor.signals.actuator ?? []
         return definitions.sorted { $0.index < $1.index }
@@ -1861,6 +1917,220 @@ public final class SimulationViewModel {
         }
         let fallbackMax = max(fallbackUpper, minValue + 1.0)
         return minValue...fallbackMax
+    }
+
+    private struct ResolvedDescendingIntent {
+        let vector: [Double]?
+        let program: DescendingIntentProgram?
+    }
+
+    private func resolvedDescendingIntent(
+        controller: ControllerSelection,
+        action: String
+    ) throws -> ResolvedDescendingIntent {
+        let rawVector = descendingVectorText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawProgram = descendingProgramText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasInput = !rawVector.isEmpty || !rawProgram.isEmpty
+
+        guard controller == .manasMLX else {
+            if hasInput {
+                emitUIAction(level: .warning, message: "Descending channels ignored for baseline controller", action: action, metadata: [
+                    "from": "configured",
+                    "to": "ignored",
+                    "reason": "controllerDoesNotUseDescending"
+                ])
+            }
+            return ResolvedDescendingIntent(vector: nil, program: nil)
+        }
+
+        let channelIDs = descriptorDescendingChannelIDs()
+
+        guard !channelIDs.isEmpty else {
+            if hasInput {
+                emitUIAction(level: .warning, message: "Descending channels ignored; descriptor has no control mapping", action: action, metadata: [
+                    "from": "configured",
+                    "to": "count=0",
+                    "reason": "noDescriptorDescendingChannels"
+                ])
+            }
+            return ResolvedDescendingIntent(vector: nil, program: nil)
+        }
+
+        let parsedVector = try parseDescendingVector(descendingVectorText)
+        let parsedProgram = try parseDescendingProgram(descendingProgramText)
+
+        if parsedVector != nil, parsedProgram != nil {
+            throw DescendingVectorParseError.conflictingInputs
+        }
+
+        if let parsedVector {
+            if parsedVector.count == channelIDs.count {
+                emitUIAction(level: .info, message: "Descending channels applied", action: action, metadata: [
+                    "channels": "\(channelIDs.count)",
+                    "values": formatDescendingVector(parsedVector)
+                ])
+                return ResolvedDescendingIntent(vector: parsedVector, program: nil)
+            }
+
+            let normalized = normalizedDescendingVector(parsedVector, expectedCount: channelIDs.count)
+            emitUIAction(level: .warning, message: "Descending channel count auto-corrected", action: action, metadata: [
+                "from": "count=\(parsedVector.count)",
+                "to": "count=\(channelIDs.count)",
+                "reason": "descriptorCountMismatch",
+                "channels": channelIDs.joined(separator: ","),
+                "values": formatDescendingVector(normalized)
+            ])
+            return ResolvedDescendingIntent(vector: normalized, program: nil)
+        }
+
+        if let parsedProgram {
+            if parsedProgram.channelCount == channelIDs.count {
+                emitUIAction(level: .info, message: "Descending program applied", action: action, metadata: [
+                    "channels": "\(channelIDs.count)",
+                    "keyframes": "\(parsedProgram.keyframes.count)"
+                ])
+                return ResolvedDescendingIntent(vector: nil, program: parsedProgram)
+            }
+
+            let normalizedProgram = try normalizedDescendingProgram(parsedProgram, expectedCount: channelIDs.count)
+            emitUIAction(level: .warning, message: "Descending program channel count auto-corrected", action: action, metadata: [
+                "from": "count=\(parsedProgram.channelCount)",
+                "to": "count=\(channelIDs.count)",
+                "reason": "descriptorCountMismatch",
+                "channels": channelIDs.joined(separator: ","),
+                "keyframes": "\(normalizedProgram.keyframes.count)"
+            ])
+            return ResolvedDescendingIntent(vector: nil, program: normalizedProgram)
+        }
+
+        if hasInput {
+            emitUIAction(level: .warning, message: "Descending input ignored; nothing parsed", action: action, metadata: [
+                "reason": "invalidOrEmpty"
+            ])
+            return ResolvedDescendingIntent(vector: nil, program: nil)
+        }
+
+        do {
+            emitUIAction(level: .info, message: "Descending channels omitted; using zero intent", action: action, metadata: [
+                "channels": "\(channelIDs.count)",
+                "reason": "emptyInput"
+            ])
+        }
+        return ResolvedDescendingIntent(vector: nil, program: nil)
+    }
+
+    private func parseDescendingVector(_ raw: String) throws -> [Double]? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let parts = trimmed.split(separator: ",", omittingEmptySubsequences: false)
+        var values: [Double] = []
+        values.reserveCapacity(parts.count)
+
+        for rawPart in parts {
+            let token = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else {
+                throw DescendingVectorParseError.invalidToken(String(rawPart))
+            }
+            guard let value = Double(token) else {
+                throw DescendingVectorParseError.invalidToken(token)
+            }
+            guard value.isFinite else {
+                throw DescendingVectorParseError.nonFiniteValue(token)
+            }
+            values.append(value)
+        }
+        return values
+    }
+
+    private func normalizedDescendingVector(_ values: [Double], expectedCount: Int) -> [Double] {
+        guard expectedCount > 0 else { return [] }
+        if values.count >= expectedCount {
+            return Array(values.prefix(expectedCount))
+        }
+        return values + Array(repeating: 0.0, count: expectedCount - values.count)
+    }
+
+    private func parseDescendingProgram(_ raw: String) throws -> DescendingIntentProgram? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let frameSpecs = trimmed.split(separator: ";", omittingEmptySubsequences: false)
+        var keyframes: [DescendingIntentProgram.Keyframe] = []
+        keyframes.reserveCapacity(frameSpecs.count)
+
+        for rawFrame in frameSpecs {
+            let frame = rawFrame.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !frame.isEmpty else {
+                throw DescendingVectorParseError.invalidProgramFrame(String(rawFrame))
+            }
+            guard let separator = frame.firstIndex(of: ":") else {
+                throw DescendingVectorParseError.invalidProgramFrame(frame)
+            }
+            let timeToken = String(frame[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let valuesToken = String(frame[frame.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let time = Double(timeToken), time.isFinite else {
+                throw DescendingVectorParseError.invalidProgramTime(timeToken)
+            }
+            guard let values = try parseDescendingVector(valuesToken) else {
+                throw DescendingVectorParseError.invalidProgramFrame(frame)
+            }
+            do {
+                let keyframe = try DescendingIntentProgram.Keyframe(time: time, values: values)
+                keyframes.append(keyframe)
+            } catch {
+                throw DescendingVectorParseError.invalidProgramFrame(frame)
+            }
+        }
+
+        do {
+            return try DescendingIntentProgram(keyframes: keyframes)
+        } catch {
+            throw DescendingVectorParseError.invalidProgram(raw)
+        }
+    }
+
+    private func normalizedDescendingProgram(
+        _ program: DescendingIntentProgram,
+        expectedCount: Int
+    ) throws -> DescendingIntentProgram {
+        let normalizedKeyframes = try program.keyframes.map { frame in
+            try DescendingIntentProgram.Keyframe(
+                time: frame.time,
+                values: normalizedDescendingVector(frame.values, expectedCount: expectedCount)
+            )
+        }
+        return try DescendingIntentProgram(keyframes: normalizedKeyframes)
+    }
+
+    private func formatDescendingVector(_ values: [Double]) -> String {
+        values.map { String(format: "%.4f", $0) }.joined(separator: ",")
+    }
+
+    private enum DescendingVectorParseError: LocalizedError {
+        case invalidToken(String)
+        case nonFiniteValue(String)
+        case conflictingInputs
+        case invalidProgram(String)
+        case invalidProgramFrame(String)
+        case invalidProgramTime(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidToken(let token):
+                return "Invalid descending token '\(token)'. Use comma-separated finite numbers."
+            case .nonFiniteValue(let token):
+                return "Descending token '\(token)' is not finite."
+            case .conflictingInputs:
+                return "Specify either descending vector or descending program, not both."
+            case .invalidProgram(let raw):
+                return "Invalid descending program '\(raw)'. Use 'time:values;time:values'."
+            case .invalidProgramFrame(let frame):
+                return "Invalid descending program frame '\(frame)'. Use 'time:values'."
+            case .invalidProgramTime(let token):
+                return "Invalid descending program time '\(token)'."
+            }
+        }
     }
 
     private func orderedSignals(

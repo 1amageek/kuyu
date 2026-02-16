@@ -1,5 +1,6 @@
 import Foundation
-import KuyuProfiles
+import KuyuPhysics
+import KuyuScenarios
 
 public enum KuyuUIModelPaths {
     public static func defaultDescriptorPath() -> String {
