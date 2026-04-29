@@ -24,6 +24,14 @@ public struct ConfigPanelView: View {
                         Text("ManasMLX uses learned Core/Reflex. Gains are ignored.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else if model.controllerSelection == .teacherBaseline {
+                        Text("Teacher Baseline may use scenario reference state for dataset/reference runs.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if model.controllerSelection == .sensorBaseline {
+                        Text("Sensor Baseline uses sensor-derived state only and does not receive hidden scenario attitude.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 6)
@@ -38,7 +46,7 @@ public struct ConfigPanelView: View {
                 }
                 .padding(.top, 6)
             }
-            .disabled(model.controllerSelection != .baseline)
+            .disabled(!model.controllerSelection.isBaselineController)
 
             GroupBox("Schedule") {
                 Stepper(value: $model.cutPeriodSteps, in: 1...10) {
@@ -87,12 +95,16 @@ public struct ConfigPanelView: View {
 
             GroupBox("Model") {
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("Descriptor path", text: $model.modelDescriptorPath)
+                    TextField(
+                        "Descriptor path",
+                        text: Binding(
+                            get: { model.modelDescriptorPath },
+                            set: { model.setModelDescriptorPath($0, source: "textField", emitLog: false) }
+                        )
+                    )
                         .textFieldStyle(.roundedBorder)
                         .onSubmit {
-                            model.emitUIAction(level: .info, message: "Descriptor path updated", action: "setDescriptorPath", metadata: [
-                                "path": model.modelDescriptorPath
-                            ])
+                            model.setModelDescriptorPath(model.modelDescriptorPath, source: "textField")
                         }
                     HStack(spacing: 8) {
                         Button("Use Bundled") {

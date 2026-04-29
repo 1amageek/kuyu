@@ -4,13 +4,24 @@
 # Xcode
 xcuserdata/
 DerivedData/
+.xcode/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcresult
+.swiftpm/xcode/xcuserdata/
 
 # Swift Package Manager
 .build/
+.cache/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 Package.resolved
+
+# Coverage and profiler output
+*.profraw
+*.profdata
+
+# Local tool/runtime state
+.codex-home/
 
 # Credentials
 .netrc

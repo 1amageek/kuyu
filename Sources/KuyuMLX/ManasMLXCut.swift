@@ -13,30 +13,33 @@ public struct ManasMLXCut: CutInterface {
         case nonFiniteDescending
     }
 
-    private var bundle: Imu6NerveBundle
+    private var bundle: any NerveBundle
     private var gate: any Gating
     private var trunks: BasicTrunksBuilder
     private var core: MLXDescendingCoreController
     private var reflex: ManasMLXReflexController
+    private let observationMode: ManasMLXObservationMode
     private let descendingTargetSize: Int
     private let fixedDescendingVector: [Double]?
     private let descendingProgram: DescendingIntentProgram?
+    private let useReflexCorrections: Bool
+    private let retainCoreState: Bool
 
     public init(
         coreModel: ManasMLXCore,
         reflexModel: ManasMLXReflex,
         useQualityGating: Bool,
+        observationMode: ManasMLXObservationMode = .imu6,
         descendingVector: [Double]? = nil,
-        descendingProgram: DescendingIntentProgram? = nil
+        descendingProgram: DescendingIntentProgram? = nil,
+        useReflexCorrections: Bool = false,
+        retainCoreState: Bool = true
     ) throws {
         if descendingVector != nil, descendingProgram != nil {
             throw CutError.conflictingDescendingInputs
         }
-        let bundleConfig = Imu6NerveBundle.Configuration(
-            gyroRange: -20...20,
-            accelRange: -20...20
-        )
-        bundle = Imu6NerveBundle(configuration: bundleConfig)
+        self.observationMode = observationMode
+        bundle = observationMode.makeBundle()
         gate = useQualityGating
             ? QualityGating(configuration: .init(minGate: 0.2, maxGate: 1.0))
             : IdentityGating()
@@ -54,10 +57,12 @@ public struct ManasMLXCut: CutInterface {
         descendingTargetSize = coreModel.config.descendingSize
         fixedDescendingVector = descendingVector
         self.descendingProgram = descendingProgram
+        self.useReflexCorrections = useReflexCorrections
+        self.retainCoreState = retainCoreState
     }
 
     public mutating func update(samples: [ChannelSample], time: WorldTime) throws -> CutOutput {
-        let signalSamples = try samples.map { sample in
+        let signalSamples = try samples.filter { observationMode.accepts(channelIndex: $0.channelIndex) }.map { sample in
             try SignalSample(
                 channelIndex: sample.channelIndex,
                 value: sample.value,
@@ -70,8 +75,13 @@ public struct ManasMLXCut: CutInterface {
         let trunkBundle = try trunks.build(from: gated, time: time.time)
         let goals = try buildGoals(at: time.time)
 
+        if !retainCoreState {
+            core.state = nil
+        }
         let manasDrives = try core.update(trunks: trunkBundle, goals: goals, time: time.time)
-        let manasCorrections = try reflex.update(bundle: bundled, trunks: trunkBundle, time: time.time)
+        let manasCorrections = useReflexCorrections
+            ? try reflex.update(bundle: bundled, trunks: trunkBundle, time: time.time)
+            : []
 
         let drives = try manasDrives.map { drive in
             try KuyuCore.DriveIntent(
@@ -93,13 +103,14 @@ public struct ManasMLXCut: CutInterface {
     }
 
     public static func computeSizing(
-        bundle: inout Imu6NerveBundle,
+        bundle: inout any NerveBundle,
         gate: inout any Gating,
         trunks: inout BasicTrunksBuilder
     ) throws -> (trunkSize: Int, fastTapCount: Int, driveCount: Int) {
         var samples: [SignalSample] = []
-        samples.reserveCapacity(6)
-        for index in 0..<6 {
+        let sampleCount = bundleSampleCount(bundle)
+        samples.reserveCapacity(sampleCount)
+        for index in 0..<sampleCount {
             let sample = try SignalSample(channelIndex: UInt32(index), value: 0.0, timestamp: 0.0)
             samples.append(sample)
         }
@@ -108,6 +119,25 @@ public struct ManasMLXCut: CutInterface {
         let trunkBundle = try trunks.build(from: gated, time: 0.0)
         let trunkVector = concatTrunks(trunkBundle)
         return (trunkVector.count, bundled.fastTaps.count, 4)
+    }
+
+    public static func computeSizing(
+        observationMode: ManasMLXObservationMode,
+        useQualityGating: Bool
+    ) throws -> (trunkSize: Int, fastTapCount: Int, driveCount: Int) {
+        var bundle = observationMode.makeBundle()
+        var gate: any Gating = useQualityGating
+            ? QualityGating(configuration: .init(minGate: 0.2, maxGate: 1.0))
+            : IdentityGating()
+        var trunks = BasicTrunksBuilder()
+        return try computeSizing(bundle: &bundle, gate: &gate, trunks: &trunks)
+    }
+
+    private static func bundleSampleCount(_ bundle: any NerveBundle) -> Int {
+        if let passThrough = bundle as? PassThroughNerveBundle {
+            return passThrough.configuration.channelCount
+        }
+        return 6
     }
 
     private static func concatTrunks(_ bundle: TrunkBundle) -> [Float] {

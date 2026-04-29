@@ -1,22 +1,28 @@
 import Foundation
 import KuyuMLX
+import KuyuTraining
 
 @MainActor
 public struct TrainingService {
-    let modelStore: ManasMLXModelStore
+    let runtime: ManasMLXTrainingRuntime
 
     public init(modelStore: ManasMLXModelStore) {
-        self.modelStore = modelStore
+        self.runtime = ManasMLXTrainingRuntime(modelStore: modelStore)
+    }
+
+    public init(runtime: ManasMLXTrainingRuntime) {
+        self.runtime = runtime
     }
 
     public func trainCore(request: TrainingRequest) async throws -> TrainingResult {
-        try await modelStore.trainCore(
+        try await runtime.trainSupervised(request: TrainingBackendRequest(
             datasetURL: request.datasetURL,
             sequenceLength: request.sequenceLength,
-            learningRate: request.learningRate,
             epochs: request.epochs,
+            learningRate: request.learningRate,
             useAux: request.useAux,
-            useQualityGating: request.useQualityGating
-        )
+            useQualityGating: request.useQualityGating,
+            maxBatches: request.maxBatches
+        ))
     }
 }

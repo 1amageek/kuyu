@@ -18,14 +18,14 @@ public struct UILogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
-    public func log(
+    public func log(event: LogEvent) {
+        log(level: event.level, message: event.message, metadata: event.metadata)
+    }
+
+    private func log(
         level: Logger.Level,
         message: Logger.Message,
-        metadata: Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
+        metadata: Logger.Metadata?
     ) {
         let timestamp = Date()
         var merged: [String: String] = [:]

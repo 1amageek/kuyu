@@ -46,7 +46,7 @@ public enum KuyuUIPreviewFactory {
         let gains = try! ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0)
         let determinism = try! DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
         return SimulationRunRequest(
-            controller: .baseline,
+            controller: .teacherBaseline,
             gains: gains,
             cutPeriodSteps: 2,
             noise: .zero,
@@ -64,6 +64,74 @@ public enum KuyuUIPreviewFactory {
         let model = SimulationViewModel(logStore: store)
         let output = placeholderOutput()
         model.insertRun(runRecord(output: output))
+        model.trainingLossSamples = [
+            MetricSample(time: 1, value: 0.42),
+            MetricSample(time: 2, value: 0.24),
+            MetricSample(time: 3, value: 0.12)
+        ]
+        model.validationLossSamples = [
+            MetricSample(time: 1, value: 0.48),
+            MetricSample(time: 2, value: 0.28),
+            MetricSample(time: 3, value: 0.16)
+        ]
+        model.loopScoreSamples = [
+            MetricSample(time: 1, value: 0.35),
+            MetricSample(time: 2, value: 0.62),
+            MetricSample(time: 3, value: 0.81)
+        ]
+        model.passRateSamples = [
+            MetricSample(time: 1, value: 0.33),
+            MetricSample(time: 2, value: 0.67),
+            MetricSample(time: 3, value: 1.0)
+        ]
+        model.failureRateSamples = [
+            MetricSample(time: 1, value: 0.67),
+            MetricSample(time: 2, value: 0.33),
+            MetricSample(time: 3, value: 0.0)
+        ]
+        model.safetyViolationSamples = [
+            MetricSample(time: 1, value: 0.12),
+            MetricSample(time: 2, value: 0.04),
+            MetricSample(time: 3, value: 0.0)
+        ]
+        model.rewardAverageSamples = [
+            MetricSample(time: 1, value: -2.0),
+            MetricSample(time: 2, value: 8.0),
+            MetricSample(time: 3, value: 18.0)
+        ]
+        model.workerThroughputSamples = [
+            MetricSample(time: 1, value: 12),
+            MetricSample(time: 2, value: 14),
+            MetricSample(time: 3, value: 15)
+        ]
+        model.trainingLiveStatus = TrainingLiveStatus(
+            phase: .evaluating,
+            message: "Suite passed",
+            iteration: 3,
+            datasetPath: "/tmp/kuyu-preview",
+            datasetCount: 3,
+            epochs: 4,
+            learningRate: 0.001,
+            passRate: 1.0,
+            failureRate: 0.0,
+            safetyViolationSeconds: 0.0,
+            lastRunPassed: true,
+            convergenceAccepted: true,
+            convergenceReason: "accepted",
+            plateauDetected: false,
+            overfitRiskDetected: false,
+            safetyRegressionDetected: false,
+            checkpointState: "accepted",
+            checkpointReason: "accepted",
+            bestCheckpointID: "preview-checkpoint",
+            artifactDirectoryPath: "/tmp/kuyu-preview"
+        )
+        model.trainingTimeline = [
+            TrainingTimelineEntry(phase: .evaluating, message: "Suite passed", iteration: 3),
+            TrainingTimelineEntry(phase: .supervisedTraining, message: "Training completed", iteration: 3),
+            TrainingTimelineEntry(phase: .datasetExport, message: "Dataset exported", iteration: 3),
+            TrainingTimelineEntry(phase: .rollout, message: "Policy rollout", iteration: 3)
+        ]
         for entry in logEntries(output: output) { store.emit(entry) }
         return model
     }

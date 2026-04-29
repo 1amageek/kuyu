@@ -27,6 +27,7 @@ let package = Package(
         .package(path: "../kuyu-physics"),
         .package(path: "../kuyu-scenarios"),
         .package(path: "../kuyu-training"),
+        .package(path: "../kuyu-world-model"),
         .package(url: "https://github.com/apple/swift-log", from: "1.9.1"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
@@ -41,6 +42,7 @@ let package = Package(
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),
+                .product(name: "KuyuWorldModel", package: "kuyu-world-model"),
                 .product(name: "ManasCore", package: "manas"),
                 .product(name: "ManasMLXModels", package: "manas"),
                 .product(name: "ManasMLXRuntime", package: "manas"),
@@ -80,7 +82,9 @@ let package = Package(
                 .product(name: "KuyuCore", package: "kuyu-core"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+                .product(name: "ManasMLXModels", package: "manas"),
                 "KuyuMLX",
+                "KuyuUI",
             ]
         ),
     ]

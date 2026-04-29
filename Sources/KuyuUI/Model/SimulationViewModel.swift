@@ -11,19 +11,9 @@ import KuyuTraining
 @Observable
 @MainActor
 public final class SimulationViewModel {
-    struct TrainingModelInfo: Identifiable, Hashable, Sendable {
-        let id: UUID
-        var name: String
-        var createdAt: Date
-        var lastTrainedAt: Date?
-        var hasSupervisedBootstrap: Bool
-        var storageURL: URL
-    }
-
     private struct ModelContext {
         let store: ManasMLXModelStore
         let commandSystem: CommandSystem
-        let trainingLoopController: TrainingLoopController
     }
 
     private(set) var runs: [RunRecord] = []
@@ -67,7 +57,7 @@ public final class SimulationViewModel {
     var logDirectory: String = ""
     var trainingDatasetDirectory: String = ""
     var trainingInputDirectory: String = ""
-    var modelDescriptorPath: String = KuyuUIModelPaths.defaultDescriptorPath() {
+    private(set) var modelDescriptorPath: String = KuyuUIModelPaths.defaultDescriptorPath() {
         didSet {
             descriptorCachePath = nil
             descriptorCache = nil
@@ -135,10 +125,21 @@ public final class SimulationViewModel {
         didSet { manualActuatorStore.update(values: manualActuatorValues) }
     }
     var trainingLossSamples: [MetricSample] = []
+    var validationLossSamples: [MetricSample] = []
     var loopScoreSamples: [MetricSample] = []
+    var rewardAverageSamples: [MetricSample] = []
+    var passRateSamples: [MetricSample] = []
+    var failureRateSamples: [MetricSample] = []
+    var safetyViolationSamples: [MetricSample] = []
+    var workerThroughputSamples: [MetricSample] = []
     var overshootSamples: [MetricSample] = []
     var recoverySamples: [MetricSample] = []
     var hfSamples: [MetricSample] = []
+    var trainingLiveStatus: TrainingLiveStatus = .idle
+    var trainingTimeline: [TrainingTimelineEntry] = []
+    var lastTrainingRunArtifactDirectory: URL?
+    var lastConvergenceSummary: ConvergenceSummary?
+    var lastCheckpointDecision: CheckpointDecision?
 
     var loopMaxIterations: Int = 10
     var loopEvaluationInterval: Int = 1
@@ -152,7 +153,14 @@ public final class SimulationViewModel {
     private var commandSystem: CommandSystem
     private var logger: Logger
     private let renderSystem = RenderSystem()
-    private var trainingLoopController: TrainingLoopController
+    private let checkpointStore = ModelCheckpointStore()
+    private let trainingRunPresenter = TrainingRunPresenter()
+    private let trainingRunStore = TrainingRunStore()
+    private let trainingRunCoordinator = TrainingRunCoordinator()
+    private let trainingBootstrapCoordinator = TrainingBootstrapCoordinator()
+    private let trainingLoopReducer = TrainingLoopStateReducer()
+    private let descendingIntentResolver = DescendingIntentResolver()
+    private var telemetryPresenter = TelemetryPresenter()
     private var modelStore: ManasMLXModelStore
     private let manualActuatorStore = ManualActuatorStore()
     private var lastManualActuatorLogTime: TimeInterval = 0
@@ -172,7 +180,6 @@ public final class SimulationViewModel {
         let store = ManasMLXModelStore()
         self.modelStore = store
         self.commandSystem = commandSystem ?? CommandSystem(modelStore: store)
-        self.trainingLoopController = TrainingLoopController(modelStore: store)
         self.logger = Logger(label: "kuyu.ui")
         self.logger.logLevel = .info
 
@@ -180,7 +187,6 @@ public final class SimulationViewModel {
             self?.recordLiveStep(step)
         }
         self.commandSystem.setTelemetry(telemetry)
-        self.trainingLoopController.setTelemetry(telemetry)
         self.commandSystem.setManualActuatorStore(manualActuatorStore)
         manualActuatorStore.isEnabled = manualActuatorEnabled
         manualActuatorStore.update(values: manualActuatorValues)
@@ -388,13 +394,13 @@ public final class SimulationViewModel {
 
     private func emitTaskMismatchWarnings(modelPath: String?) {
         guard let modelPath else { return }
-        if taskMode == .singleLift && isQuadDescriptorPath(modelPath) {
+        if taskMode == .singleLift && DescriptorSelection.isQuadDescriptorPath(modelPath) {
             emitUIAction(level: .warning, message: "Single Lift task using quad model descriptor", action: "taskDescriptorMismatch", metadata: [
                 "path": modelPath,
                 "reason": "singleLiftUsesQuad"
             ])
         }
-        if taskMode != .singleLift && isSinglePropDescriptorPath(modelPath) {
+        if taskMode != .singleLift && DescriptorSelection.isSinglePropDescriptorPath(modelPath) {
             emitUIAction(level: .warning, message: "Quad task using single-prop model descriptor", action: "taskDescriptorMismatch", metadata: [
                 "path": modelPath,
                 "reason": "quadUsesSingleProp"
@@ -403,49 +409,46 @@ public final class SimulationViewModel {
     }
 
     private func isQuadDescriptorPath(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        return lower.contains("quad") || lower.contains("quadref")
+        DescriptorSelection.isQuadDescriptorPath(path)
     }
 
     private func isSinglePropDescriptorPath(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        return lower.contains("singleprop") || lower.contains("single-prop") || lower.contains("slift")
+        DescriptorSelection.isSinglePropDescriptorPath(path)
     }
 
     private func desiredDescriptorPath(for task: SimulationTaskMode) -> String {
-        switch task {
-        case .singleLift:
-            return KuyuUIModelPaths.defaultSinglePropDescriptorPath()
-        case .attitude, .lift:
-            return KuyuUIModelPaths.defaultDescriptorPath()
-        }
+        DescriptorSelection.desiredDescriptorPath(for: task)
     }
 
     private func ensureDescriptorForTask(reason: String) -> String {
-        let trimmed = modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let desired = desiredDescriptorPath(for: taskMode)
-        if trimmed.isEmpty {
-            modelDescriptorPath = desired
+        let resolution = DescriptorSelection.resolveForTask(
+            configuredPath: modelDescriptorPath,
+            taskMode: taskMode
+        )
+        if resolution.didSwitch && resolution.reason == "emptyPath" {
+            modelDescriptorPath = resolution.path
             emitUIAction(level: .info, message: "Model descriptor set for task", action: "descriptorAutoSet", metadata: [
                 "reason": reason,
-                "path": desired
+                "path": resolution.path
             ])
             return resolvedDescriptorPath()
         }
 
-        if taskMode == .singleLift && isQuadDescriptorPath(trimmed) {
-            modelDescriptorPath = desired
+        if resolution.didSwitch && resolution.reason == "singleLiftUsesQuad" {
+            let previous = modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            modelDescriptorPath = resolution.path
             emitUIAction(level: .warning, message: "Model descriptor auto-switched for Single Lift task", action: "descriptorAutoSwitch", metadata: [
                 "reason": reason,
-                "from": trimmed,
-                "to": desired
+                "from": previous,
+                "to": resolution.path
             ])
-        } else if taskMode != .singleLift && isSinglePropDescriptorPath(trimmed) {
-            modelDescriptorPath = desired
+        } else if resolution.didSwitch && resolution.reason == "quadUsesSingleProp" {
+            let previous = modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            modelDescriptorPath = resolution.path
             emitUIAction(level: .warning, message: "Model descriptor auto-switched for quad task", action: "descriptorAutoSwitch", metadata: [
                 "reason": reason,
-                "from": trimmed,
-                "to": desired
+                "from": previous,
+                "to": resolution.path
             ])
         }
 
@@ -496,16 +499,13 @@ public final class SimulationViewModel {
         let store = ManasMLXModelStore()
         let command = CommandSystem(modelStore: store)
         command.setManualActuatorStore(manualActuatorStore)
-        let loop = TrainingLoopController(modelStore: store)
         let telemetry: (WorldStepLog) -> Void = { [weak self] step in
             self?.recordLiveStep(step)
         }
         command.setTelemetry(telemetry)
-        loop.setTelemetry(telemetry)
         modelContexts[info.id] = ModelContext(
             store: store,
-            commandSystem: command,
-            trainingLoopController: loop
+            commandSystem: command
         )
         availableModels.append(info)
         selectModel(id: info.id)
@@ -529,7 +529,6 @@ public final class SimulationViewModel {
         activeModelID = id
         modelStore = context.store
         commandSystem = context.commandSystem
-        trainingLoopController = context.trainingLoopController
         loadSelectedModelIfAvailable()
         emitUIAction(level: .info, message: "Model selected", action: "selectModel", metadata: [
             "modelId": id.uuidString,
@@ -550,20 +549,16 @@ public final class SimulationViewModel {
         let store = ManasMLXModelStore()
         let command = CommandSystem(modelStore: store)
         command.setManualActuatorStore(manualActuatorStore)
-        let loop = TrainingLoopController(modelStore: store)
         let telemetry: (WorldStepLog) -> Void = { [weak self] step in
             self?.recordLiveStep(step)
         }
         command.setTelemetry(telemetry)
-        loop.setTelemetry(telemetry)
         modelContexts[selectedModelID] = ModelContext(
             store: store,
-            commandSystem: command,
-            trainingLoopController: loop
+            commandSystem: command
         )
         modelStore = store
         commandSystem = command
-        trainingLoopController = loop
         updateSelectedModel { model in
             model.hasSupervisedBootstrap = false
             model.lastTrainedAt = nil
@@ -574,10 +569,18 @@ public final class SimulationViewModel {
         loopLastScore = nil
         loopStatusMessage = "Cleared"
         trainingLossSamples.removeAll()
+        validationLossSamples.removeAll()
         loopScoreSamples.removeAll()
+        rewardAverageSamples.removeAll()
+        passRateSamples.removeAll()
+        failureRateSamples.removeAll()
+        safetyViolationSamples.removeAll()
+        workerThroughputSamples.removeAll()
         overshootSamples.removeAll()
         recoverySamples.removeAll()
         hfSamples.removeAll()
+        trainingLiveStatus = .idle
+        trainingTimeline.removeAll()
         emitUIAction(level: .notice, message: "Training state cleared", action: "clearTrainingState")
     }
 
@@ -625,12 +628,12 @@ public final class SimulationViewModel {
 
         let effectiveController: ControllerSelection
         if manualActuatorEnabled {
-            if controllerSelection != .baseline {
-                emitUIAction(level: .warning, message: "Manual actuators force baseline controller", action: "runBaseline", metadata: [
+            if !controllerSelection.isBaselineController {
+                emitUIAction(level: .warning, message: "Manual actuators force teacher baseline controller", action: "runBaseline", metadata: [
                     "reason": "manualActuatorEnabled"
                 ])
             }
-            effectiveController = .baseline
+            effectiveController = .teacherBaseline
         } else {
             effectiveController = controllerSelection
         }
@@ -647,6 +650,16 @@ public final class SimulationViewModel {
             return
         }
 
+        let overrideParameters: ReferenceQuadrotorParameters?
+        do {
+            overrideParameters = try preflightParameters(modelPath: resolvedPath)
+        } catch {
+            isRunning = false
+            activeParameters = nil
+            emitError("Model preflight failed", error: error)
+            return
+        }
+
         let request = SimulationRunRequest(
             controller: effectiveController,
             taskMode: taskMode,
@@ -655,7 +668,7 @@ public final class SimulationViewModel {
             noise: .zero,
             determinism: determinism,
             modelDescriptorPath: resolvedPath,
-            overrideParameters: preflightParameters(modelPath: resolvedPath),
+            overrideParameters: overrideParameters,
             useAux: trainingUseAux,
             useQualityGating: trainingUseQualityGating,
             descendingVector: descendingIntent.vector,
@@ -668,7 +681,7 @@ public final class SimulationViewModel {
             message: "Run started (single)",
             action: "runBaseline",
             metadata: [
-                "controller": controllerSelection.rawValue,
+                "controller": effectiveController.rawValue,
                 "tier": "\(determinism.tier)",
                 "cutPeriod": "\(cutPeriodSteps)"
             ]
@@ -680,7 +693,7 @@ public final class SimulationViewModel {
             do {
                 let result = try await commandSystem.submit(.runSuite(request))
                 if case .runCompleted(let output) = result {
-                    let record = Self.buildRunRecord(output: output)
+                    let record = self.trainingRunPresenter.buildRunRecord(output: output)
                     self.isRunning = false
                     self.isPaused = false
                     self.runs.insert(record, at: 0)
@@ -837,14 +850,14 @@ public final class SimulationViewModel {
             "aux": trainingUseAux ? "true" : "false"
         ])
 
-        let request = TrainingRequest(
+        let request = trainingBootstrapCoordinator.makeRequest(input: TrainingBootstrapInput(
             datasetURL: url,
             sequenceLength: trainingSequenceLength,
             epochs: trainingEpochs,
             learningRate: trainingLearningRate,
             useAux: trainingUseAux,
             useQualityGating: trainingUseQualityGating
-        )
+        ))
 
         Task(priority: .userInitiated) { [request] in
             do {
@@ -888,33 +901,8 @@ public final class SimulationViewModel {
             taskMode = .singleLift
         }
 
-        let gains: ImuRateDampingCutGains
-        do {
-            gains = try ImuRateDampingCutGains(
-                kp: kp,
-                kd: kd,
-                yawDamping: yawDamping,
-                hoverThrustScale: hoverThrustScale
-            )
-        } catch {
-            emitError("Invalid gains", error: error)
-            return
-        }
-
-        let determinism: DeterminismConfig
-        do {
-            determinism = try determinismSelection.makeConfig()
-        } catch {
-            emitError("Invalid determinism config", error: error)
-            return
-        }
-
         let isPreview = isPreviewEnvironment
-        let loopController: ControllerSelection
-        if controllerSelection == .manasMLX {
-            loopController = controllerSelection
-        } else {
-            loopController = .manasMLX
+        if controllerSelection != .manasMLX {
             emitUIAction(level: .warning, message: "Training loop forces ManasMLX controller", action: "startTrainingLoop", metadata: [
                 "from": controllerSelection.rawValue,
                 "to": ControllerSelection.manasMLX.rawValue,
@@ -926,61 +914,57 @@ public final class SimulationViewModel {
         let descendingIntent: ResolvedDescendingIntent
         do {
             descendingIntent = try resolvedDescendingIntent(
-                controller: loopController,
+                controller: .manasMLX,
                 action: "startTrainingLoop"
             )
         } catch {
             emitError("Invalid descending channels", error: error)
             return
         }
-        let runRequest = SimulationRunRequest(
-            controller: loopController,
-            taskMode: taskMode,
-            gains: gains,
-            cutPeriodSteps: cutPeriodSteps,
-            noise: .zero,
-            determinism: determinism,
-            modelDescriptorPath: resolvedPath,
-            overrideParameters: preflightParameters(modelPath: resolvedPath),
-            useAux: trainingUseAux,
-            useQualityGating: trainingUseQualityGating,
-            descendingVector: descendingIntent.vector,
-            descendingProgram: descendingIntent.program
-        )
-        activeParameters = runRequest.overrideParameters
-
-        let trimmed = trainingDatasetDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let datasetRoot: URL
-        if trimmed.isEmpty {
-            datasetRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent("kuyu-loop-\(UUID().uuidString)", isDirectory: true)
-        } else {
-            datasetRoot = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .appendingPathComponent("loop-\(UUID().uuidString)", isDirectory: true)
+        let overrideParameters: ReferenceQuadrotorParameters?
+        do {
+            overrideParameters = try preflightParameters(modelPath: resolvedPath)
+        } catch {
+            activeParameters = nil
+            emitError("Model preflight failed", error: error)
+            return
         }
 
-        let trainingTemplate = TrainingRequest(
-            datasetURL: datasetRoot,
-            sequenceLength: trainingSequenceLength,
-            epochs: trainingEpochs,
-            learningRate: trainingLearningRate,
-            useAux: trainingUseAux,
-            useQualityGating: trainingUseQualityGating
-        )
+        let preparation: TrainingRunPreparation
+        do {
+            preparation = try trainingRunCoordinator.prepare(input: TrainingRunPreparationInput(
+                controllerSelection: controllerSelection,
+                taskMode: taskMode,
+                kp: kp,
+                kd: kd,
+                yawDamping: yawDamping,
+                hoverThrustScale: hoverThrustScale,
+                cutPeriodSteps: cutPeriodSteps,
+                determinismSelection: determinismSelection,
+                modelDescriptorPath: resolvedPath,
+                overrideParameters: overrideParameters,
+                descendingIntent: descendingIntent,
+                datasetDirectory: trainingDatasetDirectory,
+                trainingEpochs: trainingEpochs,
+                trainingSequenceLength: trainingSequenceLength,
+                trainingLearningRate: trainingLearningRate,
+                trainingUseAux: trainingUseAux,
+                trainingUseQualityGating: trainingUseQualityGating,
+                loopMaxIterations: loopMaxIterations,
+                loopEvaluationInterval: loopEvaluationInterval,
+                loopStopOnPass: loopStopOnPass,
+                loopPatience: loopPatience,
+                loopMinDelta: loopMinDelta,
+                loopMaxFailures: loopMaxFailures,
+                loopAllowAutoBackoff: loopAllowAutoBackoff
+            ))
+        } catch {
+            emitError("Invalid training run config", error: error)
+            return
+        }
 
-        let config = TrainingLoopConfig(
-            maxIterations: loopMaxIterations,
-            evaluationInterval: loopEvaluationInterval,
-            stopOnPass: loopStopOnPass,
-            patience: loopPatience,
-            minDelta: loopMinDelta,
-            maxConsecutiveFailures: loopMaxFailures,
-            allowAutoBackoff: loopAllowAutoBackoff,
-            enableDatasetExport: true,
-            enableTraining: true
-        )
-
-        activeLoopController = loopController
+        activeParameters = preparation.runRequest.overrideParameters
+        activeLoopController = preparation.controller
         isLoopRunning = true
         isLoopPaused = false
         loopIteration = 0
@@ -988,11 +972,25 @@ public final class SimulationViewModel {
         loopLastScore = nil
         loopStatusMessage = "Loop started"
         loopScoreSamples.removeAll()
+        rewardAverageSamples.removeAll()
+        passRateSamples.removeAll()
+        failureRateSamples.removeAll()
+        safetyViolationSamples.removeAll()
+        workerThroughputSamples.removeAll()
         overshootSamples.removeAll()
         recoverySamples.removeAll()
         hfSamples.removeAll()
+        lastConvergenceSummary = nil
+        lastCheckpointDecision = nil
+        lastTrainingRunArtifactDirectory = nil
+        trainingTimeline.removeAll()
+        updateTrainingLiveStatus(
+            phase: .preparing,
+            message: "Preparing training loop",
+            iteration: 0
+        )
         emitUIAction(level: .notice, message: "Training loop started", action: "startTrainingLoop", metadata: [
-            "controller": loopController.rawValue,
+            "controller": preparation.controller.rawValue,
             "iterations": "\(loopMaxIterations)",
             "evalInterval": "\(loopEvaluationInterval)",
             "stopOnPass": loopStopOnPass ? "true" : "false"
@@ -1014,11 +1012,11 @@ public final class SimulationViewModel {
         ])
 
         Task {
-            trainingLoopController.start(
-                config: config,
-                runRequest: runRequest,
-                trainingTemplate: trainingTemplate,
-                datasetRoot: datasetRoot
+            commandSystem.startTrainingLoop(
+                config: preparation.loopConfig,
+                runRequest: preparation.runRequest,
+                trainingTemplate: preparation.trainingTemplate,
+                datasetRoot: preparation.datasetRoot
             ) { [weak self] event in
                 guard let self else { return }
                 Task { @MainActor in
@@ -1031,7 +1029,7 @@ public final class SimulationViewModel {
     func pauseTrainingLoop() {
         guard isLoopRunning else { return }
         Task {
-            await trainingLoopController.pause()
+            await commandSystem.pauseTrainingLoop()
             await MainActor.run {
                 isLoopPaused = true
                 loopStatusMessage = "Paused"
@@ -1045,7 +1043,7 @@ public final class SimulationViewModel {
     func resumeTrainingLoop() {
         guard isLoopRunning else { return }
         Task {
-            await trainingLoopController.resume()
+            await commandSystem.resumeTrainingLoop()
             await MainActor.run {
                 isLoopPaused = false
                 loopStatusMessage = "Resumed"
@@ -1059,7 +1057,7 @@ public final class SimulationViewModel {
     func stopTrainingLoop() {
         guard isLoopRunning else { return }
         Task {
-            await trainingLoopController.stop()
+            await commandSystem.stopTrainingLoop()
             await MainActor.run {
                 isLoopPaused = false
                 loopStatusMessage = "Stopping"
@@ -1071,78 +1069,110 @@ public final class SimulationViewModel {
     }
 
     private func handleLoopEvent(_ event: TrainingLoopEvent) {
+        applyTrainingLoopState(trainingLoopReducer.reduce(
+            state: currentTrainingLoopState(),
+            event: event
+        ))
         switch event {
         case .started:
-            loopStatusMessage = "Running"
+            updateTrainingLiveStatus(
+                phase: .preparing,
+                message: "Training loop started",
+                iteration: loopIteration
+            )
         case .iterationStarted(let iteration):
-            loopIteration = iteration
-            loopStatusMessage = "Iteration \(iteration)"
+            updateTrainingLiveStatus(
+                phase: .evaluating,
+                message: "Iteration \(iteration)",
+                iteration: iteration
+            )
             emitTerminal(level: .notice, message: "Loop iteration started", metadata: [
                 "iter": "\(iteration)"
             ])
         case .runStarted(let iteration):
+            updateTrainingLiveStatus(
+                phase: .rollout,
+                message: "Policy rollout",
+                iteration: iteration
+            )
             emitTerminal(level: .notice, message: "Loop run started", metadata: [
                 "iter": "\(iteration)"
             ])
         case .teacherRunStarted(let iteration, let hoverThrustScale):
+            updateTrainingLiveStatus(
+                phase: .rollout,
+                message: "Teacher rollout",
+                iteration: iteration
+            )
             emitTerminal(level: .notice, message: "Teacher run started", metadata: [
                 "iter": "\(iteration)",
-                "controller": "baseline",
+                "controller": "teacherBaseline",
                 "task": taskMode.rawValue,
                 "hoverThrustScale": String(format: "%.3f", hoverThrustScale)
             ])
         case .teacherRunCompleted(let iteration, let output):
+            updateRunQualityStatus(iteration: iteration, output: output)
             emitTerminal(level: .notice, message: "Teacher run completed", metadata: [
                 "iter": "\(iteration)",
                 "passed": "\(output.summary.suitePassed)",
                 "scenarios": "\(output.logs.count)"
             ])
         case .runCompleted(let iteration, let output, let score):
-            loopIteration = iteration
-            loopLastScore = score
-            if loopBestScore == nil || score > (loopBestScore ?? -Double.greatestFiniteMagnitude) {
-                loopBestScore = score
-            }
-            let iterationTime = Double(iteration)
-            loopScoreSamples.append(MetricSample(time: iterationTime, value: score))
-            let record = Self.buildRunRecord(output: output)
+            let presentation = trainingRunPresenter.runCompleted(
+                iteration: iteration,
+                output: output,
+                score: score
+            )
+            loopScoreSamples.append(presentation.scoreSample)
+            let record = presentation.record
             runs.insert(record, at: 0)
             selectedRunID = record.id
             selectedScenarioKey = record.scenarios.first?.id
             if !output.summary.suitePassed {
                 emitScenarioFailures(output: output)
             }
-            let aggregate = output.summary.aggregate
-            let overshoot = aggregate.worstOvershootDegrees.map { String(format: "%.2f", $0) } ?? "n/a"
-            let recovery = aggregate.averageRecoveryTime.map { String(format: "%.2f", $0) } ?? "n/a"
-            let hf = aggregate.averageHfStabilityScore.map { String(format: "%.2f", $0) } ?? "n/a"
-            if let value = aggregate.worstOvershootDegrees {
-                overshootSamples.append(MetricSample(time: iterationTime, value: value))
+            if let sample = presentation.overshootSample {
+                overshootSamples.append(sample)
             }
-            if let value = aggregate.averageRecoveryTime {
-                recoverySamples.append(MetricSample(time: iterationTime, value: value))
+            if let sample = presentation.recoverySample {
+                recoverySamples.append(sample)
             }
-            if let value = aggregate.averageHfStabilityScore {
-                hfSamples.append(MetricSample(time: iterationTime, value: value))
+            if let sample = presentation.hfSample {
+                hfSamples.append(sample)
             }
-            emitTerminal(level: .info, message: "Loop run completed", metadata: [
-                "iter": "\(iteration)",
-                "score": String(format: "%.3f", score),
-                "overshoot": overshoot,
-                "recovery": recovery,
-                "hf": hf
-            ])
+            updateRunQualityStatus(iteration: iteration, output: output)
+            emitTerminal(level: .info, message: "Loop run completed", metadata: presentation.terminalMetadata)
         case .datasetExportStarted(let iteration, let path):
+            updateTrainingLiveStatus(
+                phase: .datasetExport,
+                message: "Exporting dataset",
+                iteration: iteration,
+                datasetPath: path
+            )
             emitTerminal(level: .notice, message: "Dataset export started", metadata: [
                 "iter": "\(iteration)",
                 "path": path
             ])
         case .datasetExportCompleted(let iteration, let count):
+            updateTrainingLiveStatus(
+                phase: .datasetExport,
+                message: "Dataset exported",
+                iteration: iteration,
+                datasetCount: count
+            )
             emitTerminal(level: .info, message: "Dataset export completed", metadata: [
                 "iter": "\(iteration)",
                 "count": "\(count)"
             ])
         case .trainingStarted(let iteration, let path, let epochs, let learningRate):
+            updateTrainingLiveStatus(
+                phase: .supervisedTraining,
+                message: "Supervised training",
+                iteration: iteration,
+                datasetPath: path,
+                epochs: epochs,
+                learningRate: learningRate
+            )
             emitTerminal(level: .notice, message: "Training started", metadata: [
                 "iter": "\(iteration)",
                 "path": path,
@@ -1150,7 +1180,13 @@ public final class SimulationViewModel {
                 "lr": String(format: "%.6f", learningRate)
             ])
         case .trainingCompleted(let iteration, let result):
-            lastTrainingLoss = result.finalLoss
+            Self.appendMetricSample(&trainingLossSamples, time: Double(iteration), value: result.finalLoss)
+            updateTrainingLiveStatus(
+                phase: .evaluating,
+                message: "Training completed",
+                iteration: iteration,
+                epochs: result.epochs
+            )
             updateSelectedModel { model in
                 model.hasSupervisedBootstrap = true
                 model.lastTrainedAt = Date()
@@ -1160,37 +1196,238 @@ public final class SimulationViewModel {
                 "iter": "\(iteration)",
                 "loss": String(format: "%.6f", result.finalLoss)
             ])
+        case .reinforcementTrainingCompleted(let iteration, let result):
+            Self.appendMetricSample(&rewardAverageSamples, time: Double(iteration), value: result.rewardAverage)
+            if let finalLoss = result.finalLoss {
+                Self.appendMetricSample(&trainingLossSamples, time: Double(iteration), value: finalLoss)
+            }
+            updateTrainingLiveStatus(
+                phase: .reinforcementTraining,
+                message: "Reinforcement training completed",
+                iteration: iteration
+            )
+            updateSelectedModel { model in
+                model.lastTrainedAt = Date()
+            }
+            persistSelectedModel()
+            var metadata: [String: String] = [
+                "iter": "\(iteration)",
+                "rewardAverage": String(format: "%.6f", result.rewardAverage)
+            ]
+            if let finalLoss = result.finalLoss {
+                metadata["loss"] = String(format: "%.6f", finalLoss)
+            }
+            if let checkpointID = result.candidateCheckpointID {
+                metadata["candidateCheckpoint"] = checkpointID
+            }
+            emitTerminal(level: .info, message: "Reinforcement training completed", metadata: metadata)
         case .backoffApplied(let newLearningRate):
-            trainingLearningRate = newLearningRate
+            updateTrainingLiveStatus(
+                phase: trainingLiveStatus.phase,
+                message: "Learning rate backoff",
+                iteration: loopIteration,
+                learningRate: newLearningRate
+            )
             emitTerminal(level: .notice, message: "Learning rate backoff", metadata: [
                 "lr": String(format: "%.6f", newLearningRate)
             ])
         case .paused:
-            isLoopPaused = true
-            loopStatusMessage = "Paused"
+            updateTrainingLiveStatus(
+                phase: .paused,
+                message: "Paused",
+                iteration: loopIteration
+            )
         case .resumed:
-            isLoopPaused = false
-            loopStatusMessage = "Running"
+            updateTrainingLiveStatus(
+                phase: .evaluating,
+                message: "Running",
+                iteration: loopIteration
+            )
         case .stopped:
-            isLoopRunning = false
-            isLoopPaused = false
-            loopStatusMessage = "Stopped"
-            activeLoopController = nil
+            updateTrainingLiveStatus(
+                phase: .stopped,
+                message: "Stopped",
+                iteration: loopIteration
+            )
         case .completed(let summary):
-            isLoopRunning = false
-            isLoopPaused = false
-            activeLoopController = nil
-            loopBestScore = summary.bestScore
-            loopLastScore = summary.lastScore
-            loopStatusMessage = summary.passed ? "Completed (passed)" : "Completed"
+            applyTrainingRunArtifacts(from: summary.artifactDirectory)
+            updateTrainingLiveStatus(
+                phase: .completed,
+                message: summary.passed ? "Completed (accepted)" : "Completed (rejected)",
+                iteration: summary.iterations,
+                artifactDirectoryPath: summary.artifactDirectory.path,
+                convergence: summary.convergence,
+                checkpointDecision: summary.checkpointDecision
+            )
             emitTerminal(level: .info, message: "Training loop completed", metadata: [
                 "iterations": "\(summary.iterations)",
-                "bestScore": String(format: "%.3f", summary.bestScore)
+                "bestScore": String(format: "%.3f", summary.bestScore),
+                "checkpointDecision": summary.checkpointDecision.state.rawValue,
+                "artifactDirectory": summary.artifactDirectory.path
             ])
         case .failed(let message):
-            loopStatusMessage = "Failed"
-            activeLoopController = nil
+            updateTrainingLiveStatus(
+                phase: .failed,
+                message: message,
+                iteration: loopIteration
+            )
             emitTerminal(level: .error, message: message)
+        }
+    }
+
+    private func currentTrainingLoopState() -> TrainingLoopStateSnapshot {
+        TrainingLoopStateSnapshot(
+            isLoopRunning: isLoopRunning,
+            isLoopPaused: isLoopPaused,
+            loopIteration: loopIteration,
+            loopBestScore: loopBestScore,
+            loopLastScore: loopLastScore,
+            loopStatusMessage: loopStatusMessage,
+            activeLoopController: activeLoopController,
+            trainingLearningRate: trainingLearningRate,
+            lastTrainingLoss: lastTrainingLoss,
+            lastTrainingRunArtifactDirectory: lastTrainingRunArtifactDirectory,
+            lastConvergenceSummary: lastConvergenceSummary,
+            lastCheckpointDecision: lastCheckpointDecision
+        )
+    }
+
+    private func applyTrainingLoopState(_ state: TrainingLoopStateSnapshot) {
+        isLoopRunning = state.isLoopRunning
+        isLoopPaused = state.isLoopPaused
+        loopIteration = state.loopIteration
+        loopBestScore = state.loopBestScore
+        loopLastScore = state.loopLastScore
+        loopStatusMessage = state.loopStatusMessage
+        activeLoopController = state.activeLoopController
+        trainingLearningRate = state.trainingLearningRate
+        lastTrainingLoss = state.lastTrainingLoss
+        lastTrainingRunArtifactDirectory = state.lastTrainingRunArtifactDirectory
+        lastConvergenceSummary = state.lastConvergenceSummary
+        lastCheckpointDecision = state.lastCheckpointDecision
+    }
+
+    private func applyTrainingRunArtifacts(from directory: URL) {
+        do {
+            let state = try trainingRunStore.load(from: directory)
+            trainingLossSamples = state.lossSamples
+            validationLossSamples = state.validationLossSamples
+            loopScoreSamples = state.scoreSamples
+            rewardAverageSamples = state.rewardAverageSamples
+            passRateSamples = state.passRateSamples
+            failureRateSamples = state.failureRateSamples
+            safetyViolationSamples = state.safetyViolationSamples
+            workerThroughputSamples = state.workerThroughputSamples
+            lastConvergenceSummary = state.convergence
+            lastCheckpointDecision = state.checkpointDecision
+            updateTrainingLiveStatus(
+                phase: trainingLiveStatus.phase,
+                message: trainingLiveStatus.message,
+                iteration: loopIteration,
+                artifactDirectoryPath: state.artifactDirectory.path,
+                convergence: state.convergence,
+                checkpointDecision: state.checkpointDecision
+            )
+        } catch {
+            emitTerminal(level: .warning, message: "Training artifacts unavailable", metadata: [
+                "path": directory.path,
+                "error": "\(error)"
+            ])
+        }
+    }
+
+    private func updateRunQualityStatus(iteration: Int, output: KuyAtt1RunOutput) {
+        let evaluations = output.summary.evaluations
+        let total = max(evaluations.count, 1)
+        let passCount = evaluations.filter(\.passed).count
+        let passRate = Double(passCount) / Double(total)
+        let failureRate = Double(total - passCount) / Double(total)
+        let safetyViolationSeconds = evaluations.reduce(0.0) { partial, evaluation in
+            partial + evaluation.sustainedViolationSeconds
+        }
+        Self.appendMetricSample(&passRateSamples, time: Double(iteration), value: passRate)
+        Self.appendMetricSample(&failureRateSamples, time: Double(iteration), value: failureRate)
+        Self.appendMetricSample(&safetyViolationSamples, time: Double(iteration), value: safetyViolationSeconds)
+        updateTrainingLiveStatus(
+            phase: .evaluating,
+            message: output.summary.suitePassed ? "Suite passed" : "Suite failed",
+            iteration: iteration,
+            passRate: passRate,
+            failureRate: failureRate,
+            safetyViolationSeconds: safetyViolationSeconds,
+            lastRunPassed: output.summary.suitePassed
+        )
+    }
+
+    private func updateTrainingLiveStatus(
+        phase: TrainingLiveStatus.Phase,
+        message: String,
+        iteration: Int,
+        datasetPath: String? = nil,
+        datasetCount: Int? = nil,
+        epochs: Int? = nil,
+        learningRate: Double? = nil,
+        passRate: Double? = nil,
+        failureRate: Double? = nil,
+        safetyViolationSeconds: Double? = nil,
+        lastRunPassed: Bool? = nil,
+        artifactDirectoryPath: String? = nil,
+        convergence: ConvergenceSummary? = nil,
+        checkpointDecision: CheckpointDecision? = nil
+    ) {
+        trainingLiveStatus.phase = phase
+        trainingLiveStatus.message = message
+        trainingLiveStatus.iteration = iteration
+        trainingLiveStatus.datasetPath = datasetPath ?? trainingLiveStatus.datasetPath
+        trainingLiveStatus.datasetCount = datasetCount ?? trainingLiveStatus.datasetCount
+        trainingLiveStatus.epochs = epochs ?? trainingLiveStatus.epochs
+        trainingLiveStatus.learningRate = learningRate ?? trainingLiveStatus.learningRate
+        trainingLiveStatus.passRate = passRate ?? trainingLiveStatus.passRate
+        trainingLiveStatus.failureRate = failureRate ?? trainingLiveStatus.failureRate
+        trainingLiveStatus.safetyViolationSeconds = safetyViolationSeconds ?? trainingLiveStatus.safetyViolationSeconds
+        trainingLiveStatus.lastRunPassed = lastRunPassed ?? trainingLiveStatus.lastRunPassed
+        trainingLiveStatus.artifactDirectoryPath = artifactDirectoryPath ?? trainingLiveStatus.artifactDirectoryPath
+        if let convergence {
+            trainingLiveStatus.convergenceAccepted = convergence.accepted
+            trainingLiveStatus.convergenceReason = convergence.reason
+            trainingLiveStatus.plateauDetected = convergence.plateauDetected
+            trainingLiveStatus.overfitRiskDetected = convergence.overfitRiskDetected
+            trainingLiveStatus.safetyRegressionDetected = convergence.safetyRegressionDetected
+            trainingLiveStatus.bestCheckpointID = convergence.bestCheckpointID
+        }
+        if let checkpointDecision {
+            trainingLiveStatus.checkpointState = checkpointDecision.state.rawValue
+            trainingLiveStatus.checkpointReason = checkpointDecision.reason
+        }
+        trainingLiveStatus.updatedAt = Date()
+        appendTrainingTimeline(phase: phase, message: message, iteration: iteration)
+    }
+
+    private func appendTrainingTimeline(
+        phase: TrainingLiveStatus.Phase,
+        message: String,
+        iteration: Int
+    ) {
+        if trainingTimeline.last?.phase == phase,
+           trainingTimeline.last?.message == message,
+           trainingTimeline.last?.iteration == iteration {
+            return
+        }
+        trainingTimeline.insert(TrainingTimelineEntry(phase: phase, message: message, iteration: iteration), at: 0)
+        if trainingTimeline.count > 16 {
+            trainingTimeline.removeLast(trainingTimeline.count - 16)
+        }
+    }
+
+    private static func appendMetricSample(
+        _ samples: inout [MetricSample],
+        time: Double,
+        value: Double
+    ) {
+        guard value.isFinite else { return }
+        samples.append(MetricSample(time: time, value: value))
+        if samples.count > 512 {
+            samples.removeFirst(samples.count - 512)
         }
     }
 
@@ -1207,42 +1444,17 @@ public final class SimulationViewModel {
         selectedScenarioKey = run.scenarios.first?.id
     }
 
-    func setModelDescriptorPath(_ path: String, source: String) {
+    func setModelDescriptorPath(_ path: String, source: String, emitLog: Bool = true) {
         modelDescriptorPath = path
         descriptorCachePath = nil
         descriptorCache = nil
         descriptorCacheError = nil
         refreshManualActuatorLayout()
+        guard emitLog else { return }
         emitUIAction(level: .info, message: "Model descriptor set", action: "setDescriptorPath", metadata: [
             "source": source,
             "path": path
         ])
-    }
-
-    private static func buildRunRecord(output: KuyAtt1RunOutput) -> RunRecord {
-        let evaluationsByKey = Dictionary(
-            uniqueKeysWithValues: output.result.evaluations.map {
-                (ScenarioKey(scenarioId: $0.scenarioId, seed: $0.seed), $0)
-            }
-        )
-
-        let scenarios: [ScenarioRunRecord] = output.logs.compactMap { entry in
-            guard let evaluation = evaluationsByKey[entry.key] else { return nil }
-            let metrics = ScenarioMetricsBuilder.build(log: entry.log)
-            return ScenarioRunRecord(
-                id: entry.key,
-                evaluation: evaluation,
-                log: entry.log,
-                metrics: metrics
-            )
-        }.sorted { lhs, rhs in
-            if lhs.id.scenarioId.rawValue == rhs.id.scenarioId.rawValue {
-                return lhs.id.seed.rawValue < rhs.id.seed.rawValue
-            }
-            return lhs.id.scenarioId.rawValue < rhs.id.scenarioId.rawValue
-        }
-
-        return RunRecord(output: output, scenarios: scenarios)
     }
 
     private func emitError(_ message: String, error: Error? = nil) {
@@ -1274,10 +1486,10 @@ public final class SimulationViewModel {
         if resolved != modelDescriptorPath {
             let previous = modelDescriptorPath
             modelDescriptorPath = resolved
-            emitUIAction(level: .warning, message: "Model descriptor not found, using fallback", action: "descriptorFallback", metadata: [
+            emitUIAction(level: .info, message: "Model descriptor path resolved", action: "descriptorPathResolved", metadata: [
                 "from": previous,
                 "to": resolved,
-                "reason": "notFound"
+                "reason": "defaultPath"
             ])
         }
         return resolved
@@ -1351,7 +1563,7 @@ public final class SimulationViewModel {
         return "descriptor-chain"
     }
 
-    private func preflightParameters(modelPath: String) -> ReferenceQuadrotorParameters? {
+    private func preflightParameters(modelPath: String) throws -> ReferenceQuadrotorParameters? {
         let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return nil
@@ -1370,17 +1582,17 @@ public final class SimulationViewModel {
             ])
             return parameters
         } catch {
-            emitUIAction(level: .warning, message: "Model load failed, using baseline", action: "modelPreflight", metadata: [
+            emitUIAction(level: .error, message: "Model load failed", action: "modelPreflight", metadata: [
                 "path": trimmed,
                 "reason": "loadFailed",
                 "error": "\(error)"
             ])
-            return ReferenceQuadrotorParameters.baseline
+            throw error
         }
     }
 
-    private func preflightParameters() -> ReferenceQuadrotorParameters? {
-        preflightParameters(modelPath: resolvedDescriptorPath())
+    private func preflightParameters() throws -> ReferenceQuadrotorParameters? {
+        try preflightParameters(modelPath: resolvedDescriptorPath())
     }
 
     private func resolvedTrainingInputURL() -> URL? {
@@ -1434,8 +1646,7 @@ public final class SimulationViewModel {
             selectedModelID = info.id
             modelContexts[info.id] = ModelContext(
                 store: defaultStore,
-                commandSystem: commandSystem,
-                trainingLoopController: trainingLoopController
+                commandSystem: commandSystem
             )
             return
         }
@@ -1446,16 +1657,13 @@ public final class SimulationViewModel {
             let store = ManasMLXModelStore()
             let command = CommandSystem(modelStore: store)
             command.setManualActuatorStore(manualActuatorStore)
-            let loop = TrainingLoopController(modelStore: store)
             let telemetry: (WorldStepLog) -> Void = { [weak self] step in
                 self?.recordLiveStep(step)
             }
             command.setTelemetry(telemetry)
-            loop.setTelemetry(telemetry)
             modelContexts[model.id] = ModelContext(
                 store: store,
-                commandSystem: command,
-                trainingLoopController: loop
+                commandSystem: command
             )
         }
 
@@ -1464,73 +1672,18 @@ public final class SimulationViewModel {
             activeModelID = first.id
             modelStore = context.store
             commandSystem = context.commandSystem
-            trainingLoopController = context.trainingLoopController
             loadSelectedModelIfAvailable()
         }
     }
 
     private func loadPersistedModels() -> [TrainingModelInfo] {
-        let root = modelRootDirectory()
-        let fileManager = FileManager.default
-        let directories: [URL]
-        do {
-            directories = try fileManager.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            return []
-        }
-
-        var models: [TrainingModelInfo] = []
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-
-        for url in directories {
-            let values: URLResourceValues
-            do {
-                values = try url.resourceValues(forKeys: [.isDirectoryKey])
-            } catch {
-                continue
-            }
-            guard values.isDirectory == true else { continue }
-            guard let id = UUID(uuidString: url.lastPathComponent) else { continue }
-            let manifestURL = url.appendingPathComponent("model.json")
-            let data: Data
-            do {
-                data = try Data(contentsOf: manifestURL)
-            } catch {
-                continue
-            }
-            let manifest: ManasMLXModelManifest
-            do {
-                manifest = try decoder.decode(ManasMLXModelManifest.self, from: data)
-            } catch {
-                continue
-            }
-
-            let hasWeights = fileManager.fileExists(atPath: url.appendingPathComponent("core.safetensors").path)
-            let info = TrainingModelInfo(
-                id: id,
-                name: manifest.name,
-                createdAt: manifest.createdAt,
-                lastTrainedAt: manifest.lastTrainedAt,
-                hasSupervisedBootstrap: hasWeights,
-                storageURL: url
-            )
-            models.append(info)
-        }
-
-        return models.sorted { $0.createdAt < $1.createdAt }
+        checkpointStore.loadPersistedModels()
     }
 
     private func loadSelectedModelIfAvailable() {
         guard let selectedModel else { return }
-        let manifestURL = selectedModel.storageURL.appendingPathComponent("model.json")
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return }
         do {
-            let manifest = try modelStore.loadModel(from: selectedModel.storageURL)
+            guard let manifest = try checkpointStore.load(model: selectedModel, into: modelStore) else { return }
             updateSelectedModel { model in
                 model.name = manifest.name
                 model.createdAt = manifest.createdAt
@@ -1548,20 +1701,8 @@ public final class SimulationViewModel {
 
     private func persistSelectedModel() {
         guard let selectedModel else { return }
-        guard let coreConfig = modelStore.currentCoreConfig else {
-            emitTerminal(level: .warning, message: "Model configs unavailable; skip save")
-            return
-        }
-
-        let manifest = ManasMLXModelManifest(
-            name: selectedModel.name,
-            createdAt: selectedModel.createdAt,
-            lastTrainedAt: selectedModel.lastTrainedAt,
-            coreConfig: coreConfig,
-            reflexConfig: modelStore.currentReflexConfig
-        )
         do {
-            try modelStore.saveModel(to: selectedModel.storageURL, manifest: manifest)
+            try checkpointStore.persist(model: selectedModel, from: modelStore)
             emitTerminal(level: .info, message: "Model saved", metadata: [
                 "path": selectedModel.storageURL.path
             ])
@@ -1571,33 +1712,22 @@ public final class SimulationViewModel {
     }
 
     private func removeModelArtifacts(at url: URL) {
-        let fileManager = FileManager.default
-        let artifacts = [
-            url.appendingPathComponent("core.safetensors"),
-            url.appendingPathComponent("reflex.safetensors"),
-            url.appendingPathComponent("model.json")
-        ]
-        for artifact in artifacts where fileManager.fileExists(atPath: artifact.path) {
-            do {
-                try fileManager.removeItem(at: artifact)
-            } catch {
+        for artifact in checkpointStore.removeArtifacts(at: url) {
+            if let error = artifact.errorDescription {
                 emitTerminal(level: .warning, message: "Failed to remove model artifact", metadata: [
-                    "path": artifact.path,
-                    "error": "\(error)"
+                    "path": artifact.url.path,
+                    "error": error
                 ])
             }
         }
     }
 
     private func modelRootDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Kuyu", isDirectory: true)
-            .appendingPathComponent("Models", isDirectory: true)
+        checkpointStore.rootDirectory()
     }
 
     private func modelDirectory(for id: UUID) -> URL {
-        modelRootDirectory().appendingPathComponent(id.uuidString, isDirectory: true)
+        checkpointStore.modelDirectory(for: id)
     }
 
     func emitTerminal(
@@ -1693,77 +1823,33 @@ public final class SimulationViewModel {
     }
 
     private func recordLiveStep(_ step: WorldStepLog) {
-        updateLiveStrideIfNeeded(step)
-        let stride = autoStridePending ? 1 : max(1, liveSampleStride)
-        if (step.time.stepIndex % UInt64(stride)) != 0 { return }
-        lastSensorSamples = step.sensorSamples
-        lastActuatorValues = step.actuatorValues
-        lastDriveIntents = step.driveIntents
-        lastReflexCorrections = step.reflexCorrections
-        lastActuatorTelemetry = step.actuatorTelemetry
-        lastMotorNerveTrace = step.motorNerveTrace
-        let root = step.plantState.root
-        let body = BodySceneState(
-            id: root.id,
-            position: root.position,
-            velocity: root.velocity,
-            orientation: root.orientation,
-            angularVelocity: root.angularVelocity
-        )
-        liveScene = SceneState(time: step.time.time, bodies: [body])
+        guard let presentation = telemetryPresenter.present(
+            step: step,
+            taskMode: taskMode,
+            activeParameters: activeParameters,
+            isActive: isRunning || isLoopRunning || isTraining
+        ) else { return }
 
-        if isRunning || isLoopRunning || isTraining {
-            let now = step.time.time
-            let last = lastTelemetryLogTime ?? -Double.greatestFiniteMagnitude
-            if now - last >= 1.0 {
-                lastTelemetryLogTime = now
-                var metadata: [String: String] = [
-                    "action": "telemetryStep",
-                    "task": taskMode.rawValue,
-                    "t": String(format: "%.2f", now),
-                    "step": "\(step.time.stepIndex)",
-                    "pos": String(format: "%.2f,%.2f,%.2f", root.position.x, root.position.y, root.position.z),
-                    "vel": String(format: "%.2f,%.2f,%.2f", root.velocity.x, root.velocity.y, root.velocity.z)
-                ]
+        liveSampleStride = presentation.liveSampleStride
+        lastSensorSamples = presentation.sensorSamples
+        lastActuatorValues = presentation.actuatorValues
+        lastDriveIntents = presentation.driveIntents
+        lastReflexCorrections = presentation.reflexCorrections
+        lastActuatorTelemetry = presentation.actuatorTelemetry
+        lastMotorNerveTrace = presentation.motorNerveTrace
+        liveScene = presentation.sceneState
 
-                if taskMode == .singleLift {
-                    let accelZ = step.sensorSamples.first(where: { $0.channelIndex == 5 })?.value
-                    let drive = step.driveIntents.first?.activation
-                    let uRaw = step.motorNerveTrace?.uRaw.first
-                    let uOut = step.motorNerveTrace?.uOut.first
-                    if let parameters = activeParameters {
-                        let disturbanceZ = step.disturbances.forceWorld.z
-                        let thrust = step.actuatorTelemetry.value(for: "motor1") ?? 0
-                        let netAccelZ = (thrust + disturbanceZ) / parameters.mass - parameters.gravity
-                        metadata["netAccelZ"] = String(format: "%.3f", netAccelZ)
-                        metadata["gravity"] = String(format: "%.3f", parameters.gravity)
-                        metadata["mass"] = String(format: "%.3f", parameters.mass)
-                        if let uOut {
-                            let expectedThrust = uOut * parameters.maxThrust
-                            let thrustError = thrust - expectedThrust
-                            metadata["u_out_thrust"] = String(format: "%.3f", expectedThrust)
-                            metadata["thrustError"] = String(format: "%.3f", thrustError)
-                        } else {
-                            metadata["u_out_thrust"] = "n/a"
-                            metadata["thrustError"] = "n/a"
-                        }
-                    }
-                    metadata["accelZ"] = accelZ.map { String(format: "%.3f", $0) } ?? "n/a"
-                    metadata["drive"] = drive.map { String(format: "%.3f", $0) } ?? "n/a"
-                    metadata["u_raw"] = uRaw.map { String(format: "%.3f", $0) } ?? "n/a"
-                    metadata["u_out"] = uOut.map { String(format: "%.3f", $0) } ?? "n/a"
-                    let thrust = step.actuatorTelemetry.value(for: "motor1") ?? 0
-                    metadata["thrust"] = String(format: "%.3f", thrust)
-                }
-
-                emitTerminal(level: .notice, message: "Sim step", metadata: metadata)
-            }
+        if let strideLogMetadata = presentation.strideLogMetadata {
+            emitTerminal(level: .info, message: "Render stride auto-set", metadata: strideLogMetadata)
+        }
+        if let stepLogMetadata = presentation.stepLogMetadata {
+            emitTerminal(level: .notice, message: "Sim step", metadata: stepLogMetadata)
         }
     }
 
     private func resetLiveStride() {
-        autoStridePending = true
-        lastLiveStepTime = nil
+        telemetryPresenter.resetStride()
+        liveSampleStride = telemetryPresenter.liveSampleStride
     }
 
     private func updateLiveStrideIfNeeded(_ step: WorldStepLog) {
@@ -1919,218 +2005,26 @@ public final class SimulationViewModel {
         return minValue...fallbackMax
     }
 
-    private struct ResolvedDescendingIntent {
-        let vector: [Double]?
-        let program: DescendingIntentProgram?
-    }
-
     private func resolvedDescendingIntent(
         controller: ControllerSelection,
         action: String
     ) throws -> ResolvedDescendingIntent {
-        let rawVector = descendingVectorText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rawProgram = descendingProgramText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasInput = !rawVector.isEmpty || !rawProgram.isEmpty
-
-        guard controller == .manasMLX else {
-            if hasInput {
-                emitUIAction(level: .warning, message: "Descending channels ignored for baseline controller", action: action, metadata: [
-                    "from": "configured",
-                    "to": "ignored",
-                    "reason": "controllerDoesNotUseDescending"
-                ])
-            }
-            return ResolvedDescendingIntent(vector: nil, program: nil)
-        }
-
-        let channelIDs = descriptorDescendingChannelIDs()
-
-        guard !channelIDs.isEmpty else {
-            if hasInput {
-                emitUIAction(level: .warning, message: "Descending channels ignored; descriptor has no control mapping", action: action, metadata: [
-                    "from": "configured",
-                    "to": "count=0",
-                    "reason": "noDescriptorDescendingChannels"
-                ])
-            }
-            return ResolvedDescendingIntent(vector: nil, program: nil)
-        }
-
-        let parsedVector = try parseDescendingVector(descendingVectorText)
-        let parsedProgram = try parseDescendingProgram(descendingProgramText)
-
-        if parsedVector != nil, parsedProgram != nil {
-            throw DescendingVectorParseError.conflictingInputs
-        }
-
-        if let parsedVector {
-            if parsedVector.count == channelIDs.count {
-                emitUIAction(level: .info, message: "Descending channels applied", action: action, metadata: [
-                    "channels": "\(channelIDs.count)",
-                    "values": formatDescendingVector(parsedVector)
-                ])
-                return ResolvedDescendingIntent(vector: parsedVector, program: nil)
-            }
-
-            let normalized = normalizedDescendingVector(parsedVector, expectedCount: channelIDs.count)
-            emitUIAction(level: .warning, message: "Descending channel count auto-corrected", action: action, metadata: [
-                "from": "count=\(parsedVector.count)",
-                "to": "count=\(channelIDs.count)",
-                "reason": "descriptorCountMismatch",
-                "channels": channelIDs.joined(separator: ","),
-                "values": formatDescendingVector(normalized)
-            ])
-            return ResolvedDescendingIntent(vector: normalized, program: nil)
-        }
-
-        if let parsedProgram {
-            if parsedProgram.channelCount == channelIDs.count {
-                emitUIAction(level: .info, message: "Descending program applied", action: action, metadata: [
-                    "channels": "\(channelIDs.count)",
-                    "keyframes": "\(parsedProgram.keyframes.count)"
-                ])
-                return ResolvedDescendingIntent(vector: nil, program: parsedProgram)
-            }
-
-            let normalizedProgram = try normalizedDescendingProgram(parsedProgram, expectedCount: channelIDs.count)
-            emitUIAction(level: .warning, message: "Descending program channel count auto-corrected", action: action, metadata: [
-                "from": "count=\(parsedProgram.channelCount)",
-                "to": "count=\(channelIDs.count)",
-                "reason": "descriptorCountMismatch",
-                "channels": channelIDs.joined(separator: ","),
-                "keyframes": "\(normalizedProgram.keyframes.count)"
-            ])
-            return ResolvedDescendingIntent(vector: nil, program: normalizedProgram)
-        }
-
-        if hasInput {
-            emitUIAction(level: .warning, message: "Descending input ignored; nothing parsed", action: action, metadata: [
-                "reason": "invalidOrEmpty"
-            ])
-            return ResolvedDescendingIntent(vector: nil, program: nil)
-        }
-
-        do {
-            emitUIAction(level: .info, message: "Descending channels omitted; using zero intent", action: action, metadata: [
-                "channels": "\(channelIDs.count)",
-                "reason": "emptyInput"
-            ])
-        }
-        return ResolvedDescendingIntent(vector: nil, program: nil)
-    }
-
-    private func parseDescendingVector(_ raw: String) throws -> [Double]? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let parts = trimmed.split(separator: ",", omittingEmptySubsequences: false)
-        var values: [Double] = []
-        values.reserveCapacity(parts.count)
-
-        for rawPart in parts {
-            let token = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !token.isEmpty else {
-                throw DescendingVectorParseError.invalidToken(String(rawPart))
-            }
-            guard let value = Double(token) else {
-                throw DescendingVectorParseError.invalidToken(token)
-            }
-            guard value.isFinite else {
-                throw DescendingVectorParseError.nonFiniteValue(token)
-            }
-            values.append(value)
-        }
-        return values
-    }
-
-    private func normalizedDescendingVector(_ values: [Double], expectedCount: Int) -> [Double] {
-        guard expectedCount > 0 else { return [] }
-        if values.count >= expectedCount {
-            return Array(values.prefix(expectedCount))
-        }
-        return values + Array(repeating: 0.0, count: expectedCount - values.count)
-    }
-
-    private func parseDescendingProgram(_ raw: String) throws -> DescendingIntentProgram? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let frameSpecs = trimmed.split(separator: ";", omittingEmptySubsequences: false)
-        var keyframes: [DescendingIntentProgram.Keyframe] = []
-        keyframes.reserveCapacity(frameSpecs.count)
-
-        for rawFrame in frameSpecs {
-            let frame = rawFrame.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !frame.isEmpty else {
-                throw DescendingVectorParseError.invalidProgramFrame(String(rawFrame))
-            }
-            guard let separator = frame.firstIndex(of: ":") else {
-                throw DescendingVectorParseError.invalidProgramFrame(frame)
-            }
-            let timeToken = String(frame[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let valuesToken = String(frame[frame.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let time = Double(timeToken), time.isFinite else {
-                throw DescendingVectorParseError.invalidProgramTime(timeToken)
-            }
-            guard let values = try parseDescendingVector(valuesToken) else {
-                throw DescendingVectorParseError.invalidProgramFrame(frame)
-            }
-            do {
-                let keyframe = try DescendingIntentProgram.Keyframe(time: time, values: values)
-                keyframes.append(keyframe)
-            } catch {
-                throw DescendingVectorParseError.invalidProgramFrame(frame)
-            }
-        }
-
-        do {
-            return try DescendingIntentProgram(keyframes: keyframes)
-        } catch {
-            throw DescendingVectorParseError.invalidProgram(raw)
-        }
-    }
-
-    private func normalizedDescendingProgram(
-        _ program: DescendingIntentProgram,
-        expectedCount: Int
-    ) throws -> DescendingIntentProgram {
-        let normalizedKeyframes = try program.keyframes.map { frame in
-            try DescendingIntentProgram.Keyframe(
-                time: frame.time,
-                values: normalizedDescendingVector(frame.values, expectedCount: expectedCount)
+        let resolution = try descendingIntentResolver.resolve(
+            controller: controller,
+            channelIDs: descriptorDescendingChannelIDs(),
+            vectorText: descendingVectorText,
+            programText: descendingProgramText
+        )
+        if let presentation = resolution.presentation {
+            let level: Logger.Level = presentation.severity == .info ? .info : .warning
+            emitUIAction(
+                level: level,
+                message: presentation.message,
+                action: action,
+                metadata: presentation.metadata
             )
         }
-        return try DescendingIntentProgram(keyframes: normalizedKeyframes)
-    }
-
-    private func formatDescendingVector(_ values: [Double]) -> String {
-        values.map { String(format: "%.4f", $0) }.joined(separator: ",")
-    }
-
-    private enum DescendingVectorParseError: LocalizedError {
-        case invalidToken(String)
-        case nonFiniteValue(String)
-        case conflictingInputs
-        case invalidProgram(String)
-        case invalidProgramFrame(String)
-        case invalidProgramTime(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .invalidToken(let token):
-                return "Invalid descending token '\(token)'. Use comma-separated finite numbers."
-            case .nonFiniteValue(let token):
-                return "Descending token '\(token)' is not finite."
-            case .conflictingInputs:
-                return "Specify either descending vector or descending program, not both."
-            case .invalidProgram(let raw):
-                return "Invalid descending program '\(raw)'. Use 'time:values;time:values'."
-            case .invalidProgramFrame(let frame):
-                return "Invalid descending program frame '\(frame)'. Use 'time:values'."
-            case .invalidProgramTime(let token):
-                return "Invalid descending program time '\(token)'."
-            }
-        }
+        return resolution.intent
     }
 
     private func orderedSignals(

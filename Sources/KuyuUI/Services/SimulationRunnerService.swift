@@ -25,10 +25,12 @@ public struct SimulationRunnerService {
         telemetry: ((WorldStepLog) -> Void)? = nil
     ) async throws -> KuyAtt1RunOutput {
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: request.cutPeriodSteps)
-        let parameters = loadParameters(request: request)
-        let descriptor = loadDescriptor(path: request.modelDescriptorPath, task: request.taskMode)
+        let resolution = try resolveParameters(request: request)
+        let parameters = resolution.parameters
+        let descriptor = resolution.descriptor
         switch request.controller {
-        case .baseline:
+        case .baseline, .teacherBaseline, .sensorBaseline:
+            let baselineMode = request.controller.kuyAtt1BaselineMode ?? .teacher
             if let store = manualActuatorStore, store.isEnabled, request.taskMode != .singleLift {
                 return try await runManualBaseline(
                     request: request,
@@ -102,7 +104,8 @@ public struct SimulationRunnerService {
                     schedule: schedule,
                     control: control,
                     telemetry: telemetry,
-                    chainFactory: chainFactory
+                    chainFactory: chainFactory,
+                    baselineMode: baselineMode
                 )
             }
             let runner = KuyAtt1Runner(
@@ -110,10 +113,12 @@ public struct SimulationRunnerService {
                 schedule: schedule,
                 determinism: request.determinism,
                 noise: request.noise,
-                gains: request.gains
+                gains: request.gains,
+                baselineMode: baselineMode
             )
             return try await runner.runWithLogs(control: control)
         case .manasMLX:
+            try MLXRuntimePreflight().check()
             return try await modelStore.runManasMLX(
                 parameters: parameters,
                 schedule: schedule,
@@ -125,23 +130,29 @@ public struct SimulationRunnerService {
         }
     }
 
-    private func loadDescriptor(path: String, task: SimulationTaskMode) -> RobotDescriptor? {
+    private func loadDescriptor(path: String, task: SimulationTaskMode) throws -> LoadedRobotDescriptor? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         do {
             let loader = RobotDescriptorLoader()
-            let loaded = try loader.loadDescriptor(path: trimmed)
-            return loaded.descriptor
+            return try loader.loadDescriptor(path: trimmed)
         } catch {
-            logger.warning("RobotDescriptor load failed", metadata: [
+            logger.error("RobotDescriptor load failed", metadata: [
                 "action": "descriptorLoadFailed",
                 "task": .string(task.rawValue),
                 "model": .string(trimmed),
-                "reason": .string(String(describing: error))
+                "modelDescriptor": .string(trimmed),
+                "reason": "loadFailed",
+                "error": .string(String(describing: error))
             ])
-            return nil
+            throw error
         }
+    }
+
+    private func resolveParameters(request: SimulationRunRequest) throws -> SimulationParameterResolution {
+        let loadedDescriptor = try loadDescriptor(path: request.modelDescriptorPath, task: request.taskMode)
+        return try loadParameters(request: request, loadedDescriptor: loadedDescriptor)
     }
 
     private func motorNerveChainFactory(
@@ -195,7 +206,8 @@ public struct SimulationRunnerService {
         schedule: SimulationSchedule,
         control: SimulationControl?,
         telemetry: ((WorldStepLog) -> Void)?,
-        chainFactory: @escaping () throws -> MotorNerveChain
+        chainFactory: @escaping () throws -> MotorNerveChain,
+        baselineMode: KuyAtt1BaselineMode
     ) async throws -> KuyAtt1RunOutput {
         let runner = ReferenceQuadrotorScenarioRunner<ImuRateDampingDriveCut, MotorNerveChain>(
             parameters: parameters,
@@ -208,8 +220,18 @@ public struct SimulationRunnerService {
 
         let validation = KuyAtt1Validation(runner: runner)
         let output = try await validation.runWithLogs(
-            cutFactory: { _ in
+            cutFactory: { definition in
                 let hoverThrust = parameters.mass * parameters.gravity / 4.0 * request.gains.hoverThrustScale
+                let initialAttitude: EulerAngles
+                let tiltCorrectionTimeConstant: Double?
+                switch baselineMode {
+                case .teacher:
+                    initialAttitude = definition.initialAttitude
+                    tiltCorrectionTimeConstant = nil
+                case .sensor:
+                    initialAttitude = EulerAngles(roll: 0, pitch: 0, yaw: 0)
+                    tiltCorrectionTimeConstant = 0.4
+                }
                 return try ImuRateDampingDriveCut(
                     hoverThrust: hoverThrust,
                     kp: request.gains.kp,
@@ -217,7 +239,10 @@ public struct SimulationRunnerService {
                     yawDamping: request.gains.yawDamping,
                     armLength: parameters.armLength,
                     yawCoefficient: parameters.yawCoefficient,
-                    maxThrust: parameters.maxThrust
+                    maxThrust: parameters.maxThrust,
+                    initialRoll: initialAttitude.roll,
+                    initialPitch: initialAttitude.pitch,
+                    tiltCorrectionTimeConstant: tiltCorrectionTimeConstant
                 )
             },
             motorNerveFactory: { _ in
@@ -239,27 +264,69 @@ public struct SimulationRunnerService {
         return KuyAtt1RunOutput(result: output.result, summary: summary, logs: output.logs)
     }
 
-    private func loadParameters(request: SimulationRunRequest) -> ReferenceQuadrotorParameters {
+    private func loadParameters(
+        request: SimulationRunRequest,
+        loadedDescriptor: LoadedRobotDescriptor?
+    ) throws -> SimulationParameterResolution {
         if let override = request.overrideParameters {
-            return override
+            return SimulationParameterResolution(
+                parameters: override,
+                descriptor: loadedDescriptor?.descriptor,
+                source: .override,
+                robotID: loadedDescriptor?.descriptor.robot.robotID
+            )
         }
 
-        let descriptorPath = request.modelDescriptorPath
-        let trimmed = descriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return .baseline
+        guard let loadedDescriptor else {
+            let modelPath = request.modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !modelPath.isEmpty {
+                logger.error("RobotDescriptor parameters unavailable", metadata: [
+                    "action": "descriptorParametersFailed",
+                    "task": .string(request.taskMode.rawValue),
+                    "model": .string(modelPath),
+                    "modelDescriptor": .string(modelPath),
+                    "reason": "descriptorNotLoaded",
+                    "error": "descriptorNotLoaded"
+                ])
+                throw SimulationRunnerServiceError.descriptorParametersUnavailable(modelPath)
+            }
+            return SimulationParameterResolution(
+                parameters: try defaultParameters(for: request.taskMode, hoverThrustScale: request.gains.hoverThrustScale),
+                descriptor: nil,
+                source: .referenceBaseline,
+                robotID: nil
+            )
         }
 
         do {
             let loader = RobotDescriptorLoader()
-            let loaded = try loader.loadDescriptor(path: trimmed)
-            let inertial = try loader.loadPlantInertialProperties(descriptor: loaded)
-            return try ReferenceQuadrotorParameters.reference(
+            let inertial = try loader.loadPlantInertialProperties(descriptor: loadedDescriptor)
+            let parameters = try ReferenceQuadrotorParameters.reference(
                 from: inertial,
-                robotID: loaded.descriptor.robot.robotID
+                robotID: loadedDescriptor.descriptor.robot.robotID
+            )
+            let tunedParameters = request.taskMode == .singleLift
+                ? try KuyuSingleLiftParameterTuning.tuned(
+                    parameters: parameters,
+                    hoverThrustScale: request.gains.hoverThrustScale
+                )
+                : parameters
+            return SimulationParameterResolution(
+                parameters: tunedParameters,
+                descriptor: loadedDescriptor.descriptor,
+                source: .descriptor,
+                robotID: loadedDescriptor.descriptor.robot.robotID
             )
         } catch {
-            return .baseline
+            logger.error("RobotDescriptor inertial load failed", metadata: [
+                "action": "descriptorParametersFailed",
+                "task": .string(request.taskMode.rawValue),
+                "model": .string(request.modelDescriptorPath),
+                "modelDescriptor": .string(request.modelDescriptorPath),
+                "reason": "inertialLoadFailed",
+                "error": .string(String(describing: error))
+            ])
+            throw error
         }
     }
 
@@ -306,7 +373,10 @@ public struct SimulationRunnerService {
                 yawDamping: request.gains.yawDamping,
                 armLength: parameters.armLength,
                 yawCoefficient: parameters.yawCoefficient,
-                maxThrust: parameters.maxThrust
+                maxThrust: parameters.maxThrust,
+                initialRoll: definition.initialAttitude.roll,
+                initialPitch: definition.initialAttitude.pitch,
+                tiltCorrectionTimeConstant: nil
             )
             let channelMaxima = manualActuatorChannelMaxima(
                 descriptor: descriptor,
@@ -414,7 +484,10 @@ public struct SimulationRunnerService {
                 yawDamping: request.gains.yawDamping,
                 armLength: parameters.armLength,
                 yawCoefficient: parameters.yawCoefficient,
-                maxThrust: parameters.maxThrust
+                maxThrust: parameters.maxThrust,
+                initialRoll: definition.initialAttitude.roll,
+                initialPitch: definition.initialAttitude.pitch,
+                tiltCorrectionTimeConstant: nil
             )
             let maxThrusts = try MotorMaxThrusts.uniform(parameters.maxThrust)
             let log = try await runner.runScenario(
@@ -476,7 +549,10 @@ public struct SimulationRunnerService {
                 yawDamping: request.gains.yawDamping,
                 armLength: parameters.armLength,
                 yawCoefficient: parameters.yawCoefficient,
-                maxThrust: parameters.maxThrust
+                maxThrust: parameters.maxThrust,
+                initialRoll: definition.initialAttitude.roll,
+                initialPitch: definition.initialAttitude.pitch,
+                tiltCorrectionTimeConstant: nil
             )
             let log = try await runner.runScenario(
                 definition: definition,
@@ -549,6 +625,8 @@ public struct SimulationRunnerService {
             )
             let motorNerveConfig = FixedSinglePropMotorNerve.Config(
                 maxThrust: parameters.maxThrust,
+                rateLimitPerSecond: 100.0,
+                smoothingTimeConstant: nil,
                 baseThrottle: baseThrottle
             )
             let log = try await runner.runScenario(
@@ -645,5 +723,47 @@ public struct SimulationRunnerService {
         )
 
         return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
+    }
+
+    private func defaultParameters(
+        for taskMode: SimulationTaskMode,
+        hoverThrustScale: Double
+    ) throws -> ReferenceQuadrotorParameters {
+        guard taskMode == .singleLift else {
+            return .baseline
+        }
+        return try KuyuSingleLiftParameterTuning.tuned(
+            parameters: .baseline,
+            hoverThrustScale: hoverThrustScale
+        )
+    }
+}
+
+public enum SimulationRunnerServiceError: Error, Equatable {
+    case descriptorParametersUnavailable(String)
+}
+
+public struct SimulationParameterResolution: Sendable, Equatable {
+    public enum Source: String, Sendable, Codable, Equatable {
+        case referenceBaseline
+        case descriptor
+        case override
+    }
+
+    public let parameters: ReferenceQuadrotorParameters
+    public let descriptor: RobotDescriptor?
+    public let source: Source
+    public let robotID: String?
+
+    public init(
+        parameters: ReferenceQuadrotorParameters,
+        descriptor: RobotDescriptor?,
+        source: Source,
+        robotID: String?
+    ) {
+        self.parameters = parameters
+        self.descriptor = descriptor
+        self.source = source
+        self.robotID = robotID
     }
 }

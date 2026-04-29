@@ -56,18 +56,6 @@ public enum KuyuUIModelPaths {
                 return local
             }
         }
-        if FileManager.default.fileExists(atPath: trimmed) {
-            return trimmed
-        }
-        if let bundled = bundledDescriptorPath() {
-            return bundled
-        }
-        if let source = sourceRootDescriptorPath() {
-            return source
-        }
-        if let local = localDescriptorPath() {
-            return local
-        }
         return trimmed
     }
 

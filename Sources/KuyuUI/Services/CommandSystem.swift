@@ -45,6 +45,7 @@ public final class CommandSystem {
     private let logWriter: KuyAtt1LogWriter
     private let datasetExporter: TrainingDatasetExporter
     private let trainingService: TrainingService
+    private lazy var trainingLoopController = TrainingLoopController(commandExecutor: self)
 
     public init(
         modelStore: ManasMLXModelStore,
@@ -62,10 +63,39 @@ public final class CommandSystem {
 
     public func setTelemetry(_ handler: ((WorldStepLog) -> Void)?) {
         telemetry = handler
+        trainingLoopController.setTelemetry(handler)
     }
 
     public func setManualActuatorStore(_ store: ManualActuatorStore?) {
         runnerService = SimulationRunnerService(modelStore: modelStore, manualActuatorStore: store)
+    }
+
+    public func startTrainingLoop(
+        config: TrainingLoopConfig,
+        runRequest: SimulationRunRequest,
+        trainingTemplate: TrainingRequest,
+        datasetRoot: URL,
+        onEvent: @Sendable @escaping (TrainingLoopEvent) -> Void
+    ) {
+        trainingLoopController.start(
+            config: config,
+            runRequest: runRequest,
+            trainingTemplate: trainingTemplate,
+            datasetRoot: datasetRoot,
+            onEvent: onEvent
+        )
+    }
+
+    public func pauseTrainingLoop() async {
+        await trainingLoopController.pause()
+    }
+
+    public func resumeTrainingLoop() async {
+        await trainingLoopController.resume()
+    }
+
+    public func stopTrainingLoop() async {
+        await trainingLoopController.stop()
     }
 
     public func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {
@@ -167,5 +197,76 @@ public final class CommandSystem {
         lock.lock()
         defer { lock.unlock() }
         return try body()
+    }
+}
+
+extension CommandSystem: TrainingLoopCommandExecuting {
+    public func runTrainingRunForTrainingLoop(
+        config: TrainingRunConfig,
+        runRequest: SimulationRunRequest,
+        trainingTemplate: TrainingBackendRequest,
+        datasetRoot: URL,
+        observationMetadata: TrainingObservationMetadata?,
+        onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
+    ) async -> TrainingRunResult {
+        let backendBundle = ManasMLXTrainingBackendFactory().makeWorkerLocalBackend(
+            activeStore: modelStore,
+            runID: config.runID,
+            runRequest: runRequest,
+            datasetRoot: datasetRoot
+        )
+        let effectiveTrainingTemplate = TrainingBackendRequest(
+            datasetURL: trainingTemplate.datasetURL,
+            sequenceLength: trainingTemplate.sequenceLength,
+            epochs: trainingTemplate.epochs,
+            learningRate: trainingTemplate.learningRate,
+            useAux: trainingTemplate.useAux,
+            useQualityGating: trainingTemplate.useQualityGating,
+            maxBatches: trainingTemplate.maxBatches,
+            sourceSnapshot: backendBundle.sourceSnapshot
+        )
+        let orchestrator = TrainingRunOrchestrator(
+            scenarioExecutor: self,
+            backend: backendBundle.backend,
+            datasetExporter: datasetExporter
+        )
+        return await orchestrator.run(
+            config: config,
+            runRequest: runRequest,
+            trainingTemplate: effectiveTrainingTemplate,
+            artifactDirectory: datasetRoot,
+            observationMetadata: observationMetadata,
+            onEvent: onEvent
+        )
+    }
+
+    public func pauseActiveTrainingRun() async {
+        let control = withLock { activeControl }
+        if let control {
+            await control.requestPause()
+        }
+    }
+
+    public func resumeActiveTrainingRun() async {
+        let control = withLock { activeControl }
+        if let control {
+            await control.requestResume()
+        }
+    }
+
+    public func stopActiveTrainingRun() async {
+        let control = withLock { activeControl }
+        if let control {
+            await control.requestStop()
+        }
+    }
+}
+
+extension CommandSystem: TrainingScenarioExecuting {
+    public func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> KuyAtt1RunOutput {
+        let control = SimulationControl()
+        withLock { activeControl = control }
+        defer { withLock { activeControl = nil } }
+        return try await runSuite(request: request, control: control, telemetry: telemetry)
     }
 }

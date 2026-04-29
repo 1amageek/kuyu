@@ -7,6 +7,7 @@ public struct TrainingRequest: Sendable, Equatable {
     public let learningRate: Double
     public let useAux: Bool
     public let useQualityGating: Bool
+    public let maxBatches: Int?
 
     public init(
         datasetURL: URL,
@@ -14,7 +15,8 @@ public struct TrainingRequest: Sendable, Equatable {
         epochs: Int,
         learningRate: Double,
         useAux: Bool,
-        useQualityGating: Bool
+        useQualityGating: Bool,
+        maxBatches: Int? = nil
     ) {
         self.datasetURL = datasetURL
         self.sequenceLength = sequenceLength
@@ -22,6 +24,7 @@ public struct TrainingRequest: Sendable, Equatable {
         self.learningRate = learningRate
         self.useAux = useAux
         self.useQualityGating = useQualityGating
+        self.maxBatches = maxBatches
     }
 }
 

@@ -11,6 +11,26 @@ keeping runs reproducible.
 Kuyu does **not** implement learning algorithms. MLX training happens outside
 Kuyu; Kuyu provides closed‑loop execution, data, and evaluation.
 
+## Responsibility Boundary (Normative)
+Kuyu owns the training-world side of the unconscious stack:
+
+- world simulation and deterministic physics execution,
+- scenario definition, stress injection, and failure policy,
+- RL environment contracts, reward functions, rollout harnesses, and rollout artifacts,
+- dataset export and provenance metadata,
+- visual inspection, CLI orchestration, and UI command routing.
+
+Kuyu MUST NOT own or duplicate:
+
+- Manas control protocol internals,
+- Manas learning model internals,
+- PPO, Dreamer, or other RL algorithm implementations,
+- shared `ManasMLXModelStore` execution across parallel rollout workers.
+
+The top-level Kuyu application may bridge to Manas/MLX for execution and
+training smoke tests, but those bridges do not make Manas model internals a
+Kuyu core responsibility.
+
 ## Design Alignment
 Kuyu preserves physical dynamics and morphology effects because the body/plant
 is treated as a **computational resource** in Manas. Fidelity of the plant
@@ -72,6 +92,11 @@ Kuyu loads robots via `RobotDescriptor` (JSON). The descriptor is the canonical
 entry point and MUST reference the physics model (URDF) rather than loading
 URDF directly. This keeps signals, MotorNerve mapping, and plant parameters coherent.
 
+If a non-empty descriptor path is provided, descriptor load, inertial load, and
+parameter resolution failures MUST fail closed. They MUST NOT fall back to
+`ReferenceQuadrotorParameters.baseline`. Empty descriptor paths may use the
+reference baseline only as a fixture/reference smoke path.
+
 ## World Engine (Baseline)
 - Fixed Δt, multi‑rate as integer multiples.
 - Generic plant dynamics with **profile-selectable plant models** (quadcopter is a reference model).
@@ -88,6 +113,26 @@ URDF directly. This keeps signals, MotorNerve mapping, and plant parameters cohe
 Evaluation metrics are not a Kuyu core responsibility in the current phase.
 Kuyu guarantees **correct state evolution and logs**; metric computation is
 performed by downstream training or analysis tools as needed.
+
+## RL Environment Contract (M1.5, Normative)
+Kuyu exposes a minimal RL environment contract so algorithms can be connected
+without moving algorithm ownership into Kuyu.
+
+Required semantics:
+- Environments expose `reset(seed:scenario:)` and `step(action:)`.
+- The primary action path is `DriveIntent`; direct actuator actions are
+  teacher/test escape hatches.
+- `done` means failure or task terminal.
+- `truncated` means time-limit or resource-limit terminal.
+- rewards must be finite and include a `RewardDescriptor` with identity,
+  version, and config hash.
+- rollout artifacts must record scenario id, seed, policy id, descriptor id,
+  config hash, reward sum, terminal reason, failure metadata, worker count, and
+  cancellation/limit state where applicable.
+
+Parallel rollout is scenario/seed parallelism. Each worker MUST have an
+independent environment and policy instance. Shared `ManasMLXModelStore`
+execution is out of scope until M2 worker snapshots or actor pools exist.
 
 ## Failure Definition (Normative)
 Failure is **fail‑fast**: a scenario terminates on the first failure condition.
@@ -136,3 +181,27 @@ World → System order is fixed and versioned in `WORLD_SPEC.md`.
 ### CommandSystem (required for KuyuUI)
 - KuyuUI issues run/train/export commands through CommandSystem only.
 - Commands enqueue into EventSystem / scheduler, never mutate physics directly.
+- Training loop orchestration may live in a controller, but run/export/train
+  execution must cross the CommandSystem boundary.
+- User-visible KuyuUI operations MUST log `kuyu.ui` with `action`, `task`,
+  `modelDescriptor`, and relevant controller/model identifiers. Descriptor
+  load/preflight errors MUST include `reason` and `error`.
+
+## World Model Boundary (M1.6/M2)
+M1.6 runtime source of truth is analytical Kuyu physics. `kuyu-world-model` is
+verified separately and is not an authoritative execution path for M1.6.
+
+World-model adapters may exist only behind the environment/rollout boundary.
+When no adapter is selected, physics-only behavior MUST be numerically identical
+to the analytical physics reference. M2 world-model execution must validate
+imagined rollouts against physics replay before accepting rewards or terminal
+state.
+
+M2 world-model training uses rollout artifacts to build residual training
+tuples. A trained `StateWorldModel` checkpoint is an auxiliary prediction model,
+not a replacement for Kuyu physics. `imagine-train` MUST preflight and validate
+the checkpoint before Manas imagination training can publish a new Core/Reflex
+checkpoint. Missing checkpoints, missing config, NaN/Inf predictions,
+uncertainty excess, terminal mismatch, or residual-threshold excess MUST fail
+closed and MUST NOT fall back to baseline physics or publish the candidate
+Manas checkpoint.

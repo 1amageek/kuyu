@@ -63,6 +63,9 @@ private struct TrainingStatusPanel: View {
                 statusHeader
                 ProgressView(value: progressValue, total: progressTotal)
                 statusGrid
+                TrainingLiveHealthPanel(model: model)
+                TrainingGatePanel(model: model)
+                TrainingTimelinePanel(model: model)
                 controlBoundaryPanel
                 manasSignalFlowPanel
                 hoverTestPanel
@@ -313,6 +316,268 @@ private struct TrainingStatLine: View {
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(.primary)
         }
+    }
+}
+
+private struct TrainingLiveHealthPanel: View {
+    @Bindable var model: SimulationViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Live Learning")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                PhaseBadge(phase: status.phase)
+            }
+            TrainingStatLine(label: "Phase", value: status.phase.rawValue)
+            TrainingStatLine(label: "Dataset", value: datasetText)
+            TrainingStatLine(label: "LR", value: formatted(status.learningRate))
+            TrainingStatLine(label: "Epochs", value: status.epochs.map(String.init) ?? "--")
+            Divider().opacity(0.4)
+            QualityGauge(label: "Pass", value: status.passRate, tint: .green)
+            QualityGauge(label: "Failure", value: status.failureRate, tint: .orange)
+            TrainingStatLine(label: "Safety", value: safetyText)
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var status: TrainingLiveStatus {
+        model.trainingLiveStatus
+    }
+
+    private var datasetText: String {
+        guard let count = status.datasetCount else {
+            return status.datasetPath == nil ? "--" : "pending"
+        }
+        return "\(count)"
+    }
+
+    private var safetyText: String {
+        guard let value = status.safetyViolationSeconds else { return "--" }
+        return String(format: "%.3fs", value)
+    }
+
+    private func formatted(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return String(format: "%.6f", value)
+    }
+}
+
+private struct TrainingGatePanel: View {
+    @Bindable var model: SimulationViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Acceptance Gate")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                GateBadge(value: status.convergenceAccepted)
+            }
+            TrainingStatLine(label: "Convergence", value: status.convergenceReason ?? "--")
+            TrainingStatLine(label: "Checkpoint", value: checkpointText)
+            TrainingStatLine(label: "Best", value: status.bestCheckpointID ?? "--")
+            HStack(spacing: 6) {
+                FlagBadge(label: "Plateau", active: status.plateauDetected)
+                FlagBadge(label: "Overfit", active: status.overfitRiskDetected)
+                FlagBadge(label: "Safety", active: status.safetyRegressionDetected)
+            }
+            if let artifactPath = status.artifactDirectoryPath {
+                Text(artifactPath)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var status: TrainingLiveStatus {
+        model.trainingLiveStatus
+    }
+
+    private var checkpointText: String {
+        guard let state = status.checkpointState else { return "--" }
+        if let reason = status.checkpointReason, reason != state {
+            return "\(state) (\(reason))"
+        }
+        return state
+    }
+}
+
+private struct TrainingTimelinePanel: View {
+    @Bindable var model: SimulationViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Run Timeline")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+            if model.trainingTimeline.isEmpty {
+                Text("No events")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.trainingTimeline.prefix(6)) { entry in
+                    HStack(spacing: 8) {
+                        PhaseDot(phase: entry.phase)
+                        Text("i\(entry.iteration)")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 34, alignment: .leading)
+                        Text(entry.message)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct QualityGauge: View {
+    let label: String
+    let value: Double?
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(percentText)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.primary)
+            }
+            ProgressView(value: clampedValue, total: 1.0)
+                .tint(tint)
+        }
+    }
+
+    private var clampedValue: Double {
+        guard let value else { return 0 }
+        return min(max(value, 0), 1)
+    }
+
+    private var percentText: String {
+        guard let value else { return "--" }
+        return String(format: "%.0f%%", min(max(value, 0), 1) * 100)
+    }
+}
+
+private struct PhaseBadge: View {
+    let phase: TrainingLiveStatus.Phase
+
+    var body: some View {
+        Text(phase.rawValue)
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.14))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var color: Color {
+        switch phase {
+        case .completed:
+            return .green
+        case .failed, .stopped:
+            return .orange
+        case .paused:
+            return .yellow
+        case .idle:
+            return .secondary
+        default:
+            return .blue
+        }
+    }
+}
+
+private struct PhaseDot: View {
+    let phase: TrainingLiveStatus.Phase
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 8, height: 8)
+    }
+
+    private var color: Color {
+        switch phase {
+        case .completed:
+            return .green
+        case .failed, .stopped:
+            return .orange
+        case .paused:
+            return .yellow
+        case .idle:
+            return .secondary
+        default:
+            return .blue
+        }
+    }
+}
+
+private struct GateBadge: View {
+    let value: Bool?
+
+    var body: some View {
+        Text(label)
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.14))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var label: String {
+        guard let value else { return "pending" }
+        return value ? "accepted" : "rejected"
+    }
+
+    private var color: Color {
+        guard let value else { return .secondary }
+        return value ? .green : .orange
+    }
+}
+
+private struct FlagBadge: View {
+    let label: String
+    let active: Bool?
+
+    var body: some View {
+        Text(text)
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var text: String {
+        "\(label): \(active == true ? "on" : "off")"
+    }
+
+    private var color: Color {
+        active == true ? .orange : .secondary
     }
 }
 
@@ -881,10 +1146,46 @@ private struct TrainingChartsGrid: View {
                     lineColor: .accentColor
                 )
                 MetricChartView(
+                    title: "Validation Loss",
+                    unit: "loss",
+                    samples: model.validationLossSamples,
+                    lineColor: .purple
+                )
+                MetricChartView(
                     title: "Loop Score",
                     unit: "score",
                     samples: model.loopScoreSamples,
                     lineColor: .green
+                )
+                MetricChartView(
+                    title: "Reward Average",
+                    unit: "reward",
+                    samples: model.rewardAverageSamples,
+                    lineColor: .mint
+                )
+                MetricChartView(
+                    title: "Pass Rate",
+                    unit: "0...1",
+                    samples: model.passRateSamples,
+                    lineColor: .green
+                )
+                MetricChartView(
+                    title: "Failure Rate",
+                    unit: "0...1",
+                    samples: model.failureRateSamples,
+                    lineColor: .orange
+                )
+                MetricChartView(
+                    title: "Safety Violation",
+                    unit: "sec",
+                    samples: model.safetyViolationSamples,
+                    lineColor: .red
+                )
+                MetricChartView(
+                    title: "Worker Throughput",
+                    unit: "items/sec",
+                    samples: model.workerThroughputSamples,
+                    lineColor: .blue
                 )
                 MetricChartView(
                     title: "Worst Overshoot",

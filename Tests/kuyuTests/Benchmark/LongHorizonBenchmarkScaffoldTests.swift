@@ -19,6 +19,7 @@ import KuyuPhysics
     let disturbanceCases = suite.cases.filter { $0.track == .disturbanceDelayPartialObservability }
     #expect(disturbanceCases.count == 2)
     #expect(disturbanceCases.allSatisfy { !$0.definition.hfEvents.isEmpty })
+    #expect(disturbanceCases.allSatisfy { $0.definition.safetyEnvelope.fallVelocityThreshold >= 0.05 })
 }
 
 @Test func longHorizonBenchmarkBuildsDeterministicReplayBundle() throws {

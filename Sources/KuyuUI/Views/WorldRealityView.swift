@@ -30,6 +30,15 @@ public struct WorldRealityView: View {
     private static let baseHeight: Float = 0.18
 
     public var body: some View {
+        #if KUYU_USE_REALITYVIEW
+        realityBody
+        #else
+        fallbackBody
+        #endif
+    }
+
+    #if KUYU_USE_REALITYVIEW
+    private var realityBody: some View {
         RealityView { content in
             let world = makeWorld()
             content.add(world)
@@ -128,6 +137,73 @@ public struct WorldRealityView: View {
         .onChange(of: cameraYaw) { _, _ in updateCamera() }
         .onChange(of: cameraPitch) { _, _ in updateCamera() }
         .onChange(of: cameraDistance) { _, _ in updateCamera() }
+    }
+    #endif
+
+    private var fallbackBody: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .underPageBackgroundColor),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            fallbackGrid
+
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.secondary.opacity(0.22))
+                .frame(width: 88, height: 32)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(.primary.opacity(0.28))
+                        .frame(width: 150, height: 8)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(.primary.opacity(0.28))
+                        .frame(width: 8, height: 150)
+                }
+                .rotationEffect(.radians(yaw))
+                .rotation3DEffect(.radians(pitch), axis: (x: 1, y: 0, z: 0))
+                .rotation3DEffect(.radians(roll), axis: (x: 0, y: 1, z: 0))
+                .shadow(radius: 12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(statusLine)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+        }
+    }
+
+    private var fallbackGrid: some View {
+        Canvas { context, size in
+            let spacing: CGFloat = 28
+            var path = Path()
+
+            var x: CGFloat = 0
+            while x <= size.width {
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+                x += spacing
+            }
+
+            var y: CGFloat = 0
+            while y <= size.height {
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+                y += spacing
+            }
+
+            context.stroke(path, with: .color(.secondary.opacity(0.18)), lineWidth: 1)
+        }
     }
 
     private func rotationQuaternion() -> simd_quatf {

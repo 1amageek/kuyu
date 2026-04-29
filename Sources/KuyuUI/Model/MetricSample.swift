@@ -1,4 +1,4 @@
-public struct MetricSample: Identifiable, Hashable {
+public struct MetricSample: Identifiable, Hashable, Sendable {
     public let id: Double
     let time: Double
     let value: Double
