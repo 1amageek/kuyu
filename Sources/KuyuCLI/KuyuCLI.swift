@@ -3808,6 +3808,9 @@ struct EvolveManas: AsyncParsableCommand {
     @Option(name: .customLong("min-reward-average"), help: "Override task default minimum reward average.")
     var minimumRewardAverage: Double?
 
+    @Option(name: .customLong("min-incumbent-improvement"), help: "Minimum strict scalar-fitness improvement over the incumbent checkpoint.")
+    var minimumIncumbentImprovement: Double = 0
+
     @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
     var noQualityGate: Bool = false
 
@@ -3842,6 +3845,9 @@ struct EvolveManas: AsyncParsableCommand {
         }
         if let minimumRewardAverage, !minimumRewardAverage.isFinite {
             throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+        guard minimumIncumbentImprovement.isFinite, minimumIncumbentImprovement >= 0 else {
+            throw ValidationError("--min-incumbent-improvement must be finite and non-negative.")
         }
         let trimmedSnapshot = snapshot.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSnapshot.isEmpty else {
@@ -3912,13 +3918,19 @@ struct EvolveManas: AsyncParsableCommand {
                 minimumTaskPassRate: 1.0,
                 maximumSafetyViolationRate: 0,
                 minimumHoldTimeRatio: task == .lift || task == .singleLift ? 1.0 : nil,
-                minimumRewardAverage: minimumRewardAverage
+                minimumRewardAverage: minimumRewardAverage,
+                minimumImprovementOverIncumbent: minimumIncumbentImprovement
             ),
             artifactDirectory: artifactRoot
         )
         let artifacts = try EvolutionRunArtifactValidator().loadAndValidate(from: artifactRoot)
+        let displayBestCandidateID = artifacts.eliteArchive.bestCandidateID
+            ?? artifacts.generations.last?.bestCandidateID
+            ?? "n/a"
+        let displayBestFitness = artifacts.eliteArchive.bestFitness
+            ?? artifacts.generations.last?.bestFitness
         print("[evolve] artifacts path=\(artifactRoot.path)")
-        print("[evolve] terminal=\(artifacts.manifest.terminalState.rawValue) variation=\(variation.rawValue) evaluation=\(evaluation.rawValue) generations=\(artifacts.generations.count) candidates=\(artifacts.candidates.count) best=\(artifacts.eliteArchive.bestCandidateID ?? "n/a") bestFitness=\(formatOptional(artifacts.eliteArchive.bestFitness)) elites=\(artifacts.eliteArchive.eliteCandidateIDs.joined(separator: ","))")
+        print("[evolve] terminal=\(artifacts.manifest.terminalState.rawValue) variation=\(variation.rawValue) evaluation=\(evaluation.rawValue) generations=\(artifacts.generations.count) candidates=\(artifacts.candidates.count) best=\(displayBestCandidateID) bestFitness=\(formatOptional(displayBestFitness)) elites=\(artifacts.eliteArchive.eliteCandidateIDs.joined(separator: ","))")
         printEvolutionSearchSummary(artifacts: artifacts, adaptiveMutation: adaptiveMutation)
         if result.manifest.terminalState != .completed {
             throw ExitCode.failure
@@ -3941,8 +3953,9 @@ struct EvolveManas: AsyncParsableCommand {
             }
             return lhs.fitness < rhs.fitness
         }
+        let bestFitness = artifacts.eliteArchive.bestFitness ?? finalGeneration?.bestFitness
         let bestVsIncumbentDelta = zipOptional(
-            artifacts.eliteArchive.bestFitness,
+            bestFitness,
             incumbentFitness
         ).map { best, incumbent in best - incumbent }
         print(

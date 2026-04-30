@@ -382,6 +382,8 @@ import Testing
     #expect(cliSource.contains("customLong(\"common-random-seed\")"))
     #expect(cliSource.contains("printEvolutionSearchSummary"))
     #expect(cliSource.contains("bestVsIncumbentDelta"))
+    #expect(cliSource.contains("minimumIncumbentImprovement"))
+    #expect(cliSource.contains("minimumImprovementOverIncumbent: minimumIncumbentImprovement"))
     #expect(cliSource.contains("qdCells="))
     #expect(cliSource.contains("finalMutationRate="))
     #expect(cliSource.contains("EvolutionQualityDiversityArchive.fileName"))
