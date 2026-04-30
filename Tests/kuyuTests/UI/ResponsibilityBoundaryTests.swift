@@ -384,6 +384,8 @@ import Testing
     #expect(cliSource.contains("printEvolutionSearchSummary"))
     #expect(cliSource.contains("bestVsIncumbentDelta"))
     #expect(cliSource.contains("acceptedCheckpoint="))
+    #expect(cliSource.contains("bestCandidate="))
+    #expect(cliSource.contains("publishReasons="))
     #expect(cliSource.contains("EvolutionAcceptedCheckpointDecision.fileName"))
     #expect(cliSource.contains("minimumIncumbentImprovement"))
     #expect(cliSource.contains("minimumImprovementOverIncumbent: minimumIncumbentImprovement"))
