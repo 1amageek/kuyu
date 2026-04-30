@@ -389,6 +389,8 @@ import Testing
     #expect(cliSource.contains("EvolutionAcceptedCheckpointDecision.fileName"))
     #expect(cliSource.contains("minimumIncumbentImprovement"))
     #expect(cliSource.contains("minimumImprovementOverIncumbent: minimumIncumbentImprovement"))
+    #expect(cliSource.contains("minimumNoveltyScore"))
+    #expect(cliSource.contains("minimumNoveltyScore: minimumNoveltyScore"))
     #expect(cliSource.contains("qdCells="))
     #expect(cliSource.contains("finalMutationRate="))
     #expect(cliSource.contains("EvolutionQualityDiversityArchive.fileName"))

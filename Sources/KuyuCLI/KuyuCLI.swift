@@ -3811,6 +3811,9 @@ struct EvolveManas: AsyncParsableCommand {
     @Option(name: .customLong("min-incumbent-improvement"), help: "Minimum strict scalar-fitness improvement over the incumbent checkpoint.")
     var minimumIncumbentImprovement: Double = 0
 
+    @Option(name: .customLong("min-novelty-score"), help: "Minimum novelty score required for a candidate to enter the evolution archive.")
+    var minimumNoveltyScore: Double?
+
     @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
     var noQualityGate: Bool = false
 
@@ -3848,6 +3851,10 @@ struct EvolveManas: AsyncParsableCommand {
         }
         guard minimumIncumbentImprovement.isFinite, minimumIncumbentImprovement >= 0 else {
             throw ValidationError("--min-incumbent-improvement must be finite and non-negative.")
+        }
+        if let minimumNoveltyScore,
+           (!minimumNoveltyScore.isFinite || minimumNoveltyScore < 0) {
+            throw ValidationError("--min-novelty-score must be finite and non-negative when specified.")
         }
         let trimmedSnapshot = snapshot.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSnapshot.isEmpty else {
@@ -3919,7 +3926,8 @@ struct EvolveManas: AsyncParsableCommand {
                 maximumSafetyViolationRate: 0,
                 minimumHoldTimeRatio: task == .lift || task == .singleLift ? 1.0 : nil,
                 minimumRewardAverage: minimumRewardAverage,
-                minimumImprovementOverIncumbent: minimumIncumbentImprovement
+                minimumImprovementOverIncumbent: minimumIncumbentImprovement,
+                minimumNoveltyScore: minimumNoveltyScore
             ),
             artifactDirectory: artifactRoot
         )
@@ -4180,7 +4188,11 @@ private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating 
             taskPassRate: 1,
             safetyViolationRate: 0,
             holdTimeRatio: 1,
+            noveltyScore: candidateScore,
             workerThroughput: Double(request.workerCount),
+            behaviorDescriptor: [
+                "candidateIndex": candidateScore,
+            ],
             failureReasons: []
         )
     }
