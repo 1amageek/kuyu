@@ -399,9 +399,9 @@ public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
     }
 
     public func produceNextGeneration(request: EvolutionGenerationRequest) async throws -> EvolutionPopulation {
-        let parentIDs = request.eliteCandidateIDs.isEmpty
+        let parentIDs = request.parentCandidateIDs.isEmpty
             ? try fallbackParentIDs(from: request)
-            : request.eliteCandidateIDs
+            : request.parentCandidateIDs
         return try await makePopulation(
             config: request.config,
             generationIndex: request.previousPopulation.generationIndex + 1,
