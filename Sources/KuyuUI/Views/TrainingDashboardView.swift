@@ -65,6 +65,7 @@ private struct TrainingStatusPanel: View {
                 statusGrid
                 TrainingLiveHealthPanel(model: model)
                 TrainingGatePanel(model: model)
+                PostRegressionGatePanel(model: model)
                 TrainingTimelinePanel(model: model)
                 controlBoundaryPanel
                 manasSignalFlowPanel
@@ -409,6 +410,62 @@ private struct TrainingGatePanel: View {
             return "\(state) (\(reason))"
         }
         return state
+    }
+}
+
+private struct PostRegressionGatePanel: View {
+    @Bindable var model: SimulationViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Post Regression Gate")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                GateBadge(value: gate?.accepted)
+            }
+            TrainingStatLine(label: "Quality Task", value: gate?.qualityTask ?? "--")
+            TrainingStatLine(label: "Reward Avg", value: formatted(gate?.rewardAverage))
+            TrainingStatLine(label: "Task Pass Rate", value: percent(gate?.taskPassRate))
+            TrainingStatLine(label: "Hold Time", value: holdTimeText)
+            TrainingStatLine(label: "Altitude Error", value: altitudeErrorText)
+            TrainingStatLine(label: "Worker Throughput Min", value: formatted(gate?.minimumWorkerThroughput))
+            TrainingStatLine(label: "Primary Reject", value: gate?.primaryRejectReason ?? "--")
+            if let path = gate?.artifactDirectory.path {
+                Text(path)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var gate: PostRegressionGateState? {
+        model.lastPostRegressionGate
+    }
+
+    private var holdTimeText: String {
+        guard let gate else { return "--" }
+        return "\(formatted(gate.achievedHoldTime)) / \(formatted(gate.requiredHoldTime))"
+    }
+
+    private var altitudeErrorText: String {
+        guard let gate else { return "--" }
+        return "\(formatted(gate.maxAltitudeErrorAfterWarmup)) <= \(formatted(gate.tolerance))"
+    }
+
+    private func formatted(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return String(format: "%.3f", value)
+    }
+
+    private func percent(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return String(format: "%.1f%%", value * 100)
     }
 }
 

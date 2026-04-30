@@ -1,4 +1,5 @@
 import Foundation
+import KuyuScenarios
 
 public struct KuyuRegressionGateReport: Sendable, Codable, Equatable {
     public let accepted: Bool
@@ -28,30 +29,36 @@ public struct KuyuRegressionGateReport: Sendable, Codable, Equatable {
 public struct KuyuRegressionQualityRequirement: Sendable, Codable, Equatable {
     public let task: String
     public let evaluatorID: String
+    public let qualityEvaluatorID: String
     public let requiresReferenceTaskPass: Bool
     public let minimumTaskPassRate: Double
     public let minimumRewardAverage: Double?
+    public let minimumHoldTimeRatio: Double
     public let liftThresholdSource: String?
 
     public init(
         task: String,
         evaluatorID: String,
+        qualityEvaluatorID: String,
         requiresReferenceTaskPass: Bool,
         minimumTaskPassRate: Double,
         minimumRewardAverage: Double?,
+        minimumHoldTimeRatio: Double,
         liftThresholdSource: String?
     ) {
         self.task = task
         self.evaluatorID = evaluatorID
+        self.qualityEvaluatorID = qualityEvaluatorID
         self.requiresReferenceTaskPass = requiresReferenceTaskPass
         self.minimumTaskPassRate = minimumTaskPassRate
         self.minimumRewardAverage = minimumRewardAverage
+        self.minimumHoldTimeRatio = minimumHoldTimeRatio
         self.liftThresholdSource = liftThresholdSource
     }
 }
 
 public struct KuyuRegressionSummary: Sendable, Codable, Equatable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 3
 
     public let schemaVersion: Int
     public let artifactRoot: String
@@ -116,6 +123,8 @@ public struct KuyuRegressionRolloutEntry: Sendable, Codable, Equatable {
     public let taskPassCount: Int
     public let taskFailureCount: Int
     public let taskFailureReasons: [String]
+    public let taskQuality: [ReferenceQuadrotorTaskQualitySummary]
+    public let workerSummaries: [KuyuRegressionWorkerSummary]
     public let artifactPath: String?
 
     public init(
@@ -133,6 +142,8 @@ public struct KuyuRegressionRolloutEntry: Sendable, Codable, Equatable {
         taskPassCount: Int,
         taskFailureCount: Int,
         taskFailureReasons: [String],
+        taskQuality: [ReferenceQuadrotorTaskQualitySummary],
+        workerSummaries: [KuyuRegressionWorkerSummary],
         artifactPath: String?
     ) {
         self.suite = suite
@@ -149,6 +160,48 @@ public struct KuyuRegressionRolloutEntry: Sendable, Codable, Equatable {
         self.taskPassCount = taskPassCount
         self.taskFailureCount = taskFailureCount
         self.taskFailureReasons = taskFailureReasons
+        self.taskQuality = taskQuality
+        self.workerSummaries = workerSummaries
         self.artifactPath = artifactPath
+    }
+}
+
+public struct KuyuRegressionWorkerSummary: Sendable, Codable, Equatable {
+    public let workerIndex: Int
+    public let snapshotID: String?
+    public let rolloutShardPath: String?
+    public let episodeCount: Int
+    public let rewardSum: Double
+    public let rewardAverage: Double
+    public let throughput: Double
+    public let doneCount: Int
+    public let truncatedCount: Int
+    public let failureCount: Int
+    public let cancelledCount: Int
+
+    public init(
+        workerIndex: Int,
+        snapshotID: String?,
+        rolloutShardPath: String?,
+        episodeCount: Int,
+        rewardSum: Double,
+        rewardAverage: Double,
+        throughput: Double,
+        doneCount: Int,
+        truncatedCount: Int,
+        failureCount: Int,
+        cancelledCount: Int
+    ) {
+        self.workerIndex = workerIndex
+        self.snapshotID = snapshotID
+        self.rolloutShardPath = rolloutShardPath
+        self.episodeCount = episodeCount
+        self.rewardSum = rewardSum
+        self.rewardAverage = rewardAverage
+        self.throughput = throughput
+        self.doneCount = doneCount
+        self.truncatedCount = truncatedCount
+        self.failureCount = failureCount
+        self.cancelledCount = cancelledCount
     }
 }

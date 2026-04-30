@@ -40,6 +40,10 @@ public enum KuyuRegressionGatePolicy {
             if taskPassRate < requirement.minimumTaskPassRate {
                 reasons.append("task-pass-rate-below-min:\(entry.track):\(taskPassRate)<\(requirement.minimumTaskPassRate)")
             }
+            if entry.taskQuality.count != entry.episodeCount {
+                reasons.append("missing-task-quality:\(entry.track):\(entry.taskQuality.count)/\(entry.episodeCount)")
+            }
+            reasons.append(contentsOf: qualityReasons(for: entry, requirement: requirement))
             if failOnTruncation && entry.truncatedCount > 0 {
                 reasons.append("truncated:\(entry.track):\(entry.truncatedCount)")
             }
@@ -57,5 +61,38 @@ public enum KuyuRegressionGatePolicy {
             qualityGateTask: qualityGateTask,
             qualityRequirement: requirement
         )
+    }
+
+    private static func qualityReasons(
+        for entry: KuyuRegressionRolloutEntry,
+        requirement: KuyuRegressionQualityRequirement
+    ) -> [String] {
+        var reasons: [String] = []
+        for quality in entry.taskQuality {
+            if quality.evaluatorID != requirement.qualityEvaluatorID {
+                reasons.append("task-quality-evaluator-mismatch:\(entry.track):\(quality.scenarioID)")
+            }
+            if quality.passed == false {
+                reasons.append("task-quality-failed:\(entry.track):\(quality.scenarioID)")
+            }
+            guard quality.task == "lift" || quality.task == "singleLift" else {
+                continue
+            }
+            guard let achievedHoldTime = quality.achievedHoldTime,
+                  let requiredHoldTime = quality.requiredHoldTime,
+                  let tolerance = quality.tolerance,
+                  let maxAltitudeError = quality.maxAltitudeErrorAfterWarmup else {
+                reasons.append("missing-task-quality:\(entry.track):\(quality.scenarioID)")
+                continue
+            }
+            let requiredHoldTimeWithRatio = requiredHoldTime * requirement.minimumHoldTimeRatio
+            if achievedHoldTime < requiredHoldTimeWithRatio {
+                reasons.append("hold-time-below-min:\(entry.track):\(quality.scenarioID):\(achievedHoldTime)<\(requiredHoldTimeWithRatio)")
+            }
+            if maxAltitudeError > tolerance {
+                reasons.append("altitude-error-above-tolerance:\(entry.track):\(quality.scenarioID):\(maxAltitudeError)>\(tolerance)")
+            }
+        }
+        return reasons
     }
 }

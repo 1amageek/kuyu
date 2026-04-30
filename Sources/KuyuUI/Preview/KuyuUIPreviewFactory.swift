@@ -126,6 +126,19 @@ public enum KuyuUIPreviewFactory {
             bestCheckpointID: "preview-checkpoint",
             artifactDirectoryPath: "/tmp/kuyu-preview"
         )
+        model.lastPostRegressionGate = PostRegressionGateState(
+            artifactDirectory: URL(fileURLWithPath: "/tmp/kuyu-preview/post-regression", isDirectory: true),
+            accepted: true,
+            qualityTask: "lift",
+            rewardAverage: 63.656,
+            taskPassRate: 1.0,
+            achievedHoldTime: 7.5,
+            requiredHoldTime: 2.0,
+            maxAltitudeErrorAfterWarmup: 0.0,
+            tolerance: 0.2,
+            minimumWorkerThroughput: 0.33,
+            rejectReasons: []
+        )
         model.trainingTimeline = [
             TrainingTimelineEntry(phase: .evaluating, message: "Suite passed", iteration: 3),
             TrainingTimelineEntry(phase: .supervisedTraining, message: "Training completed", iteration: 3),

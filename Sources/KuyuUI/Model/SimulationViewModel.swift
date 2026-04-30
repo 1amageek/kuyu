@@ -138,6 +138,7 @@ public final class SimulationViewModel {
     var trainingLiveStatus: TrainingLiveStatus = .idle
     var trainingTimeline: [TrainingTimelineEntry] = []
     var lastTrainingRunArtifactDirectory: URL?
+    var lastPostRegressionGate: PostRegressionGateState?
     var lastConvergenceSummary: ConvergenceSummary?
     var lastCheckpointDecision: CheckpointDecision?
 
@@ -156,6 +157,7 @@ public final class SimulationViewModel {
     private let checkpointStore = ModelCheckpointStore()
     private let trainingRunPresenter = TrainingRunPresenter()
     private let trainingRunStore = TrainingRunStore()
+    private let regressionRunStore = RegressionRunStore()
     private let trainingRunCoordinator = TrainingRunCoordinator()
     private let trainingBootstrapCoordinator = TrainingBootstrapCoordinator()
     private let trainingLoopReducer = TrainingLoopStateReducer()
@@ -983,6 +985,7 @@ public final class SimulationViewModel {
         lastConvergenceSummary = nil
         lastCheckpointDecision = nil
         lastTrainingRunArtifactDirectory = nil
+        lastPostRegressionGate = nil
         trainingTimeline.removeAll()
         updateTrainingLiveStatus(
             phase: .preparing,
@@ -1320,6 +1323,7 @@ public final class SimulationViewModel {
             workerThroughputSamples = state.workerThroughputSamples
             lastConvergenceSummary = state.convergence
             lastCheckpointDecision = state.checkpointDecision
+            applyPostRegressionArtifactsIfPresent(near: directory)
             updateTrainingLiveStatus(
                 phase: trainingLiveStatus.phase,
                 message: trainingLiveStatus.message,
@@ -1333,6 +1337,31 @@ public final class SimulationViewModel {
                 "path": directory.path,
                 "error": "\(error)"
             ])
+        }
+    }
+
+    func loadPostRegressionGate(from artifactDirectory: URL) {
+        do {
+            lastPostRegressionGate = try regressionRunStore.load(from: artifactDirectory)
+        } catch {
+            emitTerminal(level: .warning, message: "Post-regression artifacts unavailable", metadata: [
+                "path": artifactDirectory.path,
+                "error": "\(error)"
+            ])
+        }
+    }
+
+    private func applyPostRegressionArtifactsIfPresent(near artifactDirectory: URL) {
+        let candidates = [
+            artifactDirectory.appendingPathComponent("post-regression", isDirectory: true),
+            artifactDirectory
+        ]
+        for candidate in candidates {
+            let summary = candidate.appendingPathComponent("kuyu-regression-summary.json")
+            if FileManager.default.fileExists(atPath: summary.path) {
+                loadPostRegressionGate(from: candidate)
+                return
+            }
         }
     }
 

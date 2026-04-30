@@ -82,6 +82,7 @@ let package = Package(
                 .product(name: "KuyuCore", package: "kuyu-core"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+                .product(name: "KuyuTraining", package: "kuyu-training"),
                 .product(name: "ManasMLXModels", package: "manas"),
                 "KuyuMLX",
                 "KuyuUI",

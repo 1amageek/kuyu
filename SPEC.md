@@ -120,6 +120,12 @@ without moving algorithm ownership into Kuyu.
 
 Required semantics:
 - Environments expose `reset(seed:scenario:)` and `step(action:)`.
+- `reset(seed:scenario:)` returns the first formal observation consumed by a
+  policy. Reset observations and step observations MUST use the same schema for
+  the same scenario class.
+- Lift and single-lift reference tasks use an 8-channel observation schema:
+  channels 0...5 are IMU channels, channel 6 is altitude z, and channel 7 is
+  vertical velocity z.
 - The primary action path is `DriveIntent`; direct actuator actions are
   teacher/test escape hatches.
 - `done` means failure or task terminal.
@@ -133,6 +139,11 @@ Required semantics:
 Parallel rollout is scenario/seed parallelism. Each worker MUST have an
 independent environment and policy instance. Shared `ManasMLXModelStore`
 execution is out of scope until M2 worker snapshots or actor pools exist.
+
+Sensor stress applies to the formal observation contract. For the 8-channel
+lift observation schema, state channels 6 and 7 are valid targets for
+gain/bias/noise/dropout/latency/HF glitch modifiers unless a scenario explicitly
+declares a narrower stress scope.
 
 ## Failure Definition (Normative)
 Failure is **fail‑fast**: a scenario terminates on the first failure condition.
@@ -154,6 +165,62 @@ attitude/omega traces, event schedule + seeds, and safety traces.
 ## Training Environment
 See `TRAINING_SPEC.md` for training loop contracts, required suites, and
 dataset/metric requirements for M1.
+
+## Evolution Harness (M2, Normative)
+Kuyu may run evolutionary optimization over Manas checkpoint candidates, but
+Kuyu still does not own the optimizer implementation. Kuyu owns candidate
+scheduling, rollout evaluation, task-quality gates, artifact validation, and
+checkpoint accept/reject decisions. Manas/MLX owns model weights, mutation and
+training backend details, and checkpoint serialization.
+
+Required artifacts:
+- `evolution-contract.json`
+- `evolution-manifest.json`
+- `generations.jsonl`
+- `candidates.jsonl`
+- `fitness.jsonl`
+- `elite-archive.json`
+- `quality-diversity-archive.json`
+- `lineage.json`
+
+Required semantics:
+- Candidate evaluation may run with bounded concurrency, recorded as
+  `candidateEvaluationConcurrency` in the manifest.
+- The manifest MUST record `searchStrategy`, `bootstrapSource`,
+  `worldModelUsage`, `commonRandomSeed`, `antitheticSampling`,
+  `mutationRate`, and `mutationNoiseScale`. These values are part of the
+  harness contract, not hidden backend state.
+- `genetic` is the default strategy. `antitheticEvolutionStrategy` enables
+  paired positive/negative perturbation metadata with a common random seed.
+  `qualityDiversity` requires a quality-diversity archive over typed behavior
+  descriptors.
+- Kuyu may adapt mutation rate and mutation noise scale from generation gate
+  results. Accepted generations may decay exploration pressure; rejected
+  generations may increase it within configured bounds. The concrete mutation
+  implementation remains behind the Manas/MLX variation backend.
+- A run is accepted when at least one candidate has passed the quality gate.
+  Later generation regressions MUST NOT discard an earlier accepted elite.
+- Completed evolution artifacts MUST contain a non-empty elite archive, a
+  best candidate id, and a finite best fitness.
+- Quality-diversity cells MUST reference existing candidates and finite
+  behavior descriptors. The archive is an observability and selection artifact;
+  it does not make Kuyu the owner of PPO, Dreamer, CMA-ES, or other optimizer
+  internals.
+- Rejected generations MUST include typed candidate-level rejection reasons.
+- Gaussian mutation over ManasMLX checkpoints MUST preserve `model.json`,
+  write `core.safetensors` and optional `reflex.safetensors`, and produce a
+  reloadable candidate checkpoint.
+- Xcode runtime verification is required for MLX save/load smoke coverage
+  because SwiftPM command-line execution may not exercise the same Metal
+  resource path.
+
+Reference verification commands:
+
+```bash
+cd unconscious/kuyu
+swift run kuyu evolve-manas --snapshot /path/to/checkpoint --variation gaussian --evaluation regression --population 1 --generations 1 --elite-count 1 --episodes 1 --suites 6
+xcodebuild test -scheme kuyu-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 120
+```
 
 ## World Physics Specification
 Canonical physics + deterministic negligibility policy live in `WORLD_SPEC.md`.

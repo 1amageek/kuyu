@@ -2,6 +2,7 @@ import Foundation
 
 public enum KuyuRegressionQualityGatePolicy {
     public static let referenceEvaluatorID = "ReferenceQuadrotorScenarioEvaluator"
+    public static let qualityEvaluatorID = "ReferenceQuadrotorTaskQualityEvaluator"
 
     public static func defaultMinimumRewardAverage(for task: String) -> Double? {
         switch task {
@@ -26,9 +27,11 @@ public enum KuyuRegressionQualityGatePolicy {
         KuyuRegressionQualityRequirement(
             task: task,
             evaluatorID: referenceEvaluatorID,
+            qualityEvaluatorID: qualityEvaluatorID,
             requiresReferenceTaskPass: true,
             minimumTaskPassRate: 1.0,
             minimumRewardAverage: minimumRewardAverage,
+            minimumHoldTimeRatio: 1.0,
             liftThresholdSource: liftThresholdSource(for: task)
         )
     }

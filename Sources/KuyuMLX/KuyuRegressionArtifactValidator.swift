@@ -1,4 +1,5 @@
 import Foundation
+import KuyuScenarios
 
 public struct KuyuRegressionArtifactValidator: Sendable {
     public enum ValidationError: Error, Sendable, Equatable {
@@ -9,6 +10,11 @@ public struct KuyuRegressionArtifactValidator: Sendable {
         case invalidEnvironmentCount(task: String)
         case nonFiniteRolloutMetric(track: String)
         case invalidRolloutCount(track: String)
+        case invalidTaskQualityCount(track: String, expected: Int, actual: Int)
+        case nonFiniteTaskQuality(track: String, scenarioID: String)
+        case invalidTaskQualityEvaluator(track: String, scenarioID: String, evaluatorID: String)
+        case invalidWorkerSummary(track: String, workerIndex: Int)
+        case workerSummaryMismatch(track: String)
         case gateReportMismatch(expected: [String], actual: [String])
         case gateAcceptedMismatch(expected: Bool, actual: Bool)
         case allPassedMismatch(expected: Bool, actual: Bool)
@@ -117,9 +123,105 @@ public struct KuyuRegressionArtifactValidator: Sendable {
                   entry.taskPassCount >= 0,
                   entry.taskFailureCount >= 0,
                   entry.taskPassCount <= entry.episodeCount,
-                  entry.taskFailureCount <= entry.episodeCount else {
+                  entry.taskFailureCount <= max(entry.episodeCount, max(entry.failureCount, entry.cancelledCount)) else {
                 throw ValidationError.invalidRolloutCount(track: entry.track)
             }
+            guard entry.taskQuality.count == entry.episodeCount else {
+                throw ValidationError.invalidTaskQualityCount(
+                    track: entry.track,
+                    expected: entry.episodeCount,
+                    actual: entry.taskQuality.count
+                )
+            }
+            try validateTaskQuality(entry.taskQuality, track: entry.track)
+            try validateWorkerSummaries(entry.workerSummaries, entry: entry)
+        }
+    }
+
+    private func validateTaskQuality(
+        _ summaries: [ReferenceQuadrotorTaskQualitySummary],
+        track: String
+    ) throws {
+        for summary in summaries {
+            guard summary.evaluatorID == KuyuRegressionQualityGatePolicy.qualityEvaluatorID else {
+                throw ValidationError.invalidTaskQualityEvaluator(
+                    track: track,
+                    scenarioID: summary.scenarioID,
+                    evaluatorID: summary.evaluatorID
+                )
+            }
+            let numericValues = [
+                summary.targetZ,
+                summary.tolerance,
+                summary.warmupTime,
+                summary.requiredHoldTime,
+                summary.achievedHoldTime,
+                summary.maxAltitudeErrorAfterWarmup,
+                summary.maxVerticalVelocityAfterWarmup
+            ]
+            guard numericValues.allSatisfy({ value in
+                guard let value else { return true }
+                return value.isFinite && value >= 0
+            }) else {
+                throw ValidationError.nonFiniteTaskQuality(track: track, scenarioID: summary.scenarioID)
+            }
+        }
+    }
+
+    private func validateWorkerSummaries(
+        _ summaries: [KuyuRegressionWorkerSummary],
+        entry: KuyuRegressionRolloutEntry
+    ) throws {
+        if entry.episodeCount == 0 {
+            guard summaries.isEmpty else {
+                throw ValidationError.workerSummaryMismatch(track: entry.track)
+            }
+            return
+        }
+        guard !summaries.isEmpty else {
+            throw ValidationError.workerSummaryMismatch(track: entry.track)
+        }
+
+        var episodeCount = 0
+        var doneCount = 0
+        var truncatedCount = 0
+        var failureCount = 0
+        var cancelledCount = 0
+        var rewardSum = 0.0
+        var seenWorkers = Set<Int>()
+
+        for summary in summaries {
+            guard summary.workerIndex >= 0,
+                  seenWorkers.insert(summary.workerIndex).inserted,
+                  summary.episodeCount >= 0,
+                  summary.doneCount >= 0,
+                  summary.truncatedCount >= 0,
+                  summary.failureCount >= 0,
+                  summary.cancelledCount >= 0,
+                  summary.rewardSum.isFinite,
+                  summary.rewardAverage.isFinite,
+                  summary.throughput.isFinite,
+                  summary.throughput >= 0 else {
+                throw ValidationError.invalidWorkerSummary(
+                    track: entry.track,
+                    workerIndex: summary.workerIndex
+                )
+            }
+            episodeCount += summary.episodeCount
+            doneCount += summary.doneCount
+            truncatedCount += summary.truncatedCount
+            failureCount += summary.failureCount
+            cancelledCount += summary.cancelledCount
+            rewardSum += summary.rewardSum
+        }
+
+        guard episodeCount == entry.episodeCount,
+              doneCount == entry.doneCount,
+              truncatedCount == entry.truncatedCount,
+              failureCount == entry.failureCount,
+              cancelledCount == entry.cancelledCount,
+              abs(rewardSum - entry.rewardSum) <= 0.000_001 else {
+            throw ValidationError.workerSummaryMismatch(track: entry.track)
         }
     }
 }

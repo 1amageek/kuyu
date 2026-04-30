@@ -11,7 +11,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, TrainWorldModel.self, ImagineTrain.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, TrainWorldModel.self, ImagineTrain.self]
     )
 }
 
@@ -32,6 +32,70 @@ enum RolloutTaskChoice: String, CaseIterable, ExpressibleByArgument {
     case attitude
     case lift
     case singleLift
+}
+
+enum EvolutionVariationChoice: String, CaseIterable, ExpressibleByArgument {
+    case copy
+    case gaussian
+}
+
+enum EvolutionEvaluationChoice: String, CaseIterable, ExpressibleByArgument {
+    case regression
+    case candidateOnly
+}
+
+enum EvolutionSearchStrategyChoice: String, CaseIterable, ExpressibleByArgument {
+    case genetic
+    case antitheticEvolutionStrategy
+    case qualityDiversity
+
+    var trainingStrategy: EvolutionSearchStrategy {
+        switch self {
+        case .genetic:
+            return .genetic
+        case .antitheticEvolutionStrategy:
+            return .antitheticEvolutionStrategy
+        case .qualityDiversity:
+            return .qualityDiversity
+        }
+    }
+}
+
+enum EvolutionBootstrapSourceChoice: String, CaseIterable, ExpressibleByArgument {
+    case checkpoint
+    case teacher
+    case demonstration
+    case none
+
+    var trainingSource: EvolutionBootstrapSource {
+        switch self {
+        case .checkpoint:
+            return .checkpoint
+        case .teacher:
+            return .teacher
+        case .demonstration:
+            return .demonstration
+        case .none:
+            return .none
+        }
+    }
+}
+
+enum EvolutionWorldModelUsageChoice: String, CaseIterable, ExpressibleByArgument {
+    case disabled
+    case evaluationAssist
+    case imaginationAssist
+
+    var trainingUsage: EvolutionWorldModelUsage {
+        switch self {
+        case .disabled:
+            return .disabled
+        case .evaluationAssist:
+            return .evaluationAssist
+        case .imaginationAssist:
+            return .imaginationAssist
+        }
+    }
 }
 
 struct Run: AsyncParsableCommand {
@@ -1974,7 +2038,14 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                                 failureReasons: ["missing-checkpoint-url"],
                                 rewardAverageMinimum: postRegressionMinRewardAverage ?? defaultMinimumRewardAverage,
                                 worstRewardAverage: nil,
-                                rewardAverageSatisfied: (postRegressionMinRewardAverage ?? defaultMinimumRewardAverage) == nil
+                                rewardAverageSatisfied: (postRegressionMinRewardAverage ?? defaultMinimumRewardAverage) == nil,
+                                qualityTask: task.rawValue,
+                                taskPassRate: nil,
+                                achievedHoldTime: nil,
+                                requiredHoldTime: nil,
+                                maxAltitudeErrorAfterWarmup: nil,
+                                tolerance: nil,
+                                primaryRejectReason: "missing-checkpoint-url"
                             )
                         }
                     } else {
@@ -2249,6 +2320,169 @@ struct CheckKuyuRegression: AsyncParsableCommand {
     }
 }
 
+struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "check-kuyu-regression-matrix",
+        abstract: "Run a task/controller matrix of Kuyu regression checks."
+    )
+
+    @Option(help: "Comma-separated controller list: teacherBaseline,sensorBaseline,manasMLX.")
+    var controllers: String = "teacherBaseline"
+
+    @Option(help: "Comma-separated task list: lift,singleLift.")
+    var tasks: String = "lift,singleLift"
+
+    @Option(help: "Comma-separated M2 suite list: 6,7,8.")
+    var suites: String = "6"
+
+    @Option(help: "Episodes per matrix cell.")
+    var episodes: Int = 1
+
+    @Option(help: "Worker count for rollout regression.")
+    var workers: Int = 1
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: TierChoice = .tier1
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Model descriptor path.")
+    var model: String = ""
+
+    @Option(help: "ManasMLX model snapshot directory.")
+    var snapshot: String = ""
+
+    @Option(name: .customLong("artifact-root"), help: "Directory where matrix artifacts are written.")
+    var artifactRootPath: String?
+
+    @Option(name: .customLong("min-reward-average"), help: "Override task default minimum reward average.")
+    var minimumRewardAverage: Double?
+
+    @Flag(name: .customLong("fail-on-truncation"), help: "Treat max-step truncation as a regression failure.")
+    var failOnTruncation: Bool = false
+
+    @MainActor
+    mutating func run() async throws {
+        guard episodes > 0 else {
+            throw ValidationError("--episodes must be greater than 0.")
+        }
+        guard workers > 0 else {
+            throw ValidationError("--workers must be greater than 0.")
+        }
+        if let minimumRewardAverage, !minimumRewardAverage.isFinite {
+            throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+
+        let selectedControllers = try parseRegressionControllers(controllers)
+        let selectedTasks = try parseProbeTasks(tasks).map(simulationTaskMode(from:))
+        let selectedSuites = try parseRegressionSuites(suites)
+        let artifactRoot: URL
+        if let artifactRootPath, !artifactRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+        } else {
+            artifactRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("kuyu-regression-matrix-\(UUID().uuidString)", isDirectory: true)
+        }
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+
+        var entries: [KuyuRegressionMatrixEntry] = []
+        for controller in selectedControllers {
+            let selectedController = controllerSelection(from: controller)
+            for task in selectedTasks {
+                let taskName = rolloutTaskChoice(from: task).rawValue
+                let cellRoot = artifactRoot
+                    .appendingPathComponent(controller.rawValue, isDirectory: true)
+                    .appendingPathComponent(taskName, isDirectory: true)
+                do {
+                    let snapshotURL = try regressionSnapshotURL(snapshot, controller: selectedController)
+                    _ = try await runKuyuRegression(
+                        controller: selectedController,
+                        snapshotURL: snapshotURL,
+                        tier: tier,
+                        cutPeriodSteps: cutPeriodSteps,
+                        tasks: [task],
+                        suites: selectedSuites,
+                        episodes: episodes,
+                        workers: workers,
+                        maxSteps: nil,
+                        maxWallTime: nil,
+                        model: model,
+                        artifactRoot: cellRoot,
+                        kp: 2.0,
+                        kd: 0.25,
+                        yawDamping: 0.2,
+                        hoverScale: 1.0,
+                        failOnTruncation: failOnTruncation,
+                        minimumRewardAverage: minimumRewardAverage,
+                        useQualityGating: true
+                    )
+                    let summary = try KuyuRegressionArtifactValidator().loadAndValidate(from: cellRoot)
+                    entries.append(KuyuRegressionMatrixEntry(
+                        controller: controller.rawValue,
+                        task: taskName,
+                        artifactPath: cellRoot.path,
+                        accepted: summary.gateReport.accepted,
+                        reasons: summary.gateReport.reasons
+                    ))
+                    print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=\(summary.gateReport.accepted) artifact=\(cellRoot.path)")
+                } catch {
+                    entries.append(KuyuRegressionMatrixEntry(
+                        controller: controller.rawValue,
+                        task: taskName,
+                        artifactPath: cellRoot.path,
+                        accepted: false,
+                        reasons: [String(describing: error)]
+                    ))
+                    print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=false reason=\(error)")
+                }
+            }
+        }
+
+        let summary = KuyuRegressionMatrixSummary(
+            artifactRoot: artifactRoot.path,
+            controllers: selectedControllers.map(\.rawValue),
+            tasks: selectedTasks.map { rolloutTaskChoice(from: $0).rawValue },
+            suites: selectedSuites,
+            episodes: episodes,
+            allPassed: entries.allSatisfy(\.accepted),
+            entries: entries
+        )
+        try writeRegressionMatrixSummary(summary, to: artifactRoot)
+        print("[regression-matrix] artifacts path=\(artifactRoot.path) allPassed=\(summary.allPassed)")
+        if !summary.allPassed {
+            throw ExitCode.failure
+        }
+    }
+}
+
+private struct KuyuRegressionMatrixSummary: Codable {
+    let artifactRoot: String
+    let controllers: [String]
+    let tasks: [String]
+    let suites: [Int]
+    let episodes: Int
+    let allPassed: Bool
+    let entries: [KuyuRegressionMatrixEntry]
+}
+
+private struct KuyuRegressionMatrixEntry: Codable {
+    let controller: String
+    let task: String
+    let artifactPath: String
+    let accepted: Bool
+    let reasons: [String]
+}
+
+private func writeRegressionMatrixSummary(_ summary: KuyuRegressionMatrixSummary, to artifactRoot: URL) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(summary).write(
+        to: artifactRoot.appendingPathComponent("kuyu-regression-matrix-summary.json"),
+        options: [.atomic]
+    )
+}
+
 @MainActor
 private func runKuyuRegression(
     controller selectedController: ControllerSelection,
@@ -2366,6 +2600,8 @@ private func runKuyuRegression(
                 taskPassCount: 0,
                 taskFailureCount: 1,
                 taskFailureReasons: [compatibilityFailure],
+                taskQuality: [],
+                workerSummaries: [],
                 artifactPath: nil
             )
         }
@@ -2461,10 +2697,16 @@ private func runKuyuRegression(
                 taskPassCount: taskEvaluation.passCount,
                 taskFailureCount: taskEvaluation.failureCount,
                 taskFailureReasons: taskEvaluation.failureReasons,
+                taskQuality: taskEvaluation.taskQuality,
+                workerSummaries: regressionWorkerSummaries(
+                    episodes: episodesOut,
+                    snapshotURL: snapshotURL,
+                    rolloutRoot: artifactRoot.appendingPathComponent("rollouts/\(track)", isDirectory: true)
+                ),
                 artifactPath: nil
             )
             rolloutEntries.append(entry)
-            print("[regression] suite=\(suite) track=\(track) episodes=\(entry.episodeCount) rewardAvg=\(String(format: "%.3f", rewardAverage)) failures=\(entry.failureCount) taskFailures=\(entry.taskFailureCount) truncated=\(entry.truncatedCount)")
+            print("[regression] suite=\(suite) track=\(track) episodes=\(entry.episodeCount) workers=\(entry.workerSummaries.count) rewardAvg=\(String(format: "%.3f", rewardAverage)) failures=\(entry.failureCount) taskFailures=\(entry.taskFailureCount) taskPassRate=\(String(format: "%.3f", regressionTaskPassRate(entry))) truncated=\(entry.truncatedCount) \(regressionQualityText(entry.taskQuality)) \(regressionWorkerText(entry.workerSummaries))")
         } catch {
             let entry = KuyuRegressionRolloutEntry(
                 suite: suite,
@@ -2481,6 +2723,8 @@ private func runKuyuRegression(
                 taskPassCount: 0,
                 taskFailureCount: 1,
                 taskFailureReasons: [String(describing: error)],
+                taskQuality: [],
+                workerSummaries: [],
                 artifactPath: nil
             )
             rolloutEntries.append(entry)
@@ -2592,6 +2836,7 @@ private struct RegressionTaskEvaluation {
     let passCount: Int
     let failureCount: Int
     let failureReasons: [String]
+    let taskQuality: [ReferenceQuadrotorTaskQualitySummary]
 }
 
 private func evaluateRegressionEpisodes(
@@ -2605,8 +2850,10 @@ private func evaluateRegressionEpisodes(
         }
     )
     let evaluator = ReferenceQuadrotorScenarioEvaluator()
+    let qualityEvaluator = ReferenceQuadrotorTaskQualityEvaluator()
     var passCount = 0
     var failureReasons: [String] = []
+    var taskQuality: [ReferenceQuadrotorTaskQualitySummary] = []
 
     for episode in episodes {
         guard let definition = definitionByKey[rolloutDefinitionKey(scenarioId: episode.scenarioId, seed: episode.seed)] else {
@@ -2625,6 +2872,8 @@ private func evaluateRegressionEpisodes(
             failureTime: episode.failureTime
         )
         let evaluation = evaluator.evaluate(definition: definition, log: log)
+        let quality = qualityEvaluator.evaluate(definition: definition, log: log)
+        taskQuality.append(quality)
         if evaluation.passed {
             passCount += 1
         } else {
@@ -2636,8 +2885,69 @@ private func evaluateRegressionEpisodes(
     return RegressionTaskEvaluation(
         passCount: passCount,
         failureCount: episodes.count - passCount,
-        failureReasons: uniqueReasons
+        failureReasons: uniqueReasons,
+        taskQuality: taskQuality
     )
+}
+
+private func regressionTaskPassRate(_ entry: KuyuRegressionRolloutEntry) -> Double {
+    guard entry.episodeCount > 0 else { return 0 }
+    return Double(entry.taskPassCount) / Double(entry.episodeCount)
+}
+
+private func regressionQualityText(_ summaries: [ReferenceQuadrotorTaskQualitySummary]) -> String {
+    guard let summary = summaries.first else {
+        return "qualityGateTask=missing"
+    }
+    let hold = formattedRatio(
+        achieved: summary.achievedHoldTime,
+        required: summary.requiredHoldTime
+    )
+    let altitudeError = summary.maxAltitudeErrorAfterWarmup.map { String(format: "%.3f", $0) } ?? "--"
+    let tolerance = summary.tolerance.map { String(format: "%.3f", $0) } ?? "--"
+    return "qualityGateTask=\(summary.task) achievedHoldTime=\(hold.achieved) requiredHoldTime=\(hold.required) maxAltitudeErrorAfterWarmup=\(altitudeError) tolerance=\(tolerance)"
+}
+
+private func regressionWorkerSummaries(
+    episodes: [RolloutEpisode],
+    snapshotURL: URL?,
+    rolloutRoot: URL
+) -> [KuyuRegressionWorkerSummary] {
+    let grouped = Dictionary(grouping: episodes, by: \.workerIndex)
+    return grouped.keys.sorted().map { workerIndex in
+        let workerEpisodes = grouped[workerIndex] ?? []
+        let rewardSum = workerEpisodes.reduce(0.0) { $0 + $1.rewardSum }
+        let episodeCount = workerEpisodes.count
+        let rewardAverage = episodeCount > 0 ? rewardSum / Double(episodeCount) : 0
+        let durationSeconds = workerEpisodes.reduce(0.0) { $0 + max($1.durationSeconds, 0) }
+        let throughput = durationSeconds > 0 ? Double(episodeCount) / durationSeconds : Double(episodeCount)
+        return KuyuRegressionWorkerSummary(
+            workerIndex: workerIndex,
+            snapshotID: snapshotURL?.lastPathComponent,
+            rolloutShardPath: rolloutRoot.appendingPathComponent("worker-\(workerIndex)", isDirectory: true).path,
+            episodeCount: episodeCount,
+            rewardSum: rewardSum,
+            rewardAverage: rewardAverage,
+            throughput: throughput,
+            doneCount: workerEpisodes.filter(\.done).count,
+            truncatedCount: workerEpisodes.filter(\.truncated).count,
+            failureCount: workerEpisodes.filter { $0.failureReason != nil }.count,
+            cancelledCount: workerEpisodes.filter(\.cancelled).count
+        )
+    }
+}
+
+private func regressionWorkerText(_ summaries: [KuyuRegressionWorkerSummary]) -> String {
+    guard let slowest = summaries.min(by: { lhs, rhs in lhs.throughput < rhs.throughput }) else {
+        return "workerThroughput=missing"
+    }
+    return "workerThroughputMin=\(String(format: "%.3f", slowest.throughput))"
+}
+
+private func formattedRatio(achieved: Double?, required: Double?) -> (achieved: String, required: String) {
+    let achievedText = achieved.map { String(format: "%.3f", $0) } ?? "--"
+    let requiredText = required.map { String(format: "%.3f", $0) } ?? "--"
+    return (achievedText, requiredText)
 }
 
 private func regressionRolloutTask(_ selectedTasks: [SimulationTaskMode]) -> RolloutTaskChoice {
@@ -2679,6 +2989,7 @@ private func regressionFailureReasons(from summary: KuyuRegressionSummary) -> [S
     reasons.append(contentsOf: summary.environmentTasks.filter { !$0.ready }.map { "environment:\($0.task)" })
     reasons.append(contentsOf: summary.rolloutSuites.flatMap(\.failureReasons))
     reasons.append(contentsOf: summary.rolloutSuites.flatMap(\.taskFailureReasons))
+    reasons.append(contentsOf: summary.gateReport.reasons)
     return Array(Set(reasons)).sorted()
 }
 
@@ -2715,6 +3026,12 @@ private func makePostTrainingRegressionEntry(
         rewardFailureReasons = []
     }
     let failureReasons = regressionFailureReasons(from: regression) + rewardFailureReasons
+    let firstEntry = regression.rolloutSuites.first
+    let firstQuality = firstEntry?.taskQuality.first
+    let taskPassRate = firstEntry.flatMap { entry -> Double? in
+        guard entry.episodeCount > 0 else { return nil }
+        return Double(entry.taskPassCount) / Double(entry.episodeCount)
+    }
     return KuyuPostTrainingRegressionEntry(
         attempted: true,
         applicable: postRegressionApplicable(regression),
@@ -2723,7 +3040,14 @@ private func makePostTrainingRegressionEntry(
         failureReasons: failureReasons,
         rewardAverageMinimum: minimumRewardAverage,
         worstRewardAverage: regression.rolloutSuites.map(\.rewardAverage).min(),
-        rewardAverageSatisfied: rewardAverageSatisfied
+        rewardAverageSatisfied: rewardAverageSatisfied,
+        qualityTask: regression.gateReport.qualityGateTask,
+        taskPassRate: taskPassRate,
+        achievedHoldTime: firstQuality?.achievedHoldTime,
+        requiredHoldTime: firstQuality?.requiredHoldTime,
+        maxAltitudeErrorAfterWarmup: firstQuality?.maxAltitudeErrorAfterWarmup,
+        tolerance: firstQuality?.tolerance,
+        primaryRejectReason: failureReasons.first
     )
 }
 
@@ -3001,6 +3325,13 @@ private struct KuyuPostTrainingRegressionEntry: Codable {
     let rewardAverageMinimum: Double?
     let worstRewardAverage: Double?
     let rewardAverageSatisfied: Bool
+    let qualityTask: String?
+    let taskPassRate: Double?
+    let achievedHoldTime: Double?
+    let requiredHoldTime: Double?
+    let maxAltitudeErrorAfterWarmup: Double?
+    let tolerance: Double?
+    let primaryRejectReason: String?
 }
 
 @MainActor
@@ -3362,6 +3693,442 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
     }
 }
 
+struct EvolveManas: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "evolve-manas",
+        abstract: "Run a Kuyu-backed evolutionary harness over ManasMLX checkpoint candidates."
+    )
+
+    @Option(help: "Task to optimize: lift or singleLift.")
+    var task: RolloutTaskChoice = .lift
+
+    @Option(help: "Source ManasMLX model snapshot directory.")
+    var snapshot: String
+
+    @Option(help: "Population size per generation.")
+    var population: Int = 4
+
+    @Option(help: "Number of generations.")
+    var generations: Int = 1
+
+    @Option(name: .customLong("elite-count"), help: "Number of candidates selected as parents.")
+    var eliteCount: Int = 1
+
+    @Option(help: "Worker count for rollout regression.")
+    var workers: Int = 1
+
+    @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
+    var candidateEvaluationConcurrency: Int = 1
+
+    @Option(help: "Comma-separated M2 suite list: 6,7,8.")
+    var suites: String = "6"
+
+    @Option(help: "Episodes per candidate regression.")
+    var episodes: Int = 1
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: TierChoice = .tier1
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Model descriptor path.")
+    var model: String = ""
+
+    @Option(name: .customLong("artifact-root"), help: "Directory where evolution artifacts are written.")
+    var artifactRootPath: String?
+
+    @Option(name: .customLong("mutation-rate"), help: "Mutation rate passed to the ManasMLX variation provider.")
+    var mutationRate: Double = 0.08
+
+    @Option(name: .customLong("mutation-noise-scale"), help: "Gaussian mutation noise scale.")
+    var mutationNoiseScale: Double = 0.01
+
+    @Option(name: .customLong("search-strategy"), help: "Evolution search strategy: genetic, antitheticEvolutionStrategy, or qualityDiversity.")
+    var searchStrategy: EvolutionSearchStrategyChoice = .genetic
+
+    @Option(name: .customLong("bootstrap-source"), help: "Bootstrap source metadata: checkpoint, teacher, demonstration, or none.")
+    var bootstrapSource: EvolutionBootstrapSourceChoice = .checkpoint
+
+    @Option(name: .customLong("world-model-usage"), help: "World-model role metadata: disabled, evaluationAssist, or imaginationAssist.")
+    var worldModelUsage: EvolutionWorldModelUsageChoice = .disabled
+
+    @Option(name: .customLong("common-random-seed"), help: "Common seed used for ES-style paired perturbations.")
+    var commonRandomSeed: UInt64 = 1
+
+    @Flag(name: .customLong("antithetic-sampling"), help: "Use paired positive/negative perturbations with common random seeds.")
+    var antitheticSampling: Bool = false
+
+    @Flag(name: .customLong("adaptive-mutation"), help: "Adapt mutation rate and noise scale based on generation gate results.")
+    var adaptiveMutation: Bool = false
+
+    @Option(help: "Candidate variation mode: gaussian or copy.")
+    var variation: EvolutionVariationChoice = .gaussian
+
+    @Option(help: "Candidate evaluation mode: regression or candidateOnly.")
+    var evaluation: EvolutionEvaluationChoice = .regression
+
+    @Flag(name: .customLong("no-crossover"), help: "Disable elite checkpoint averaging before mutation.")
+    var noCrossover: Bool = false
+
+    @Option(name: .customLong("min-reward-average"), help: "Override task default minimum reward average.")
+    var minimumRewardAverage: Double?
+
+    @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
+    var noQualityGate: Bool = false
+
+    @MainActor
+    mutating func run() async throws {
+        guard task == .lift || task == .singleLift else {
+            throw ValidationError("evolve-manas currently supports lift and singleLift.")
+        }
+        guard population > 0 else {
+            throw ValidationError("--population must be greater than 0.")
+        }
+        guard generations > 0 else {
+            throw ValidationError("--generations must be greater than 0.")
+        }
+        guard eliteCount > 0, eliteCount <= population else {
+            throw ValidationError("--elite-count must be greater than 0 and no larger than --population.")
+        }
+        guard workers > 0 else {
+            throw ValidationError("--workers must be greater than 0.")
+        }
+        guard candidateEvaluationConcurrency > 0, candidateEvaluationConcurrency <= population else {
+            throw ValidationError("--candidate-evaluation-concurrency must be greater than 0 and no larger than --population.")
+        }
+        guard episodes > 0 else {
+            throw ValidationError("--episodes must be greater than 0.")
+        }
+        guard mutationRate.isFinite, mutationRate >= 0 else {
+            throw ValidationError("--mutation-rate must be finite and non-negative.")
+        }
+        guard mutationNoiseScale.isFinite, mutationNoiseScale >= 0 else {
+            throw ValidationError("--mutation-noise-scale must be finite and non-negative.")
+        }
+        if let minimumRewardAverage, !minimumRewardAverage.isFinite {
+            throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+        let trimmedSnapshot = snapshot.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSnapshot.isEmpty else {
+            throw ValidationError("--snapshot is required.")
+        }
+        let snapshotURL = URL(fileURLWithPath: trimmedSnapshot, isDirectory: true)
+        try checkEvolutionInputs(snapshotURL: snapshotURL)
+        let artifactRoot: URL
+        if let artifactRootPath, !artifactRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+        } else {
+            artifactRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("kuyu-evolve-manas-\(UUID().uuidString)", isDirectory: true)
+        }
+        let selectedSuites = try parseRegressionSuites(suites)
+        let taskMode = simulationTaskMode(from: task)
+        let backend = ManasMLXEvolutionBackend(
+            rootDirectory: artifactRoot.appendingPathComponent("candidates", isDirectory: true),
+            variationProvider: makeVariationProvider()
+        )
+        let evaluator: any EvolutionCandidateEvaluating
+        switch evaluation {
+        case .regression:
+            evaluator = CLIEvolutionRegressionEvaluator(
+                task: taskMode,
+                tier: tier,
+                cutPeriodSteps: cutPeriodSteps,
+                suites: selectedSuites,
+                episodes: episodes,
+                workers: workers,
+                model: model,
+                artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
+                minimumRewardAverage: minimumRewardAverage,
+                useQualityGating: !noQualityGate
+            )
+        case .candidateOnly:
+            evaluator = CLICandidateOnlyEvolutionEvaluator(task: task.rawValue)
+        }
+        let orchestrator = EvolutionRunOrchestrator(
+            backend: backend,
+            evaluator: evaluator
+        )
+        let result = await orchestrator.run(
+            config: EvolutionRunConfig(
+                taskID: task.rawValue,
+                descriptorID: model.isEmpty ? nil : model,
+                descriptorHash: model.isEmpty ? nil : model,
+                configHash: "\(task.rawValue)-\(suites)-\(episodes)-\(workers)-\(candidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
+                policyID: "manasMLX",
+                populationSize: population,
+                generationCount: generations,
+                eliteCount: eliteCount,
+                workerCount: workers,
+                candidateEvaluationConcurrency: candidateEvaluationConcurrency,
+                searchStrategy: searchStrategy.trainingStrategy,
+                bootstrapSource: bootstrapSource.trainingSource,
+                worldModelUsage: worldModelUsage.trainingUsage,
+                antitheticSampling: antitheticSampling,
+                commonRandomSeed: commonRandomSeed,
+                mutationRate: mutationRate,
+                mutationNoiseScale: mutationNoiseScale,
+                adaptiveMutation: EvolutionAdaptiveMutationConfig(enabled: adaptiveMutation),
+                parentCheckpointID: snapshotURL.lastPathComponent,
+                parentCheckpointURL: snapshotURL
+            ),
+            gatePolicy: EvolutionGatePolicy(
+                eliteCount: eliteCount,
+                minimumTaskPassRate: 1.0,
+                maximumSafetyViolationRate: 0,
+                minimumHoldTimeRatio: task == .lift || task == .singleLift ? 1.0 : nil,
+                minimumRewardAverage: minimumRewardAverage
+            ),
+            artifactDirectory: artifactRoot
+        )
+        let artifacts = try EvolutionRunArtifactValidator().loadAndValidate(from: artifactRoot)
+        print("[evolve] artifacts path=\(artifactRoot.path)")
+        print("[evolve] terminal=\(artifacts.manifest.terminalState.rawValue) variation=\(variation.rawValue) evaluation=\(evaluation.rawValue) generations=\(artifacts.generations.count) candidates=\(artifacts.candidates.count) best=\(artifacts.eliteArchive.bestCandidateID ?? "n/a") bestFitness=\(formatOptional(artifacts.eliteArchive.bestFitness)) elites=\(artifacts.eliteArchive.eliteCandidateIDs.joined(separator: ","))")
+        printEvolutionSearchSummary(artifacts: artifacts, adaptiveMutation: adaptiveMutation)
+        if result.manifest.terminalState != .completed {
+            throw ExitCode.failure
+        }
+    }
+
+    private func printEvolutionSearchSummary(
+        artifacts: EvolutionRunArtifactBundle,
+        adaptiveMutation: Bool
+    ) {
+        let manifest = artifacts.manifest
+        let finalGeneration = artifacts.generations.last
+        let bestQDCell = artifacts.qualityDiversityArchive.cells.max { lhs, rhs in
+            if lhs.fitness == rhs.fitness {
+                return lhs.candidateID > rhs.candidateID
+            }
+            return lhs.fitness < rhs.fitness
+        }
+        print(
+            "[evolve] strategy=\(manifest.searchStrategy.rawValue) bootstrap=\(manifest.bootstrapSource.rawValue) worldModel=\(manifest.worldModelUsage.rawValue) antithetic=\(manifest.antitheticSampling) commonSeed=\(manifest.commonRandomSeed) adaptiveMutation=\(adaptiveMutation)"
+        )
+        print(
+            "[evolve] qdCells=\(artifacts.qualityDiversityArchive.cells.count) qdBest=\(bestQDCell?.candidateID ?? "n/a") qdBestFitness=\(formatOptional(bestQDCell?.fitness)) qdArchive=\(artifacts.artifactDirectory.appendingPathComponent(EvolutionQualityDiversityArchive.fileName).path)"
+        )
+        print(
+            "[evolve] finalMutationRate=\(formatOptional(finalGeneration?.mutationRate)) finalMutationNoiseScale=\(formatOptional(finalGeneration?.mutationNoiseScale)) finalQDCells=\(finalGeneration?.qualityDiversityCellCount ?? 0)"
+        )
+    }
+
+    @MainActor
+    private func makeVariationProvider() -> any ManasMLXGenomeVariationProviding {
+        switch variation {
+        case .copy:
+            return ManasMLXFileBackedGenomeVariationProvider()
+        case .gaussian:
+            return ManasMLXGaussianMutationProvider(config: ManasMLXGaussianMutationConfig(
+                noiseScale: 1,
+                crossoverEnabled: !noCrossover
+            ))
+        }
+    }
+
+    @MainActor
+    private func checkEvolutionInputs(snapshotURL: URL) throws {
+        let requiresMLXCheckpoint = variation == .gaussian || evaluation == .regression
+        if requiresMLXCheckpoint {
+            let preflight = try ManasMLXE2EPreflight().check(
+                descriptorPath: model,
+                sourceCheckpointURL: snapshotURL,
+                requireSourceCheckpoint: true
+            )
+            print("[evolve] preflight mlx=\(preflight.mlxRuntimeReady) descriptorLoaded=\(preflight.descriptorLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
+        } else {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: snapshotURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                throw ValidationError("--snapshot must point to an existing checkpoint directory.")
+            }
+            print("[evolve] preflight mode=lightweight sourceDirectory=true")
+        }
+    }
+}
+
+@MainActor
+private final class CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
+    private let task: SimulationTaskMode
+    private let tier: TierChoice
+    private let cutPeriodSteps: UInt64
+    private let suites: [Int]
+    private let episodes: Int
+    private let workers: Int
+    private let model: String
+    private let artifactRoot: URL
+    private let minimumRewardAverage: Double?
+    private let useQualityGating: Bool
+
+    init(
+        task: SimulationTaskMode,
+        tier: TierChoice,
+        cutPeriodSteps: UInt64,
+        suites: [Int],
+        episodes: Int,
+        workers: Int,
+        model: String,
+        artifactRoot: URL,
+        minimumRewardAverage: Double?,
+        useQualityGating: Bool
+    ) {
+        self.task = task
+        self.tier = tier
+        self.cutPeriodSteps = cutPeriodSteps
+        self.suites = suites
+        self.episodes = episodes
+        self.workers = workers
+        self.model = model
+        self.artifactRoot = artifactRoot
+        self.minimumRewardAverage = minimumRewardAverage
+        self.useQualityGating = useQualityGating
+    }
+
+    func evaluateCandidate(request: EvolutionCandidateEvaluationRequest) async throws -> FitnessSummary {
+        guard let checkpointURL = request.candidate.checkpointURL else {
+            return failedFitness(
+                request: request,
+                reason: "missing-candidate-checkpoint"
+            )
+        }
+        let candidateRoot = artifactRoot
+            .appendingPathComponent("generation-\(request.candidate.generationIndex)", isDirectory: true)
+            .appendingPathComponent(request.candidate.candidateID, isDirectory: true)
+        let summary = try await runKuyuRegression(
+            controller: .manasMLX,
+            snapshotURL: checkpointURL,
+            tier: tier,
+            cutPeriodSteps: cutPeriodSteps,
+            tasks: [task],
+            suites: suites,
+            episodes: episodes,
+            workers: workers,
+            maxSteps: nil,
+            maxWallTime: nil,
+            model: model,
+            artifactRoot: candidateRoot,
+            kp: 2.0,
+            kd: 0.25,
+            yawDamping: 0.2,
+            hoverScale: 1.0,
+            failOnTruncation: false,
+            minimumRewardAverage: minimumRewardAverage,
+            useQualityGating: useQualityGating
+        )
+        return fitness(
+            request: request,
+            regression: summary
+        )
+    }
+
+    private func failedFitness(
+        request: EvolutionCandidateEvaluationRequest,
+        reason: String
+    ) -> FitnessSummary {
+        FitnessSummary(
+            runID: request.config.runID,
+            generationIndex: request.candidate.generationIndex,
+            candidateID: request.candidate.candidateID,
+            taskID: request.config.taskID,
+            scalarFitness: -Double.greatestFiniteMagnitude,
+            rewardAverage: -Double.greatestFiniteMagnitude,
+            taskPassRate: 0,
+            safetyViolationRate: 1,
+            holdTimeRatio: 0,
+            workerThroughput: 0,
+            failureReasons: [reason]
+        )
+    }
+
+    private func fitness(
+        request: EvolutionCandidateEvaluationRequest,
+        regression: KuyuRegressionSummary
+    ) -> FitnessSummary {
+        let totalEpisodes = regression.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
+        let totalReward = regression.rolloutSuites.reduce(0.0) { $0 + $1.rewardSum }
+        let totalPasses = regression.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
+        let totalFailures = regression.rolloutSuites.reduce(0) {
+            $0 + $1.failureCount + $1.cancelledCount
+        }
+        let rewardAverage = totalEpisodes > 0 ? totalReward / Double(totalEpisodes) : 0
+        let taskPassRate = totalEpisodes > 0 ? Double(totalPasses) / Double(totalEpisodes) : 0
+        let safetyViolationRate = totalEpisodes > 0 ? Double(totalFailures) / Double(totalEpisodes) : 1
+        let holdTimeRatio = averageHoldTimeRatio(regression.rolloutSuites)
+        let throughput = minimumWorkerThroughput(regression.rolloutSuites)
+        let scalarFitness = rewardAverage
+            + taskPassRate * 100
+            + (holdTimeRatio ?? 0) * 10
+            - safetyViolationRate * 100
+        return FitnessSummary(
+            runID: request.config.runID,
+            generationIndex: request.candidate.generationIndex,
+            candidateID: request.candidate.candidateID,
+            taskID: request.config.taskID,
+            scalarFitness: scalarFitness,
+            rewardAverage: rewardAverage,
+            taskPassRate: taskPassRate,
+            safetyViolationRate: safetyViolationRate,
+            holdTimeRatio: holdTimeRatio,
+            energyPenalty: nil,
+            noveltyScore: nil,
+            teacherDelta: nil,
+            workerThroughput: throughput,
+            failureReasons: regression.gateReport.accepted ? [] : regression.gateReport.reasons
+        )
+    }
+
+    private func averageHoldTimeRatio(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
+        let ratios = entries.flatMap(\.taskQuality).compactMap { quality -> Double? in
+            guard let achieved = quality.achievedHoldTime,
+                  let required = quality.requiredHoldTime,
+                  required > 0 else {
+                return nil
+            }
+            return achieved / required
+        }
+        guard !ratios.isEmpty else {
+            return nil
+        }
+        return ratios.reduce(0, +) / Double(ratios.count)
+    }
+
+    private func minimumWorkerThroughput(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
+        let throughputs = entries.flatMap(\.workerSummaries).map(\.throughput)
+        return throughputs.min()
+    }
+}
+
+@MainActor
+private final class CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating {
+    private let task: String
+
+    init(task: String) {
+        self.task = task
+    }
+
+    func evaluateCandidate(request: EvolutionCandidateEvaluationRequest) async throws -> FitnessSummary {
+        let candidateIndex = request.candidate.candidateID
+            .split(separator: "c")
+            .last
+            .flatMap { Int(String($0)) } ?? 0
+        let candidateScore = Double(candidateIndex)
+        return FitnessSummary(
+            runID: request.config.runID,
+            generationIndex: request.candidate.generationIndex,
+            candidateID: request.candidate.candidateID,
+            taskID: task,
+            scalarFitness: candidateScore,
+            rewardAverage: candidateScore,
+            taskPassRate: 1,
+            safetyViolationRate: 0,
+            holdTimeRatio: 1,
+            workerThroughput: Double(request.workerCount),
+            failureReasons: []
+        )
+    }
+}
+
 struct TrainWorldModel: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "train-world-model",
@@ -3586,6 +4353,22 @@ private func controllerSelection(from controller: ControllerChoice) -> Controlle
         return .sensorBaseline
     case .manasMLX:
         return .manasMLX
+    }
+}
+
+private func parseRegressionControllers(_ raw: String) throws -> [ControllerChoice] {
+    let values = raw
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    guard !values.isEmpty else {
+        throw ValidationError("--controllers must include at least one controller.")
+    }
+    return try values.map { value in
+        guard let controller = ControllerChoice(rawValue: value) else {
+            throw ValidationError("--controllers contains unsupported controller: \(value)")
+        }
+        return controller
     }
 }
 
