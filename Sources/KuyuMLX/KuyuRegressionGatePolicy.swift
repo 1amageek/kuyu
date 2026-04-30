@@ -72,6 +72,10 @@ public enum KuyuRegressionGatePolicy {
             if quality.evaluatorID != requirement.qualityEvaluatorID {
                 reasons.append("task-quality-evaluator-mismatch:\(entry.track):\(quality.scenarioID)")
             }
+            if quality.task != requirement.task {
+                reasons.append("task-quality-task-mismatch:\(entry.track):\(quality.scenarioID):\(quality.task)!=\(requirement.task)")
+                continue
+            }
             if quality.passed == false {
                 reasons.append("task-quality-failed:\(entry.track):\(quality.scenarioID)")
             }

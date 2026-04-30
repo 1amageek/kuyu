@@ -13,6 +13,7 @@ public struct KuyuRegressionArtifactValidator: Sendable {
         case invalidTaskQualityCount(track: String, expected: Int, actual: Int)
         case nonFiniteTaskQuality(track: String, scenarioID: String)
         case invalidTaskQualityEvaluator(track: String, scenarioID: String, evaluatorID: String)
+        case invalidTaskQualityTask(track: String, scenarioID: String, task: String, expected: String)
         case invalidWorkerSummary(track: String, workerIndex: Int)
         case workerSummaryMismatch(track: String)
         case gateReportMismatch(expected: [String], actual: [String])
@@ -43,7 +44,7 @@ public struct KuyuRegressionArtifactValidator: Sendable {
             throw ValidationError.emptyArtifactRoot
         }
         try validateEnvironmentTasks(summary.environmentTasks)
-        try validateRolloutSuites(summary.rolloutSuites)
+        try validateRolloutSuites(summary.rolloutSuites, qualityGateTask: summary.gateReport.qualityGateTask)
 
         let expectedGateReport = KuyuRegressionGatePolicy.report(
             preflightFailure: summary.preflightFailure,
@@ -110,7 +111,10 @@ public struct KuyuRegressionArtifactValidator: Sendable {
         }
     }
 
-    private func validateRolloutSuites(_ rolloutSuites: [KuyuRegressionRolloutEntry]) throws {
+    private func validateRolloutSuites(
+        _ rolloutSuites: [KuyuRegressionRolloutEntry],
+        qualityGateTask: String
+    ) throws {
         for entry in rolloutSuites {
             guard entry.rewardSum.isFinite, entry.rewardAverage.isFinite else {
                 throw ValidationError.nonFiniteRolloutMetric(track: entry.track)
@@ -133,14 +137,15 @@ public struct KuyuRegressionArtifactValidator: Sendable {
                     actual: entry.taskQuality.count
                 )
             }
-            try validateTaskQuality(entry.taskQuality, track: entry.track)
+            try validateTaskQuality(entry.taskQuality, track: entry.track, qualityGateTask: qualityGateTask)
             try validateWorkerSummaries(entry.workerSummaries, entry: entry)
         }
     }
 
     private func validateTaskQuality(
         _ summaries: [ReferenceQuadrotorTaskQualitySummary],
-        track: String
+        track: String,
+        qualityGateTask: String
     ) throws {
         for summary in summaries {
             guard summary.evaluatorID == KuyuRegressionQualityGatePolicy.qualityEvaluatorID else {
@@ -148,6 +153,14 @@ public struct KuyuRegressionArtifactValidator: Sendable {
                     track: track,
                     scenarioID: summary.scenarioID,
                     evaluatorID: summary.evaluatorID
+                )
+            }
+            guard summary.task == qualityGateTask else {
+                throw ValidationError.invalidTaskQualityTask(
+                    track: track,
+                    scenarioID: summary.scenarioID,
+                    task: summary.task,
+                    expected: qualityGateTask
                 )
             }
             let numericValues = [

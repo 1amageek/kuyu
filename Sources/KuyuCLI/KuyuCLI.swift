@@ -2483,7 +2483,6 @@ private func writeRegressionMatrixSummary(_ summary: KuyuRegressionMatrixSummary
     )
 }
 
-@MainActor
 private func runKuyuRegression(
     controller selectedController: ControllerSelection,
     snapshotURL: URL?,
@@ -2519,7 +2518,7 @@ private func runKuyuRegression(
 
     if selectedController == .manasMLX {
         do {
-            _ = try ManasMLXE2EPreflight().check(
+            _ = try await runManasMLXE2EPreflight(
                 descriptorPath: model,
                 sourceCheckpointURL: snapshotURL,
                 requireSourceCheckpoint: true
@@ -2567,7 +2566,7 @@ private func runKuyuRegression(
     )
 
     let environmentRoot = artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
-    let environmentReport = try await KuyuEnvironmentReadinessChecker().check(
+    let environmentReport = try await runRegressionEnvironmentReadiness(
         tasks: selectedTasks,
         controller: environmentController,
         parameters: parameters,
@@ -2762,6 +2761,44 @@ private func runKuyuRegression(
     )
     try writeKuyuRegressionSummary(summary, to: artifactRoot)
     return summary
+}
+
+@MainActor
+private func runManasMLXE2EPreflight(
+    descriptorPath: String,
+    sourceCheckpointURL: URL?,
+    requireSourceCheckpoint: Bool
+) throws -> ManasMLXE2EPreflightReport {
+    try ManasMLXE2EPreflight().check(
+        descriptorPath: descriptorPath,
+        sourceCheckpointURL: sourceCheckpointURL,
+        requireSourceCheckpoint: requireSourceCheckpoint
+    )
+}
+
+@MainActor
+private func runRegressionEnvironmentReadiness(
+    tasks: [SimulationTaskMode],
+    controller: ControllerSelection,
+    parameters: ReferenceQuadrotorParameters,
+    schedule: SimulationSchedule,
+    determinism: DeterminismConfig,
+    gains: ImuRateDampingCutGains,
+    modelDescriptorPath: String,
+    descriptor: RobotDescriptor?,
+    artifactRoot: URL?
+) async throws -> KuyuEnvironmentReadinessReport {
+    try await KuyuEnvironmentReadinessChecker().check(
+        tasks: tasks,
+        controller: controller,
+        parameters: parameters,
+        schedule: schedule,
+        determinism: determinism,
+        gains: gains,
+        modelDescriptorPath: modelDescriptorPath,
+        descriptor: descriptor,
+        artifactRoot: artifactRoot
+    )
 }
 
 private func regressionSnapshotURL(_ raw: String, controller: ControllerSelection) throws -> URL? {
@@ -3945,8 +3982,7 @@ struct EvolveManas: AsyncParsableCommand {
     }
 }
 
-@MainActor
-private final class CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
+private struct CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
     private let task: SimulationTaskMode
     private let tier: TierChoice
     private let cutPeriodSteps: UInt64
@@ -4096,8 +4132,7 @@ private final class CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluatin
     }
 }
 
-@MainActor
-private final class CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating {
+private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating {
     private let task: String
 
     init(task: String) {
@@ -4349,12 +4384,15 @@ private func makeLiftSuiteDefinitions(
     episodes: Int
 ) throws -> [ReferenceQuadrotorScenarioDefinition] {
     let baseDefinitions = try baseLiftDefinitions(task: task)
-    return try Array(baseDefinitions.prefix(max(1, episodes))).enumerated().map { index, definition in
+    guard !baseDefinitions.isEmpty else {
+        throw ValidationError("No base lift definitions are available.")
+    }
+    return try (0..<episodes).map { index in
         try liftRegressionDefinition(
             task: task,
             suite: suite,
             index: index,
-            definition: definition
+            definition: baseDefinitions[index % baseDefinitions.count]
         )
     }
 }

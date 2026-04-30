@@ -96,6 +96,24 @@ import Testing
     #expect(report.reasons.contains("missing-task-quality:lift-postRegression:0/1"))
 }
 
+@Test func regressionQualityGateRejectsTaskQualityTaskMismatch() throws {
+    let entry = makeRegressionRolloutEntry(
+        rewardAverage: 1,
+        taskQuality: [makeTaskQuality(task: "singleLift")]
+    )
+    let report = KuyuRegressionGatePolicy.report(
+        preflightFailure: nil,
+        environmentTasks: [makeEnvironmentTask()],
+        rolloutSuites: [entry],
+        failOnTruncation: false,
+        minimumRewardAverage: 0,
+        qualityGateTask: "lift"
+    )
+
+    #expect(!report.accepted)
+    #expect(report.reasons.contains { $0.hasPrefix("task-quality-task-mismatch:lift-postRegression:") })
+}
+
 @Test func regressionQualityGateRejectsInsufficientLiftHoldTime() throws {
     let entry = makeRegressionRolloutEntry(
         rewardAverage: 1,
@@ -188,6 +206,34 @@ import Testing
     let entry = makeRegressionRolloutEntry(
         rewardAverage: 1,
         taskQuality: [makeTaskQuality(evaluatorID: "UnexpectedEvaluator")]
+    )
+    let report = KuyuRegressionGatePolicy.report(
+        preflightFailure: nil,
+        environmentTasks: [makeEnvironmentTask()],
+        rolloutSuites: [entry],
+        failOnTruncation: false,
+        minimumRewardAverage: 0,
+        qualityGateTask: "lift"
+    )
+    let summary = makeRegressionSummary(
+        directory: directory,
+        rolloutSuites: [entry],
+        gateReport: report,
+        allPassed: false
+    )
+
+    try write(summary, to: directory)
+
+    #expect(throws: KuyuRegressionArtifactValidator.ValidationError.self) {
+        _ = try KuyuRegressionArtifactValidator().loadAndValidate(from: directory)
+    }
+}
+
+@Test func regressionArtifactValidatorRejectsTaskQualityTaskMismatch() throws {
+    let directory = temporaryDirectory()
+    let entry = makeRegressionRolloutEntry(
+        rewardAverage: 1,
+        taskQuality: [makeTaskQuality(task: "singleLift")]
     )
     let report = KuyuRegressionGatePolicy.report(
         preflightFailure: nil,
@@ -361,13 +407,14 @@ private func makeWorkerSummary(
 }
 
 private func makeTaskQuality(
+    task: String = "lift",
     passed: Bool = true,
     achievedHoldTime: Double = 1,
     maxAltitudeErrorAfterWarmup: Double = 0,
     evaluatorID: String = KuyuRegressionQualityGatePolicy.qualityEvaluatorID
 ) -> ReferenceQuadrotorTaskQualitySummary {
     ReferenceQuadrotorTaskQualitySummary(
-        task: "lift",
+        task: task,
         scenarioID: "KUY-TEST/LIFT",
         seed: 1,
         passed: passed,

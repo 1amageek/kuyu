@@ -66,8 +66,10 @@ import Testing
     #expect(seed.candidates[1].antitheticPairID == "g0-p0")
     #expect(seed.candidates[0].antitheticSign == 1)
     #expect(seed.candidates[1].antitheticSign == -1)
-    #expect(seed.candidates[0].mutationRate == 0.12)
-    #expect(seed.candidates[0].mutationNoiseScale == 0.02)
+    #expect(seed.candidates[0].mutationRate == 0)
+    #expect(seed.candidates[0].mutationNoiseScale == 0)
+    #expect(seed.candidates[1].mutationRate == 0.12)
+    #expect(seed.candidates[1].mutationNoiseScale == 0.02)
     #expect(seed.candidates[0].commonRandomSeed == 101)
     #expect(next.candidates[0].antitheticPairID == "g1-p0")
     #expect(next.candidates[1].antitheticSign == -1)
@@ -79,8 +81,8 @@ import Testing
     let descriptor = try JSONDecoder().decode(ManasMLXGenomeCandidateDescriptor.self, from: descriptorData)
     #expect(descriptor.antitheticPairID == "g0-p0")
     #expect(descriptor.antitheticSign == 1)
-    #expect(descriptor.mutationRate == 0.12)
-    #expect(descriptor.mutationNoiseScale == 0.02)
+    #expect(descriptor.mutationRate == 0)
+    #expect(descriptor.mutationNoiseScale == 0)
     #expect(descriptor.commonRandomSeed == 101)
 }
 

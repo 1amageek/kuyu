@@ -383,7 +383,8 @@ public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
             parentCheckpointURLs: request.config.parentCheckpointURL.map { [$0] } ?? [],
             mutationRate: request.mutationRate,
             mutationNoiseScale: request.mutationNoiseScale,
-            commonRandomSeed: request.commonRandomSeed
+            commonRandomSeed: request.commonRandomSeed,
+            preserveIncumbent: true
         )
     }
 
@@ -399,7 +400,8 @@ public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
             parentCheckpointURLs: parentCheckpointURLs(request: request, parentIDs: parentIDs),
             mutationRate: request.mutationRate,
             mutationNoiseScale: request.mutationNoiseScale,
-            commonRandomSeed: request.commonRandomSeed
+            commonRandomSeed: request.commonRandomSeed,
+            preserveIncumbent: false
         )
     }
 
@@ -411,11 +413,13 @@ public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
         parentCheckpointURLs: [URL],
         mutationRate: Double,
         mutationNoiseScale: Double,
-        commonRandomSeed: UInt64
+        commonRandomSeed: UInt64,
+        preserveIncumbent: Bool
     ) async throws -> EvolutionPopulation {
         var candidates: [GenomeCandidate] = []
         candidates.reserveCapacity(config.populationSize)
         for index in 0..<config.populationSize {
+            let candidatePreservesIncumbent = preserveIncumbent && index == 0
             let candidate = try await variationProvider.makeCandidate(request: ManasMLXGenomeVariationRequest(
                 config: config,
                 generationIndex: generationIndex,
@@ -428,8 +432,8 @@ public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
                     generationIndex: generationIndex,
                     candidateIndex: index
                 ),
-                mutationRate: mutationRate,
-                mutationNoiseScale: mutationNoiseScale,
+                mutationRate: candidatePreservesIncumbent ? 0 : mutationRate,
+                mutationNoiseScale: candidatePreservesIncumbent ? 0 : mutationNoiseScale,
                 commonRandomSeed: commonRandomSeed,
                 antitheticPairID: antitheticPairID(config: config, generationIndex: generationIndex, candidateIndex: index),
                 antitheticSign: antitheticSign(config: config, candidateIndex: index)
