@@ -3931,14 +3931,25 @@ struct EvolveManas: AsyncParsableCommand {
     ) {
         let manifest = artifacts.manifest
         let finalGeneration = artifacts.generations.last
+        let incumbentCandidateID = artifacts.candidates.first { $0.isIncumbent == true }?.candidateID
+        let incumbentFitness = incumbentCandidateID.flatMap { candidateID in
+            artifacts.fitness.first { $0.candidateID == candidateID }?.scalarFitness
+        }
         let bestQDCell = artifacts.qualityDiversityArchive.cells.max { lhs, rhs in
             if lhs.fitness == rhs.fitness {
                 return lhs.candidateID > rhs.candidateID
             }
             return lhs.fitness < rhs.fitness
         }
+        let bestVsIncumbentDelta = zipOptional(
+            artifacts.eliteArchive.bestFitness,
+            incumbentFitness
+        ).map { best, incumbent in best - incumbent }
         print(
             "[evolve] strategy=\(manifest.searchStrategy.rawValue) bootstrap=\(manifest.bootstrapSource.rawValue) worldModel=\(manifest.worldModelUsage.rawValue) antithetic=\(manifest.antitheticSampling) commonSeed=\(manifest.commonRandomSeed) adaptiveMutation=\(adaptiveMutation)"
+        )
+        print(
+            "[evolve] incumbent=\(incumbentCandidateID ?? "n/a") incumbentFitness=\(formatOptional(incumbentFitness)) bestVsIncumbentDelta=\(formatOptional(bestVsIncumbentDelta))"
         )
         print(
             "[evolve] qdCells=\(artifacts.qualityDiversityArchive.cells.count) qdBest=\(bestQDCell?.candidateID ?? "n/a") qdBestFitness=\(formatOptional(bestQDCell?.fitness)) qdArchive=\(artifacts.artifactDirectory.appendingPathComponent(EvolutionQualityDiversityArchive.fileName).path)"
@@ -4159,6 +4170,11 @@ private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating 
             failureReasons: []
         )
     }
+}
+
+private func zipOptional<A, B>(_ lhs: A?, _ rhs: B?) -> (A, B)? {
+    guard let lhs, let rhs else { return nil }
+    return (lhs, rhs)
 }
 
 struct TrainWorldModel: AsyncParsableCommand {

@@ -15,6 +15,7 @@ public struct ManasMLXGenomeCandidateDescriptor: Sendable, Codable, Equatable {
     public let antitheticSign: Int?
     public let sourceCheckpointURL: URL?
     public let parentCheckpointURLs: [URL]
+    public let isIncumbent: Bool
 
     public init(
         candidateID: String,
@@ -27,7 +28,8 @@ public struct ManasMLXGenomeCandidateDescriptor: Sendable, Codable, Equatable {
         antitheticPairID: String?,
         antitheticSign: Int?,
         sourceCheckpointURL: URL?,
-        parentCheckpointURLs: [URL] = []
+        parentCheckpointURLs: [URL] = [],
+        isIncumbent: Bool = false
     ) {
         self.candidateID = candidateID
         self.genomeID = genomeID
@@ -40,6 +42,7 @@ public struct ManasMLXGenomeCandidateDescriptor: Sendable, Codable, Equatable {
         self.antitheticSign = antitheticSign
         self.sourceCheckpointURL = sourceCheckpointURL
         self.parentCheckpointURLs = parentCheckpointURLs
+        self.isIncumbent = isIncumbent
     }
 }
 
@@ -56,6 +59,7 @@ public struct ManasMLXGenomeVariationRequest: Sendable, Equatable {
     public let commonRandomSeed: UInt64
     public let antitheticPairID: String?
     public let antitheticSign: Int?
+    public let isIncumbent: Bool
 
     public init(
         config: EvolutionRunConfig,
@@ -69,7 +73,8 @@ public struct ManasMLXGenomeVariationRequest: Sendable, Equatable {
         mutationNoiseScale: Double? = nil,
         commonRandomSeed: UInt64? = nil,
         antitheticPairID: String? = nil,
-        antitheticSign: Int? = nil
+        antitheticSign: Int? = nil,
+        isIncumbent: Bool = false
     ) {
         self.config = config
         self.generationIndex = max(0, generationIndex)
@@ -83,6 +88,7 @@ public struct ManasMLXGenomeVariationRequest: Sendable, Equatable {
         self.commonRandomSeed = commonRandomSeed ?? config.commonRandomSeed
         self.antitheticPairID = antitheticPairID
         self.antitheticSign = antitheticSign
+        self.isIncumbent = isIncumbent
     }
 }
 
@@ -117,7 +123,8 @@ public struct ManasMLXFileBackedGenomeVariationProvider: ManasMLXGenomeVariation
             antitheticPairID: request.antitheticPairID,
             antitheticSign: request.antitheticSign,
             sourceCheckpointURL: request.sourceCheckpointURL,
-            parentCheckpointURLs: request.parentCheckpointURLs
+            parentCheckpointURLs: request.parentCheckpointURLs,
+            isIncumbent: request.isIncumbent
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -138,7 +145,8 @@ public struct ManasMLXFileBackedGenomeVariationProvider: ManasMLXGenomeVariation
             commonRandomSeed: request.commonRandomSeed,
             antitheticPairID: request.antitheticPairID,
             antitheticSign: request.antitheticSign,
-            mutationSummary: request.generationIndex == 0 ? "seed" : "variation-provider"
+            mutationSummary: request.isIncumbent ? "incumbent-parent" : (request.generationIndex == 0 ? "seed" : "variation-provider"),
+            isIncumbent: request.isIncumbent
         )
     }
 
@@ -222,7 +230,8 @@ public struct ManasMLXGaussianMutationProvider: ManasMLXGenomeVariationProviding
             commonRandomSeed: request.commonRandomSeed,
             antitheticPairID: request.antitheticPairID,
             antitheticSign: request.antitheticSign,
-            mutationSummary: request.generationIndex == 0 ? "gaussian-seed-mutation" : "gaussian-crossover-mutation"
+            mutationSummary: request.isIncumbent ? "incumbent-parent" : (request.generationIndex == 0 ? "gaussian-seed-mutation" : "gaussian-crossover-mutation"),
+            isIncumbent: request.isIncumbent
         )
     }
 
@@ -330,7 +339,8 @@ public struct ManasMLXGaussianMutationProvider: ManasMLXGenomeVariationProviding
             antitheticPairID: request.antitheticPairID,
             antitheticSign: request.antitheticSign,
             sourceCheckpointURL: sourceCheckpointURL,
-            parentCheckpointURLs: request.parentCheckpointURLs
+            parentCheckpointURLs: request.parentCheckpointURLs,
+            isIncumbent: request.isIncumbent
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -436,7 +446,8 @@ public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
                 mutationNoiseScale: candidatePreservesIncumbent ? 0 : mutationNoiseScale,
                 commonRandomSeed: commonRandomSeed,
                 antitheticPairID: antitheticPairID(config: config, generationIndex: generationIndex, candidateIndex: index),
-                antitheticSign: antitheticSign(config: config, candidateIndex: index)
+                antitheticSign: antitheticSign(config: config, candidateIndex: index),
+                isIncumbent: candidatePreservesIncumbent
             ))
             candidates.append(candidate)
         }
