@@ -1777,7 +1777,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
     @Flag(name: .customLong("post-regression-fail-on-truncation"), help: "Treat post-regression max-step truncation as a failure.")
     var postRegressionFailOnTruncation: Bool = false
 
-    @Option(name: .customLong("post-regression-min-reward-average"), help: "Optional minimum reward average required for every post-regression rollout track.")
+    @Option(name: .customLong("post-regression-min-reward-average"), help: "Override the task default minimum reward average required for every post-regression rollout track.")
     var postRegressionMinRewardAverage: Double?
 
     @MainActor
@@ -1934,12 +1934,12 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                         let checkpointURL = selectedCandidateCheckpointURL(result.comparison)
                         if let checkpointURL {
                             let regressionRoot = attemptRoot.appendingPathComponent("post-regression", isDirectory: true)
-                            let regression = try await runKuyuRegression(
+                            _ = try await runKuyuRegression(
                                 controller: .manasMLX,
                                 snapshotURL: checkpointURL,
                                 tier: tier,
                                 cutPeriodSteps: cutPeriodSteps,
-                                tasks: selectedTaskModes,
+                                tasks: [simulationTaskMode(from: task)],
                                 suites: selectedPostRegressionSuites,
                                 episodes: postRegressionEpisodes,
                                 workers: 1,
@@ -1955,22 +1955,26 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                                 minimumRewardAverage: postRegressionMinRewardAverage,
                                 useQualityGating: !noQualityGate
                             )
+                            let validatedRegression = try KuyuRegressionArtifactValidator()
+                                .loadAndValidate(from: regressionRoot)
                             postRegressionEntry = makePostTrainingRegressionEntry(
-                                regression: regression,
+                                regression: validatedRegression,
                                 artifactPath: regressionRoot.path,
-                                minimumRewardAverage: postRegressionMinRewardAverage
+                                minimumRewardAverage: validatedRegression.gateReport.minimumRewardAverage
                             )
-                            print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) postRegression=\(regression.allPassed)")
+                            print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) postRegression=\(validatedRegression.allPassed)")
                         } else {
+                            let defaultMinimumRewardAverage = KuyuRegressionQualityGatePolicy
+                                .defaultMinimumRewardAverage(for: task.rawValue)
                             postRegressionEntry = KuyuPostTrainingRegressionEntry(
                                 attempted: false,
                                 applicable: true,
                                 artifactPath: nil,
                                 allPassed: false,
                                 failureReasons: ["missing-checkpoint-url"],
-                                rewardAverageMinimum: postRegressionMinRewardAverage,
+                                rewardAverageMinimum: postRegressionMinRewardAverage ?? defaultMinimumRewardAverage,
                                 worstRewardAverage: nil,
-                                rewardAverageSatisfied: postRegressionMinRewardAverage == nil
+                                rewardAverageSatisfied: (postRegressionMinRewardAverage ?? defaultMinimumRewardAverage) == nil
                             )
                         }
                     } else {
@@ -2141,7 +2145,7 @@ struct CheckKuyuRegression: AsyncParsableCommand {
     @Flag(name: .customLong("fail-on-truncation"), help: "Treat max-step truncation as a regression failure.")
     var failOnTruncation: Bool = false
 
-    @Option(name: .customLong("min-reward-average"), help: "Optional minimum reward average required for every rollout track.")
+    @Option(name: .customLong("min-reward-average"), help: "Override the task default minimum reward average required for every rollout track.")
     var minimumRewardAverage: Double?
 
     @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
@@ -2176,7 +2180,7 @@ struct CheckKuyuRegression: AsyncParsableCommand {
                 .appendingPathComponent("kuyu-regression-\(UUID().uuidString)", isDirectory: true)
         }
         let snapshotURL = try regressionSnapshotURL(snapshot, controller: selectedController)
-        let summary = try await runKuyuRegression(
+        _ = try await runKuyuRegression(
             controller: selectedController,
             snapshotURL: snapshotURL,
             tier: tier,
@@ -2197,9 +2201,10 @@ struct CheckKuyuRegression: AsyncParsableCommand {
             minimumRewardAverage: minimumRewardAverage,
             useQualityGating: !noQualityGate
         )
+        let validatedSummary = try KuyuRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
         print("[regression] artifacts path=\(artifactRoot.path)")
-        print("[regression] environmentReady=\(summary.environmentReady) rolloutPassed=\(summary.rolloutPassed) gateAccepted=\(summary.gateReport.accepted) reasons=\(summary.gateReport.reasons.joined(separator: "|")) allPassed=\(summary.allPassed)")
-        if !summary.allPassed {
+        print("[regression] environmentReady=\(validatedSummary.environmentReady) rolloutPassed=\(validatedSummary.rolloutPassed) gateAccepted=\(validatedSummary.gateReport.accepted) reasons=\(validatedSummary.gateReport.reasons.joined(separator: "|")) allPassed=\(validatedSummary.allPassed)")
+        if !validatedSummary.allPassed {
             throw ExitCode.failure
         }
     }
@@ -2272,6 +2277,11 @@ private func runKuyuRegression(
         ? selectedController
         : .teacherBaseline
     let snapshotPath = snapshotURL?.path
+    let regressionTask = regressionRolloutTask(selectedTasks)
+    let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+        override: minimumRewardAverage,
+        task: regressionTask.rawValue
+    )
 
     if selectedController == .manasMLX {
         do {
@@ -2286,9 +2296,11 @@ private func runKuyuRegression(
                 environmentTasks: [],
                 rolloutSuites: [],
                 failOnTruncation: failOnTruncation,
-                minimumRewardAverage: minimumRewardAverage
+                minimumRewardAverage: effectiveMinimumRewardAverage,
+                qualityGateTask: regressionTask.rawValue
             )
             let summary = KuyuRegressionSummary(
+                schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
                 artifactRoot: artifactRoot.path,
                 startedAt: Date(),
                 controller: selectedController.rawValue,
@@ -2312,7 +2324,6 @@ private func runKuyuRegression(
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
     let descriptor = try loadDescriptor(modelPath: model)
     let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
-    let regressionTask = regressionRolloutTask(selectedTasks)
     let parameters = try makeRolloutParameters(task: regressionTask, loadedDescriptor: loadedDescriptor)
     let gains = try ImuRateDampingCutGains(
         kp: kp,
@@ -2363,9 +2374,11 @@ private func runKuyuRegression(
             environmentTasks: environmentReport.tasks,
             rolloutSuites: rolloutEntries,
             failOnTruncation: failOnTruncation,
-            minimumRewardAverage: minimumRewardAverage
+            minimumRewardAverage: effectiveMinimumRewardAverage,
+            qualityGateTask: regressionTask.rawValue
         )
         let summary = KuyuRegressionSummary(
+            schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
             artifactRoot: artifactRoot.path,
             startedAt: Date(),
             controller: selectedController.rawValue,
@@ -2487,9 +2500,11 @@ private func runKuyuRegression(
         environmentTasks: environmentReport.tasks,
         rolloutSuites: rolloutEntries,
         failOnTruncation: failOnTruncation,
-        minimumRewardAverage: minimumRewardAverage
+        minimumRewardAverage: effectiveMinimumRewardAverage,
+        qualityGateTask: regressionTask.rawValue
     )
     let summary = KuyuRegressionSummary(
+        schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
         artifactRoot: artifactRoot.path,
         startedAt: Date(),
         controller: selectedController.rawValue,
@@ -2667,53 +2682,6 @@ private func regressionFailureReasons(from summary: KuyuRegressionSummary) -> [S
     return Array(Set(reasons)).sorted()
 }
 
-private enum KuyuRegressionGatePolicy {
-    static func report(
-        preflightFailure: String?,
-        environmentTasks: [KuyuEnvironmentTaskReadiness],
-        rolloutSuites: [KuyuRegressionRolloutEntry],
-        failOnTruncation: Bool,
-        minimumRewardAverage: Double?
-    ) -> KuyuRegressionGateReport {
-        var reasons: [String] = []
-        if let preflightFailure {
-            reasons.append("preflight:\(preflightFailure)")
-        }
-        reasons.append(contentsOf: environmentTasks.filter { !$0.ready }.map { "environment-not-ready:\($0.task)" })
-        if rolloutSuites.isEmpty {
-            reasons.append("rollout-missing")
-        }
-        for entry in rolloutSuites {
-            if entry.episodeCount == 0 {
-                reasons.append("rollout-empty:\(entry.track)")
-            }
-            if entry.failureCount > 0 {
-                reasons.append("rollout-failures:\(entry.track):\(entry.failureCount)")
-            }
-            if entry.cancelledCount > 0 {
-                reasons.append("rollout-cancelled:\(entry.track):\(entry.cancelledCount)")
-            }
-            if entry.taskFailureCount > 0 || entry.taskPassCount != entry.episodeCount {
-                reasons.append("task-pass-mismatch:\(entry.track):\(entry.taskPassCount)/\(entry.episodeCount)")
-            }
-            if failOnTruncation && entry.truncatedCount > 0 {
-                reasons.append("truncated:\(entry.track):\(entry.truncatedCount)")
-            }
-            if let minimumRewardAverage, entry.rewardAverage < minimumRewardAverage {
-                reasons.append("reward-average-below-min:\(entry.track):\(entry.rewardAverage)<\(minimumRewardAverage)")
-            }
-            reasons.append(contentsOf: entry.failureReasons.map { "rollout:\(entry.track):\($0)" })
-            reasons.append(contentsOf: entry.taskFailureReasons.map { "task:\(entry.track):\($0)" })
-        }
-        return KuyuRegressionGateReport(
-            accepted: reasons.isEmpty,
-            reasons: Array(Set(reasons)).sorted(),
-            failOnTruncation: failOnTruncation,
-            minimumRewardAverage: minimumRewardAverage
-        )
-    }
-}
-
 private func postRegressionApplicable(_ summary: KuyuRegressionSummary) -> Bool {
     let reasons = regressionFailureReasons(from: summary)
     guard !reasons.isEmpty else {
@@ -2774,6 +2742,7 @@ private func writeKuyuRegressionSummary(_ summary: KuyuRegressionSummary, to art
         to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
         options: [.atomic]
     )
+    _ = try KuyuRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
 }
 
 private enum TrainingHarnessPolicy {
@@ -2986,47 +2955,6 @@ private struct TrainingHarnessGateReport: Codable {
     let requirement: String
     let accepted: Bool
     let reasons: [String]
-}
-
-private struct KuyuRegressionGateReport: Codable {
-    let accepted: Bool
-    let reasons: [String]
-    let failOnTruncation: Bool
-    let minimumRewardAverage: Double?
-}
-
-private struct KuyuRegressionSummary: Codable {
-    let artifactRoot: String
-    let startedAt: Date
-    let controller: String
-    let environmentController: String
-    let snapshot: String?
-    let preflightPassed: Bool
-    let preflightFailure: String?
-    let environmentReady: Bool
-    let environmentTasks: [KuyuEnvironmentTaskReadiness]
-    let rolloutPassed: Bool
-    let rolloutSuites: [KuyuRegressionRolloutEntry]
-    let gateReport: KuyuRegressionGateReport
-    let allPassed: Bool
-}
-
-private struct KuyuRegressionRolloutEntry: Codable {
-    let suite: Int
-    let track: String
-    let policyID: String
-    let episodeCount: Int
-    let rewardSum: Double
-    let rewardAverage: Double
-    let doneCount: Int
-    let truncatedCount: Int
-    let failureCount: Int
-    let cancelledCount: Int
-    let failureReasons: [String]
-    let taskPassCount: Int
-    let taskFailureCount: Int
-    let taskFailureReasons: [String]
-    let artifactPath: String?
 }
 
 private struct CheckTrainingHarnessProbeEntry: Codable {
