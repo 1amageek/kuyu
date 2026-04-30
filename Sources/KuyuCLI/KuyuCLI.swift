@@ -2636,15 +2636,12 @@ private func runKuyuRegression(
 
     var rolloutEntries: [KuyuRegressionRolloutEntry] = []
     for suite in selectedSuites {
-        let suiteForDefinitions = regressionTask == .attitude ? suite : nil
-        let definitions = try makeRolloutDefinitions(
+        let definitions = try makeRegressionRolloutDefinitions(
             task: regressionTask,
-            suite: suiteForDefinitions,
+            suite: suite,
             episodes: episodes
         )
-        let track = suiteForDefinitions == nil
-            ? "\(regressionTask.rawValue)-postRegression"
-            : regressionTrackName(for: suite)
+        let track = regressionTrackName(for: suite)
         let runner = RolloutRunner(
             parameters: parameters,
             schedule: schedule,
@@ -4302,6 +4299,9 @@ private func makeRolloutDefinitions(
     episodes: Int
 ) throws -> [ReferenceQuadrotorScenarioDefinition] {
     if let suite {
+        if task == .lift || task == .singleLift {
+            return try makeLiftSuiteDefinitions(task: task, suite: suite, episodes: episodes)
+        }
         let track: LongHorizonBenchmarkTrack
         switch suite {
         case 6:
@@ -4330,6 +4330,138 @@ private func makeRolloutDefinitions(
     case .singleLift:
         return try KuySingleLiftSuite().scenarios()
     }
+}
+
+private func makeRegressionRolloutDefinitions(
+    task: RolloutTaskChoice,
+    suite: Int,
+    episodes: Int
+) throws -> [ReferenceQuadrotorScenarioDefinition] {
+    guard episodes > 0 else {
+        throw ValidationError("--episodes must be greater than 0.")
+    }
+    return try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
+}
+
+private func makeLiftSuiteDefinitions(
+    task: RolloutTaskChoice,
+    suite: Int,
+    episodes: Int
+) throws -> [ReferenceQuadrotorScenarioDefinition] {
+    let baseDefinitions = try baseLiftDefinitions(task: task)
+    return try Array(baseDefinitions.prefix(max(1, episodes))).enumerated().map { index, definition in
+        try liftRegressionDefinition(
+            task: task,
+            suite: suite,
+            index: index,
+            definition: definition
+        )
+    }
+}
+
+private func baseLiftDefinitions(task: RolloutTaskChoice) throws -> [ReferenceQuadrotorScenarioDefinition] {
+    switch task {
+    case .attitude:
+        return try KuyAtt1Suite().scenarios()
+    case .lift:
+        return try KuyLiftSuite().scenarios()
+    case .singleLift:
+        return try KuySingleLiftSuite().scenarios()
+    }
+}
+
+private func liftRegressionDefinition(
+    task: RolloutTaskChoice,
+    suite: Int,
+    index: Int,
+    definition: ReferenceQuadrotorScenarioDefinition
+) throws -> ReferenceQuadrotorScenarioDefinition {
+    guard let liftEnvelope = definition.liftEnvelope else {
+        return definition
+    }
+
+    let targetOffset: Double
+    let initialOffset: Double
+    let actuatorDegradation: ActuatorDegradation?
+    let torqueEvents: [TorqueDisturbanceEvent]
+    let hfEvents: [HFStressEvent]
+    switch suite {
+    case 6:
+        targetOffset = 0
+        initialOffset = 0
+        actuatorDegradation = definition.actuatorDegradation
+        torqueEvents = definition.torqueEvents
+        hfEvents = definition.hfEvents
+    case 7:
+        targetOffset = task == .singleLift ? 0.02 : 0.05
+        initialOffset = 0
+        actuatorDegradation = definition.actuatorDegradation
+        torqueEvents = definition.torqueEvents
+        hfEvents = definition.hfEvents
+    case 8:
+        targetOffset = task == .singleLift ? -0.01 : -0.02
+        initialOffset = 0
+        actuatorDegradation = definition.actuatorDegradation
+        torqueEvents = definition.torqueEvents + [
+            try TorqueDisturbanceEvent(
+                startTime: max(0.75, definition.config.duration * 0.35),
+                duration: 0.05,
+                torqueBody: Axis3(x: task == .singleLift ? 0.0002 : 0.0005, y: 0, z: 0)
+            ),
+        ]
+        hfEvents = definition.hfEvents + [
+            try HFStressEvent(
+                kind: .latencySpike,
+                startTime: max(1.0, definition.config.duration * 0.50),
+                duration: 0.01,
+                magnitude: 0.01
+            ),
+        ]
+    default:
+        throw ValidationError("--suites only supports 6, 7, and 8.")
+    }
+
+    let targetZ = max(0.05, liftEnvelope.targetZ + targetOffset)
+    let adjustedLiftEnvelope = LiftEnvelope(
+        targetZ: targetZ,
+        tolerance: liftEnvelope.tolerance,
+        maxVelocity: liftEnvelope.maxVelocity,
+        warmupTime: liftEnvelope.warmupTime,
+        requiredHoldTime: liftEnvelope.requiredHoldTime
+    )
+    let prefix: String
+    switch task {
+    case .attitude:
+        prefix = "KUY-ATT-M2-S\(suite)"
+    case .lift:
+        prefix = "KUY-LIFT-M2-S\(suite)"
+    case .singleLift:
+        prefix = "KUY-SLIFT-M2-S\(suite)"
+    }
+
+    return ReferenceQuadrotorScenarioDefinition(
+        config: try ScenarioConfig(
+            id: try ScenarioID("\(prefix)/SCN-\(index + 1)"),
+            seed: ScenarioSeed(definition.config.seed.rawValue &+ UInt64(suite * 10_000 + index)),
+            duration: definition.config.duration,
+            timeStep: definition.config.timeStep
+        ),
+        kind: definition.kind,
+        initialPosition: Axis3(
+            x: definition.initialPosition.x,
+            y: definition.initialPosition.y,
+            z: max(0.05, targetZ + initialOffset)
+        ),
+        initialAttitude: definition.initialAttitude,
+        initialAngularVelocity: definition.initialAngularVelocity,
+        safetyEnvelope: definition.safetyEnvelope,
+        liftEnvelope: adjustedLiftEnvelope,
+        torqueEvents: torqueEvents,
+        actuatorDegradation: actuatorDegradation,
+        gyroDriftScale: suite == 8 ? max(definition.gyroDriftScale, 1.5) : definition.gyroDriftScale,
+        swapEvents: definition.swapEvents,
+        hfEvents: hfEvents
+    )
 }
 
 private func simulationTaskMode(from task: RolloutTaskChoice) -> SimulationTaskMode {
