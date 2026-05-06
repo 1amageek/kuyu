@@ -60,6 +60,9 @@ swift run -c release kuyu loop --iterations 1 --epochs 1 --lr 0.001 --save-model
 # Preferred MLX/Metal E2E path: build/test with Xcode, then run the Xcode-built kuyu binary
 ./scripts/check-xcode-e2e.sh /tmp/kuyu-xcode-e2e
 
+# Low-cost readiness gate before spending resources on a learning campaign
+./scripts/check-learning-readiness.sh /tmp/kuyu-learning-readiness
+
 # Learning campaign path: multiple seeds, multiple generations, persistent checkpoints
 KUYU_LEARNING_SEEDS=1,2,3 \
 KUYU_LEARNING_POPULATION=4 \
@@ -115,6 +118,8 @@ xcodebuild test -scheme kuyu-world-model -destination 'platform=macOS' -maximum-
 ```
 
 `check-xcode-e2e.sh` runs `xcodebuild test`, executes teacher regression, creates a ManasMLX checkpoint, evaluates that checkpoint as the incumbent, and runs a small evolution gate. It validates the produced artifacts, including `accepted-checkpoint.json` and `evaluation-trace.jsonl`.
+
+`check-learning-readiness.sh` is the low-cost gate to run before an expensive campaign. It verifies free disk space, builds the Xcode product, checks teacher regression, validates a provided source checkpoint or creates a task-specific bootstrap checkpoint, and writes `learning-readiness-summary.json`. It does not run multi-generation evolution.
 
 `run-xcode-learning-campaign.sh` is the repeatable learning entrypoint. It builds the Xcode product, verifies the teacher environment, uses a task-specific teacher rollout bootstrap when no source checkpoint is provided, runs evolution across `KUYU_LEARNING_SEEDS`, copies accepted checkpoints into `accepted-checkpoints/`, and writes `learning-campaign-summary.json`. If a seed rejects all candidates, the campaign keeps the previous parent checkpoint and still records best fitness, task pass rate, hold-time ratio, and incumbent delta from the rejected evolution artifacts.
 

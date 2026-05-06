@@ -430,6 +430,25 @@ import Testing
     #expect(readme.contains("Xcode is the authority for MLX and Metal-backed execution"))
 }
 
+@Test func learningReadinessScriptPreflightsExpensiveCampaignInputs() throws {
+    let script = try readSource("scripts/check-learning-readiness.sh")
+    let readme = try readSource("README.md")
+
+    #expect(script.contains("KUYU_LEARNING_MIN_FREE_GB"))
+    #expect(script.contains("xcodebuild build"))
+    #expect(script.contains("check-kuyu-regression"))
+    #expect(script.contains("teacherBaseline"))
+    #expect(script.contains("run_kuyu_plain train-manas-core"))
+    #expect(script.contains("run_kuyu_with_model rollout"))
+    #expect(script.contains("learning-readiness-summary.json"))
+    #expect(script.contains("source-regression"))
+    #expect(script.contains("ready checkpoint missing file"))
+    #expect(!script.contains("evolve-manas"))
+    #expect(!script.contains("swift run kuyu"))
+    #expect(readme.contains("./scripts/check-learning-readiness.sh"))
+    #expect(readme.contains("low-cost gate"))
+}
+
 @Test func xcodeLearningCampaignScriptPersistsMultiSeedCheckpointProgression() throws {
     let script = try readSource("scripts/run-xcode-learning-campaign.sh")
     let readme = try readSource("README.md")
