@@ -11,7 +11,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, TrainWorldModel.self, ImagineTrain.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self]
     )
 }
 

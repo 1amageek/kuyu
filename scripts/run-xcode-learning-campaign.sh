@@ -879,3 +879,6 @@ print(f"[learning-campaign] summary={summary_path}")
 print(f"[learning-campaign] acceptedCount={accepted_count} finalCheckpoint={final_checkpoint}")
 PY
 write_progress "summary-written" "$ARTIFACT_ROOT/learning-campaign-summary.json"
+
+run_kuyu_plain validate-learning-campaign --artifact-root "$ARTIFACT_ROOT" --allow-running
+write_progress "validation-written" "$ARTIFACT_ROOT/learning-campaign-validation.json"
