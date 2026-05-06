@@ -11,6 +11,7 @@ CONFIGURATION="${KUYU_XCODE_CONFIGURATION:-Debug}"
 TIMEOUT_SECONDS="${KUYU_LEARNING_TIMEOUT_SECONDS:-1200}"
 RUN_TESTS="${KUYU_LEARNING_RUN_TESTS:-0}"
 TEST_TIMEOUT_SECONDS="${KUYU_XCODE_TEST_TIMEOUT_SECONDS:-60}"
+MIN_FREE_GB="${KUYU_LEARNING_MIN_FREE_GB:-20}"
 
 TASK="${KUYU_LEARNING_TASK:-lift}"
 SUITES="${KUYU_LEARNING_SUITES:-6}"
@@ -40,7 +41,182 @@ BOOTSTRAP_EPOCHS="${KUYU_LEARNING_BOOTSTRAP_EPOCHS:-1}"
 BOOTSTRAP_MAX_BATCHES="${KUYU_LEARNING_BOOTSTRAP_MAX_BATCHES:-1}"
 BOOTSTRAP_LR="${KUYU_LEARNING_BOOTSTRAP_LR:-0.001}"
 
+if [[ -e "$ARTIFACT_ROOT" ]]; then
+  if [[ ! -d "$ARTIFACT_ROOT" ]]; then
+    echo "[learning-campaign] artifact root is not a directory: $ARTIFACT_ROOT" >&2
+    exit 1
+  fi
+  if [[ -n "$(find "$ARTIFACT_ROOT" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    echo "[learning-campaign] refusing to reuse non-empty artifact root: $ARTIFACT_ROOT" >&2
+    exit 1
+  fi
+fi
 mkdir -p "$ARTIFACT_ROOT"
+
+python3 - "$ARTIFACT_ROOT" "$MIN_FREE_GB" "$TASK" "$SUITES" "$EPISODES" "$WORKERS" "$POPULATION" "$GENERATIONS" "$ELITE_COUNT" "$CANDIDATE_EVALUATION_CONCURRENCY" "$SEEDS_CSV" "$SOURCE_CHECKPOINT" "$MODEL_DESCRIPTOR" "$VARIATION" "$SEARCH_STRATEGY" "$MUTATION_RATE" "$MUTATION_NOISE_SCALE" "$BOOTSTRAP_SUITE" "$BOOTSTRAP_EPISODES" "$BOOTSTRAP_SEQUENCE" "$BOOTSTRAP_EPOCHS" "$BOOTSTRAP_MAX_BATCHES" "$BOOTSTRAP_LR" <<'PY'
+import json
+import math
+import pathlib
+import shutil
+import sys
+
+(
+    root_raw,
+    min_free_gb_raw,
+    task,
+    suites_raw,
+    episodes_raw,
+    workers_raw,
+    population_raw,
+    generations_raw,
+    elite_count_raw,
+    candidate_concurrency_raw,
+    seeds_raw,
+    source_checkpoint_raw,
+    model_descriptor_raw,
+    variation,
+    search_strategy,
+    mutation_rate_raw,
+    mutation_noise_scale_raw,
+    bootstrap_suite,
+    bootstrap_episodes_raw,
+    bootstrap_sequence_raw,
+    bootstrap_epochs_raw,
+    bootstrap_max_batches_raw,
+    bootstrap_lr_raw,
+) = sys.argv[1:]
+
+root = pathlib.Path(root_raw)
+
+def parse_positive_int(name, raw):
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise SystemExit(f"{name} must be an integer: {raw}") from error
+    if value <= 0:
+        raise SystemExit(f"{name} must be positive: {value}")
+    return value
+
+def parse_nonnegative_float(name, raw):
+    try:
+        value = float(raw)
+    except ValueError as error:
+        raise SystemExit(f"{name} must be numeric: {raw}") from error
+    if not math.isfinite(value) or value < 0:
+        raise SystemExit(f"{name} must be finite and non-negative: {raw}")
+    return value
+
+def parse_positive_float(name, raw):
+    value = parse_nonnegative_float(name, raw)
+    if value <= 0:
+        raise SystemExit(f"{name} must be positive: {raw}")
+    return value
+
+episodes = parse_positive_int("KUYU_LEARNING_EPISODES", episodes_raw)
+workers = parse_positive_int("KUYU_LEARNING_WORKERS", workers_raw)
+population = parse_positive_int("KUYU_LEARNING_POPULATION", population_raw)
+generations = parse_positive_int("KUYU_LEARNING_GENERATIONS", generations_raw)
+elite_count = parse_positive_int("KUYU_LEARNING_ELITE_COUNT", elite_count_raw)
+candidate_concurrency = parse_positive_int(
+    "KUYU_LEARNING_CANDIDATE_EVALUATION_CONCURRENCY",
+    candidate_concurrency_raw,
+)
+bootstrap_episodes = parse_positive_int("KUYU_LEARNING_BOOTSTRAP_EPISODES", bootstrap_episodes_raw)
+bootstrap_sequence = parse_positive_int("KUYU_LEARNING_BOOTSTRAP_SEQUENCE", bootstrap_sequence_raw)
+bootstrap_epochs = parse_positive_int("KUYU_LEARNING_BOOTSTRAP_EPOCHS", bootstrap_epochs_raw)
+bootstrap_max_batches = parse_positive_int("KUYU_LEARNING_BOOTSTRAP_MAX_BATCHES", bootstrap_max_batches_raw)
+mutation_rate = parse_nonnegative_float("KUYU_LEARNING_MUTATION_RATE", mutation_rate_raw)
+mutation_noise_scale = parse_nonnegative_float("KUYU_LEARNING_MUTATION_NOISE_SCALE", mutation_noise_scale_raw)
+bootstrap_lr = parse_positive_float("KUYU_LEARNING_BOOTSTRAP_LR", bootstrap_lr_raw)
+min_free_gb = parse_nonnegative_float("KUYU_LEARNING_MIN_FREE_GB", min_free_gb_raw)
+
+if elite_count > population:
+    raise SystemExit("KUYU_LEARNING_ELITE_COUNT must be <= KUYU_LEARNING_POPULATION")
+if candidate_concurrency > population:
+    raise SystemExit("KUYU_LEARNING_CANDIDATE_EVALUATION_CONCURRENCY must be <= KUYU_LEARNING_POPULATION")
+
+seeds = [item.strip() for item in seeds_raw.split(",") if item.strip()]
+if not seeds:
+    raise SystemExit("KUYU_LEARNING_SEEDS must contain at least one seed")
+for seed in seeds:
+    int(seed)
+
+suites = [item.strip() for item in suites_raw.split(",") if item.strip()]
+if not suites:
+    raise SystemExit("KUYU_LEARNING_SUITES must contain at least one suite")
+for suite in suites:
+    int(suite)
+
+if model_descriptor_raw and not pathlib.Path(model_descriptor_raw).is_file():
+    raise SystemExit(f"missing model descriptor: {model_descriptor_raw}")
+
+if source_checkpoint_raw:
+    source_checkpoint = pathlib.Path(source_checkpoint_raw)
+    missing = [
+        name
+        for name in ["model.json", "core.safetensors", "reflex.safetensors"]
+        if not (source_checkpoint / name).is_file()
+    ]
+    if missing:
+        raise SystemExit(
+            f"incomplete source checkpoint: {source_checkpoint} missing {', '.join(missing)}"
+        )
+
+usage = shutil.disk_usage(root)
+required_bytes = math.ceil(min_free_gb * 1024 * 1024 * 1024)
+if usage.free < required_bytes:
+    raise SystemExit(
+        f"insufficient free disk: availableBytes={usage.free} requiredBytes={required_bytes}"
+    )
+
+planned_candidate_evaluations = len(seeds) * population * generations
+planned_incumbent_regressions = len(seeds)
+planned_teacher_regressions = 1
+planned_regression_rollouts = (
+    planned_teacher_regressions
+    + planned_incumbent_regressions
+    + planned_candidate_evaluations
+)
+planned_regression_episodes = planned_regression_rollouts * len(suites) * episodes
+
+plan = {
+    "artifactRoot": str(root),
+    "task": task,
+    "suites": suites,
+    "episodes": episodes,
+    "workers": workers,
+    "population": population,
+    "generations": generations,
+    "eliteCount": elite_count,
+    "candidateEvaluationConcurrency": candidate_concurrency,
+    "seeds": seeds,
+    "sourceCheckpoint": source_checkpoint_raw or None,
+    "modelDescriptor": model_descriptor_raw or None,
+    "variation": variation,
+    "searchStrategy": search_strategy,
+    "mutationRate": mutation_rate,
+    "mutationNoiseScale": mutation_noise_scale,
+    "bootstrapSuite": bootstrap_suite,
+    "bootstrapEpisodes": bootstrap_episodes,
+    "bootstrapSequence": bootstrap_sequence,
+    "bootstrapEpochs": bootstrap_epochs,
+    "bootstrapMaxBatches": bootstrap_max_batches,
+    "bootstrapLearningRate": bootstrap_lr,
+    "availableDiskBytes": usage.free,
+    "requiredDiskBytes": required_bytes,
+    "plannedCandidateEvaluations": planned_candidate_evaluations,
+    "plannedRegressionRollouts": planned_regression_rollouts,
+    "plannedRegressionEpisodes": planned_regression_episodes,
+}
+plan_path = root / "learning-campaign-plan.json"
+plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print(f"[learning-campaign] plan={plan_path}")
+print(
+    "[learning-campaign] planned "
+    f"candidateEvaluations={planned_candidate_evaluations} "
+    f"regressionEpisodes={planned_regression_episodes}"
+)
+PY
 
 run_with_timeout() {
   python3 - "$TIMEOUT_SECONDS" "$@" <<'PY'

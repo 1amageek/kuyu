@@ -459,6 +459,13 @@ import Testing
     #expect(script.contains("KUYU_LEARNING_POPULATION"))
     #expect(script.contains("accepted-checkpoints"))
     #expect(script.contains("learning-campaign-summary.json"))
+    #expect(script.contains("learning-campaign-plan.json"))
+    #expect(script.contains("refusing to reuse non-empty artifact root"))
+    #expect(script.contains("KUYU_LEARNING_MIN_FREE_GB"))
+    #expect(script.contains("plannedCandidateEvaluations"))
+    #expect(script.contains("plannedRegressionEpisodes"))
+    #expect(script.contains("candidate_concurrency > population"))
+    #expect(script.contains("incomplete source checkpoint"))
     #expect(script.contains("CURRENT_CHECKPOINT"))
     #expect(script.contains("bootstrap-dataset"))
     #expect(script.contains("run_kuyu_plain train-manas-core"))
@@ -482,6 +489,8 @@ import Testing
     #expect(readme.contains("./scripts/run-xcode-learning-campaign.sh"))
     #expect(readme.contains("multiple seeds, multiple generations, persistent checkpoints"))
     #expect(readme.contains("task-specific teacher rollout bootstrap"))
+    #expect(readme.contains("learning-campaign-plan.json"))
+    #expect(readme.contains("refuses to reuse a non-empty artifact root"))
 }
 
 private func readSource(_ relativePath: String) throws -> String {
