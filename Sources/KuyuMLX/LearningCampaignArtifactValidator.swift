@@ -210,6 +210,13 @@ public struct LearningCampaignArtifactValidator: Sendable {
                 detail: summary.finalCheckpoint
             ))
         }
+        if let expectedFinalCheckpoint = expectedFinalCheckpointPath(plan: plan, summary: summary, root: root),
+           normalizedCheckpointPath(summary.finalCheckpoint) != expectedFinalCheckpoint {
+            issues.append(.init(
+                code: "final-checkpoint-mismatch",
+                detail: "expected=\(expectedFinalCheckpoint) actual=\(summary.finalCheckpoint)"
+            ))
+        }
     }
 
     private func validate(
@@ -375,6 +382,21 @@ public struct LearningCampaignArtifactValidator: Sendable {
             return url.path
         }
         return value
+    }
+
+    private func expectedFinalCheckpointPath(
+        plan: LearningCampaignPlan,
+        summary: LearningCampaignSummary,
+        root: URL
+    ) -> String? {
+        if let acceptedCheckpoint = summary.runs.reversed().first(where: \.accepted)?.acceptedCheckpointURL {
+            return normalizedCheckpointPath(acceptedCheckpoint)
+        }
+        if let sourceCheckpoint = plan.sourceCheckpoint,
+           !sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return normalizedCheckpointPath(sourceCheckpoint)
+        }
+        return root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true).path
     }
 
     private func approximatelyEqual(_ lhs: Double?, _ rhs: Double?) -> Bool {

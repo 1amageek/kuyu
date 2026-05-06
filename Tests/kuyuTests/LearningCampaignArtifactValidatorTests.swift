@@ -30,6 +30,24 @@ import Testing
     }
 }
 
+@Test func learningCampaignArtifactValidatorRejectsFinalCheckpointMismatch() throws {
+    let root = try makeLearningCampaignArtifactRoot()
+    let unrelatedCheckpoint = root.appendingPathComponent("unrelated-checkpoint", isDirectory: true)
+    try FileManager.default.createDirectory(at: unrelatedCheckpoint, withIntermediateDirectories: true)
+    try write("{}", to: unrelatedCheckpoint.appendingPathComponent("model.json"))
+    try write("core", to: unrelatedCheckpoint.appendingPathComponent("core.safetensors"))
+    try write("reflex", to: unrelatedCheckpoint.appendingPathComponent("reflex.safetensors"))
+    try rewriteSummaryFinalCheckpoint(root: root, finalCheckpoint: unrelatedCheckpoint.path)
+
+    do {
+        _ = try LearningCampaignArtifactValidator().validate(artifactRoot: root)
+        Issue.record("Expected campaign validation to fail.")
+    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "final-checkpoint-mismatch" })
+    }
+}
+
 @Test func learningCampaignArtifactValidatorRejectsMissingSeedEvolutionArtifact() throws {
     let root = try makeLearningCampaignArtifactRoot()
     try FileManager.default.removeItem(
@@ -388,6 +406,22 @@ private func writeValidEvolutionArtifacts(evolutionRoot: URL, checkpointRoot: UR
         evaluationTraces: traces,
         to: evolutionRoot
     )
+}
+
+private func rewriteSummaryFinalCheckpoint(root: URL, finalCheckpoint: String) throws {
+    let url = root.appendingPathComponent("learning-campaign-summary.json")
+    let data = try Data(contentsOf: url)
+    let summary = try JSONDecoder().decode(LearningCampaignSummary.self, from: data)
+    let replacement = LearningCampaignSummary(
+        artifactRoot: summary.artifactRoot,
+        seedCount: summary.seedCount,
+        acceptedCount: summary.acceptedCount,
+        finalCheckpoint: finalCheckpoint,
+        runs: summary.runs
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(replacement).write(to: url, options: .atomic)
 }
 
 private func write(_ string: String, to url: URL) throws {
