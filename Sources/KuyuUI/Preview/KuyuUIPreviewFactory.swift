@@ -130,12 +130,18 @@ public enum KuyuUIPreviewFactory {
             artifactDirectory: URL(fileURLWithPath: "/tmp/kuyu-preview/post-regression", isDirectory: true),
             accepted: true,
             qualityTask: "lift",
+            rolloutCount: 1,
+            episodeCount: 1,
             rewardAverage: 63.656,
             taskPassRate: 1.0,
             achievedHoldTime: 7.5,
             requiredHoldTime: 2.0,
+            minimumHoldTimeRatio: 3.75,
             maxAltitudeErrorAfterWarmup: 0.0,
             tolerance: 0.2,
+            maximumAltitudeErrorRatio: 0.0,
+            worstTrack: "longHorizonTask",
+            worstScenarioID: "PREVIEW-SCN",
             minimumWorkerThroughput: 0.33,
             rejectReasons: []
         )

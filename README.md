@@ -56,6 +56,15 @@ swift run -c release kuyu imagine-train --world-model /tmp/kuyu-world-model --sa
 # SwiftPM release MLX smoke runs need the MLX Metal library next to the binary
 ./scripts/install-mlx-metallib.sh release
 swift run -c release kuyu loop --iterations 1 --epochs 1 --lr 0.001 --save-model /tmp/kuyu-model-smoke
+
+# Preferred MLX/Metal E2E path: build/test with Xcode, then run the Xcode-built kuyu binary
+./scripts/check-xcode-e2e.sh /tmp/kuyu-xcode-e2e
+
+# Learning campaign path: multiple seeds, multiple generations, persistent checkpoints
+KUYU_LEARNING_SEEDS=1,2,3 \
+KUYU_LEARNING_POPULATION=4 \
+KUYU_LEARNING_GENERATIONS=5 \
+./scripts/run-xcode-learning-campaign.sh /tmp/kuyu-learning-campaign
 ```
 
 ### M1.5 RL Environment Acceptance
@@ -100,11 +109,16 @@ Xcode is the authority for MLX and Metal-backed execution. Use it for `ManasMLXM
 
 ```bash
 xcodebuild test -scheme kuyu -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
+./scripts/check-xcode-e2e.sh /tmp/kuyu-xcode-e2e
 cd ../kuyu-world-model
 xcodebuild test -scheme kuyu-world-model -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
 ```
 
-SwiftPM release binaries can run MLX only when the MLX default metallib is installed next to the executable. Prefer `./scripts/install-mlx-metallib.sh release` for SwiftPM smoke runs, or use the Xcode-built binary when testing Metal resources.
+`check-xcode-e2e.sh` runs `xcodebuild test`, executes teacher regression, creates a ManasMLX checkpoint, evaluates that checkpoint as the incumbent, and runs a small evolution gate. It validates the produced artifacts, including `accepted-checkpoint.json` and `evaluation-trace.jsonl`.
+
+`run-xcode-learning-campaign.sh` is the repeatable learning entrypoint. It builds the Xcode product, verifies the teacher environment, uses a task-specific teacher rollout bootstrap when no source checkpoint is provided, runs evolution across `KUYU_LEARNING_SEEDS`, copies accepted checkpoints into `accepted-checkpoints/`, and writes `learning-campaign-summary.json`. If a seed rejects all candidates, the campaign keeps the previous parent checkpoint and still records best fitness, task pass rate, hold-time ratio, and incumbent delta from the rejected evolution artifacts.
+
+SwiftPM release binaries can run MLX only when the MLX default metallib is installed next to the executable. Prefer `./scripts/install-mlx-metallib.sh release` for SwiftPM smoke runs, but use the Xcode-built binary when testing Metal resources or checkpoint acceptance.
 
 ### M2 World-Model Entry
 

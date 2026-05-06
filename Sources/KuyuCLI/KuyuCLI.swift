@@ -2040,11 +2040,17 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                                 worstRewardAverage: nil,
                                 rewardAverageSatisfied: (postRegressionMinRewardAverage ?? defaultMinimumRewardAverage) == nil,
                                 qualityTask: task.rawValue,
+                                rolloutCount: 0,
+                                episodeCount: 0,
                                 taskPassRate: nil,
                                 achievedHoldTime: nil,
                                 requiredHoldTime: nil,
+                                minimumHoldTimeRatio: nil,
                                 maxAltitudeErrorAfterWarmup: nil,
                                 tolerance: nil,
+                                maximumAltitudeErrorRatio: nil,
+                                worstTrack: nil,
+                                worstScenarioID: nil,
                                 primaryRejectReason: "missing-checkpoint-url"
                             )
                         }
@@ -3060,12 +3066,40 @@ private func makePostTrainingRegressionEntry(
         rewardFailureReasons = []
     }
     let failureReasons = regressionFailureReasons(from: regression) + rewardFailureReasons
-    let firstEntry = regression.rolloutSuites.first
-    let firstQuality = firstEntry?.taskQuality.first
-    let taskPassRate = firstEntry.flatMap { entry -> Double? in
-        guard entry.episodeCount > 0 else { return nil }
-        return Double(entry.taskPassCount) / Double(entry.episodeCount)
+    let totalEpisodes = regression.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
+    let totalTaskPassCount = regression.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
+    let taskPassRate = totalEpisodes > 0 ? Double(totalTaskPassCount) / Double(totalEpisodes) : nil
+    let qualitiesByTrack = regression.rolloutSuites.flatMap { entry in
+        entry.taskQuality.map { quality in
+            (track: entry.track, quality: quality)
+        }
     }
+    let worstHold = qualitiesByTrack
+        .compactMap { item -> (track: String, quality: ReferenceQuadrotorTaskQualitySummary, ratio: Double)? in
+            guard let achieved = item.quality.achievedHoldTime,
+                  let required = item.quality.requiredHoldTime,
+                  required > 0 else {
+                return nil
+            }
+            return (item.track, item.quality, achieved / required)
+        }
+        .min { lhs, rhs in
+            lhs.ratio < rhs.ratio
+        }
+    let worstAltitude = qualitiesByTrack
+        .compactMap { item -> (track: String, quality: ReferenceQuadrotorTaskQualitySummary, ratio: Double)? in
+            guard let error = item.quality.maxAltitudeErrorAfterWarmup,
+                  let tolerance = item.quality.tolerance,
+                  tolerance > 0 else {
+                return nil
+            }
+            return (item.track, item.quality, error / tolerance)
+        }
+        .max { lhs, rhs in
+            lhs.ratio < rhs.ratio
+        }
+    let worstQuality = worstAltitude?.quality ?? worstHold?.quality
+    let worstTrack = worstAltitude?.track ?? worstHold?.track
     return KuyuPostTrainingRegressionEntry(
         attempted: true,
         applicable: postRegressionApplicable(regression),
@@ -3076,11 +3110,17 @@ private func makePostTrainingRegressionEntry(
         worstRewardAverage: regression.rolloutSuites.map(\.rewardAverage).min(),
         rewardAverageSatisfied: rewardAverageSatisfied,
         qualityTask: regression.gateReport.qualityGateTask,
+        rolloutCount: regression.rolloutSuites.count,
+        episodeCount: totalEpisodes,
         taskPassRate: taskPassRate,
-        achievedHoldTime: firstQuality?.achievedHoldTime,
-        requiredHoldTime: firstQuality?.requiredHoldTime,
-        maxAltitudeErrorAfterWarmup: firstQuality?.maxAltitudeErrorAfterWarmup,
-        tolerance: firstQuality?.tolerance,
+        achievedHoldTime: worstHold?.quality.achievedHoldTime,
+        requiredHoldTime: worstHold?.quality.requiredHoldTime,
+        minimumHoldTimeRatio: worstHold?.ratio,
+        maxAltitudeErrorAfterWarmup: worstAltitude?.quality.maxAltitudeErrorAfterWarmup,
+        tolerance: worstAltitude?.quality.tolerance,
+        maximumAltitudeErrorRatio: worstAltitude?.ratio,
+        worstTrack: worstTrack,
+        worstScenarioID: worstQuality?.scenarioID,
         primaryRejectReason: failureReasons.first
     )
 }
@@ -3360,11 +3400,17 @@ private struct KuyuPostTrainingRegressionEntry: Codable {
     let worstRewardAverage: Double?
     let rewardAverageSatisfied: Bool
     let qualityTask: String?
+    let rolloutCount: Int
+    let episodeCount: Int
     let taskPassRate: Double?
     let achievedHoldTime: Double?
     let requiredHoldTime: Double?
+    let minimumHoldTimeRatio: Double?
     let maxAltitudeErrorAfterWarmup: Double?
     let tolerance: Double?
+    let maximumAltitudeErrorRatio: Double?
+    let worstTrack: String?
+    let worstScenarioID: String?
     let primaryRejectReason: String?
 }
 
@@ -3897,7 +3943,7 @@ struct EvolveManas: AsyncParsableCommand {
             backend: backend,
             evaluator: evaluator
         )
-        let result = await orchestrator.run(
+        _ = await orchestrator.run(
             config: EvolutionRunConfig(
                 taskID: task.rawValue,
                 descriptorID: model.isEmpty ? nil : model,
@@ -3941,7 +3987,7 @@ struct EvolveManas: AsyncParsableCommand {
         print("[evolve] terminal=\(artifacts.manifest.terminalState.rawValue) variation=\(variation.rawValue) evaluation=\(evaluation.rawValue) generations=\(artifacts.generations.count) candidates=\(artifacts.candidates.count) best=\(displayBestCandidateID) bestFitness=\(formatOptional(displayBestFitness)) elites=\(artifacts.eliteArchive.eliteCandidateIDs.joined(separator: ","))")
         print("[evolve] acceptedCheckpoint=\(artifacts.acceptedCheckpoint.checkpointURL?.path ?? "n/a") acceptedCandidate=\(artifacts.acceptedCheckpoint.candidateID ?? "n/a") bestCandidate=\(artifacts.acceptedCheckpoint.bestCandidateID ?? "n/a") bestCheckpoint=\(artifacts.acceptedCheckpoint.bestCheckpointURL?.path ?? "n/a") publishReasons=\(artifacts.acceptedCheckpoint.reasons.joined(separator: ",")) decision=\(artifacts.artifactDirectory.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName).path)")
         printEvolutionSearchSummary(artifacts: artifacts, adaptiveMutation: adaptiveMutation)
-        if result.manifest.terminalState != .completed {
+        if !artifacts.acceptedCheckpoint.accepted {
             throw ExitCode.failure
         }
     }

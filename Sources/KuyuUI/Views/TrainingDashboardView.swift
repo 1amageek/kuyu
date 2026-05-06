@@ -426,10 +426,14 @@ private struct PostRegressionGatePanel: View {
                 GateBadge(value: gate?.accepted)
             }
             TrainingStatLine(label: "Quality Task", value: gate?.qualityTask ?? "--")
+            TrainingStatLine(label: "Rollouts / Episodes", value: rolloutText)
             TrainingStatLine(label: "Reward Avg", value: formatted(gate?.rewardAverage))
             TrainingStatLine(label: "Task Pass Rate", value: percent(gate?.taskPassRate))
             TrainingStatLine(label: "Hold Time", value: holdTimeText)
+            TrainingStatLine(label: "Hold Ratio Min", value: formatted(gate?.minimumHoldTimeRatio))
             TrainingStatLine(label: "Altitude Error", value: altitudeErrorText)
+            TrainingStatLine(label: "Altitude Ratio Max", value: formatted(gate?.maximumAltitudeErrorRatio))
+            TrainingStatLine(label: "Worst Case", value: worstCaseText)
             TrainingStatLine(label: "Worker Throughput Min", value: formatted(gate?.minimumWorkerThroughput))
             TrainingStatLine(label: "Primary Reject", value: gate?.primaryRejectReason ?? "--")
             if let path = gate?.artifactDirectory.path {
@@ -448,6 +452,11 @@ private struct PostRegressionGatePanel: View {
         model.lastPostRegressionGate
     }
 
+    private var rolloutText: String {
+        guard let gate else { return "--" }
+        return "\(gate.rolloutCount) / \(gate.episodeCount)"
+    }
+
     private var holdTimeText: String {
         guard let gate else { return "--" }
         return "\(formatted(gate.achievedHoldTime)) / \(formatted(gate.requiredHoldTime))"
@@ -456,6 +465,13 @@ private struct PostRegressionGatePanel: View {
     private var altitudeErrorText: String {
         guard let gate else { return "--" }
         return "\(formatted(gate.maxAltitudeErrorAfterWarmup)) <= \(formatted(gate.tolerance))"
+    }
+
+    private var worstCaseText: String {
+        guard let gate else { return "--" }
+        let track = gate.worstTrack ?? "--"
+        let scenario = gate.worstScenarioID ?? "--"
+        return "\(track) / \(scenario)"
     }
 
     private func formatted(_ value: Double?) -> String {
