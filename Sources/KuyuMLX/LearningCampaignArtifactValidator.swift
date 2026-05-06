@@ -1,4 +1,5 @@
 import Foundation
+import KuyuTraining
 
 public struct LearningCampaignArtifactValidator: Sendable {
     public enum ValidationError: Error, Sendable, Equatable {
@@ -24,9 +25,6 @@ public struct LearningCampaignArtifactValidator: Sendable {
         guard fileManager.fileExists(atPath: artifactRoot.path) else {
             appendIssue("missing-artifact-root", artifactRoot.path)
             let validation = makeValidation(root: artifactRoot, issues: issues)
-            if writesValidationArtifact {
-                try write(validation, to: artifactRoot)
-            }
             throw ValidationError.invalid(validation)
         }
 
@@ -113,11 +111,12 @@ public struct LearningCampaignArtifactValidator: Sendable {
         allowRunning: Bool,
         issues: inout [LearningCampaignValidationIssue]
     ) {
-        guard let last = progress.last else {
+        guard !progress.isEmpty else {
             issues.append(.init(code: "empty-progress", detail: "progress.jsonl"))
             return
         }
-        if last.event != "campaign-finished" && !allowRunning {
+        let hasFinishedEvent = progress.contains { $0.event == "campaign-finished" }
+        if !hasFinishedEvent && !allowRunning {
             issues.append(.init(code: "missing-finished-progress-event", detail: "progress.jsonl"))
         }
     }
@@ -171,27 +170,26 @@ public struct LearningCampaignArtifactValidator: Sendable {
                 detail: "plan=\(planSeeds) summary=\(summarySeeds)"
             ))
         }
+        if summary.seedCount != summary.runs.count {
+            issues.append(.init(
+                code: "seed-count-mismatch",
+                detail: "seedCount=\(summary.seedCount) runs=\(summary.runs.count)"
+            ))
+        }
+        let acceptedRunCount = summary.runs.filter(\.accepted).count
+        if summary.acceptedCount != acceptedRunCount {
+            issues.append(.init(
+                code: "accepted-count-mismatch",
+                detail: "acceptedCount=\(summary.acceptedCount) runs=\(acceptedRunCount)"
+            ))
+        }
         let expectedFitnessCount = plan.population * plan.generations
         for run in summary.runs {
             let evolutionRoot = root
                 .appendingPathComponent("seeds", isDirectory: true)
                 .appendingPathComponent("seed-\(run.seed)", isDirectory: true)
                 .appendingPathComponent("evolution", isDirectory: true)
-            for fileName in [
-                "accepted-checkpoint.json",
-                "evolution-manifest.json",
-                "evaluation-trace.jsonl",
-                "fitness.jsonl",
-                "candidates.jsonl"
-            ] {
-                let fileURL = evolutionRoot.appendingPathComponent(fileName)
-                if !FileManager.default.fileExists(atPath: fileURL.path) {
-                    issues.append(.init(
-                        code: "missing-seed-evolution-artifact",
-                        detail: "seed=\(run.seed) file=\(fileName)"
-                    ))
-                }
-            }
+            validate(seedRun: run, plan: plan, evolutionRoot: evolutionRoot, issues: &issues)
             if expectedFitnessCount > 0, run.fitnessCount != expectedFitnessCount {
                 issues.append(.init(
                     code: "fitness-count-mismatch",
@@ -212,6 +210,195 @@ public struct LearningCampaignArtifactValidator: Sendable {
                 detail: summary.finalCheckpoint
             ))
         }
+    }
+
+    private func validate(
+        seedRun run: LearningCampaignSeedRunSummary,
+        plan: LearningCampaignPlan,
+        evolutionRoot: URL,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        let bundle: EvolutionRunArtifactBundle
+        do {
+            bundle = try EvolutionRunArtifactValidator().loadAndValidate(from: evolutionRoot)
+        } catch EvolutionRunArtifactValidator.ValidationError.missingFile(let fileName) {
+            issues.append(.init(
+                code: "missing-seed-evolution-artifact",
+                detail: "seed=\(run.seed) file=\(fileName)"
+            ))
+            return
+        } catch {
+            issues.append(.init(
+                code: "invalid-seed-evolution-artifact",
+                detail: "seed=\(run.seed) error=\(error)"
+            ))
+            return
+        }
+
+        if bundle.manifest.taskID != plan.task {
+            issues.append(.init(
+                code: "evolution-task-mismatch",
+                detail: "seed=\(run.seed) plan=\(plan.task) manifest=\(bundle.manifest.taskID)"
+            ))
+        }
+        if bundle.manifest.populationSize != plan.population {
+            issues.append(.init(
+                code: "evolution-population-mismatch",
+                detail: "seed=\(run.seed) plan=\(plan.population) manifest=\(bundle.manifest.populationSize)"
+            ))
+        }
+        if bundle.manifest.generationCount != plan.generations {
+            issues.append(.init(
+                code: "evolution-generation-mismatch",
+                detail: "seed=\(run.seed) plan=\(plan.generations) manifest=\(bundle.manifest.generationCount)"
+            ))
+        }
+        if bundle.manifest.workerCount != plan.workers {
+            issues.append(.init(
+                code: "evolution-worker-mismatch",
+                detail: "seed=\(run.seed) plan=\(plan.workers) manifest=\(bundle.manifest.workerCount)"
+            ))
+        }
+        if bundle.manifest.candidateEvaluationConcurrency != plan.candidateEvaluationConcurrency {
+            issues.append(.init(
+                code: "evolution-candidate-concurrency-mismatch",
+                detail: "seed=\(run.seed) plan=\(plan.candidateEvaluationConcurrency) manifest=\(bundle.manifest.candidateEvaluationConcurrency)"
+            ))
+        }
+        if let terminalState = run.terminalState,
+           terminalState != bundle.manifest.terminalState.rawValue {
+            issues.append(.init(
+                code: "evolution-terminal-state-mismatch",
+                detail: "seed=\(run.seed) summary=\(terminalState) manifest=\(bundle.manifest.terminalState.rawValue)"
+            ))
+        }
+        if run.accepted != bundle.acceptedCheckpoint.accepted {
+            issues.append(.init(
+                code: "accepted-decision-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.accepted) artifact=\(bundle.acceptedCheckpoint.accepted)"
+            ))
+        }
+        if run.acceptedCandidateID != bundle.acceptedCheckpoint.candidateID {
+            issues.append(.init(
+                code: "accepted-candidate-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.acceptedCandidateID ?? "nil") artifact=\(bundle.acceptedCheckpoint.candidateID ?? "nil")"
+            ))
+        }
+        if normalizedCheckpointPath(run.acceptedCheckpointURL)
+            != bundle.acceptedCheckpoint.checkpointURL?.path {
+            issues.append(.init(
+                code: "accepted-checkpoint-url-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.acceptedCheckpointURL ?? "nil") artifact=\(bundle.acceptedCheckpoint.checkpointURL?.path ?? "nil")"
+            ))
+        }
+        let derivedBest = bundle.fitness.max { lhs, rhs in
+            if lhs.scalarFitness == rhs.scalarFitness {
+                return lhs.candidateID > rhs.candidateID
+            }
+            return lhs.scalarFitness < rhs.scalarFitness
+        }
+        let derivedIncumbentCandidateID = bundle.candidates.first { $0.isIncumbent == true }?.candidateID
+        let derivedIncumbent = derivedIncumbentCandidateID.flatMap { candidateID in
+            bundle.fitness.first { $0.candidateID == candidateID }
+        }
+        let derivedDelta = zipOptional(derivedBest?.scalarFitness, derivedIncumbent?.scalarFitness).map { best, incumbent in
+            best - incumbent
+        }
+        if run.bestCandidateID != derivedBest?.candidateID {
+            issues.append(.init(
+                code: "best-candidate-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.bestCandidateID ?? "nil") artifact=\(derivedBest?.candidateID ?? "nil")"
+            ))
+        }
+        if !approximatelyEqual(run.bestFitness, derivedBest?.scalarFitness) {
+            issues.append(.init(
+                code: "best-fitness-mismatch",
+                detail: "seed=\(run.seed) summary=\(stringValue(run.bestFitness)) artifact=\(stringValue(derivedBest?.scalarFitness))"
+            ))
+        }
+        if run.incumbentCandidateID != derivedIncumbentCandidateID {
+            issues.append(.init(
+                code: "incumbent-candidate-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.incumbentCandidateID ?? "nil") artifact=\(derivedIncumbentCandidateID ?? "nil")"
+            ))
+        }
+        if !approximatelyEqual(run.incumbentFitness, derivedIncumbent?.scalarFitness) {
+            issues.append(.init(
+                code: "incumbent-fitness-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.bestVsIncumbentDelta, derivedDelta) {
+            issues.append(.init(
+                code: "best-vs-incumbent-delta-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if run.reasonCount != bundle.acceptedCheckpoint.reasons.count {
+            issues.append(.init(
+                code: "reason-count-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.reasonCount) artifact=\(bundle.acceptedCheckpoint.reasons.count)"
+            ))
+        }
+        if run.fitnessCount != bundle.fitness.count {
+            issues.append(.init(
+                code: "fitness-count-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.fitnessCount) artifact=\(bundle.fitness.count)"
+            ))
+        }
+        if run.evaluationTraceCount != bundle.evaluationTraces.count {
+            issues.append(.init(
+                code: "evaluation-trace-count-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.evaluationTraceCount) artifact=\(bundle.evaluationTraces.count)"
+            ))
+        }
+        if run.accepted {
+            guard let checkpointURL = bundle.acceptedCheckpoint.checkpointURL else {
+                issues.append(.init(
+                    code: "accepted-missing-checkpoint-url",
+                    detail: "seed=\(run.seed)"
+                ))
+                return
+            }
+            if !checkpointComplete(checkpointURL) {
+                issues.append(.init(
+                    code: "accepted-incomplete-checkpoint",
+                    detail: "seed=\(run.seed) checkpoint=\(checkpointURL.path)"
+                ))
+            }
+        }
+    }
+
+    private func normalizedCheckpointPath(_ value: String?) -> String? {
+        guard let value else { return nil }
+        if let url = URL(string: value), url.isFileURL {
+            return url.path
+        }
+        return value
+    }
+
+    private func approximatelyEqual(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case (.some(let lhs), .some(let rhs)):
+            if !lhs.isFinite || !rhs.isFinite {
+                return false
+            }
+            return abs(lhs - rhs) <= 0.000_000_001
+        default:
+            return false
+        }
+    }
+
+    private func zipOptional<A, B>(_ lhs: A?, _ rhs: B?) -> (A, B)? {
+        guard let lhs, let rhs else { return nil }
+        return (lhs, rhs)
+    }
+
+    private func stringValue(_ value: Double?) -> String {
+        guard let value else { return "nil" }
+        return String(value)
     }
 
     private func checkpointComplete(_ url: URL) -> Bool {

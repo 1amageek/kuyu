@@ -104,13 +104,8 @@ with path.open("a", encoding="utf-8") as handle:
 PY
 }
 
-finalize_campaign() {
-  local status=$?
-  if [[ -n "$RESOURCE_MONITOR_PID" ]]; then
-    kill "$RESOURCE_MONITOR_PID" 2>/dev/null || true
-    wait "$RESOURCE_MONITOR_PID" 2>/dev/null || true
-  fi
-  python3 - "$ARTIFACT_ROOT" "$status" "$STARTED_AT" <<'PY'
+write_campaign_status() {
+  python3 - "$ARTIFACT_ROOT" "$1" "$STARTED_AT" <<'PY'
 import json
 import pathlib
 import sys
@@ -138,6 +133,34 @@ with (root / "progress.jsonl").open("a", encoding="utf-8") as handle:
         "status": summary["status"],
     }, sort_keys=True) + "\n")
 PY
+}
+
+finalize_campaign() {
+  local status=$?
+  if [[ -n "$RESOURCE_MONITOR_PID" ]]; then
+    kill "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+    wait "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+  fi
+  write_campaign_status "$status"
+  local kuyu_bin="${KUYU_BIN:-}"
+  if [[ -n "$kuyu_bin" && -x "$kuyu_bin" && -f "$ARTIFACT_ROOT/learning-campaign-summary.json" ]]; then
+    set +e
+    "$kuyu_bin" validate-learning-campaign --artifact-root "$ARTIFACT_ROOT"
+    local validation_status=$?
+    set -e
+    if [[ "$validation_status" -eq 0 ]]; then
+      write_progress "validation-written" "$ARTIFACT_ROOT/learning-campaign-validation.json"
+    else
+      write_progress "validation-failed" "$ARTIFACT_ROOT/learning-campaign-validation.json"
+      if [[ "$status" -eq 0 ]]; then
+        status="$validation_status"
+        write_campaign_status "$status"
+        set +e
+        "$kuyu_bin" validate-learning-campaign --artifact-root "$ARTIFACT_ROOT"
+        set -e
+      fi
+    fi
+  fi
   rm -rf "$LOCK_PATH"
   exit "$status"
 }
@@ -879,6 +902,3 @@ print(f"[learning-campaign] summary={summary_path}")
 print(f"[learning-campaign] acceptedCount={accepted_count} finalCheckpoint={final_checkpoint}")
 PY
 write_progress "summary-written" "$ARTIFACT_ROOT/learning-campaign-summary.json"
-
-run_kuyu_plain validate-learning-campaign --artifact-root "$ARTIFACT_ROOT" --allow-running
-write_progress "validation-written" "$ARTIFACT_ROOT/learning-campaign-validation.json"
