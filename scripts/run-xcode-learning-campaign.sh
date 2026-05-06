@@ -13,7 +13,11 @@ RUN_TESTS="${KUYU_LEARNING_RUN_TESTS:-0}"
 TEST_TIMEOUT_SECONDS="${KUYU_XCODE_TEST_TIMEOUT_SECONDS:-60}"
 MIN_FREE_GB="${KUYU_LEARNING_MIN_FREE_GB:-20}"
 LOCK_PATH="${KUYU_LEARNING_LOCK_PATH:-${TMPDIR:-/tmp}/kuyu-learning-campaign.lock}"
+RESUME="${KUYU_LEARNING_RESUME:-0}"
+RESOURCE_SAMPLE_SECONDS="${KUYU_LEARNING_RESOURCE_SAMPLE_SECONDS:-30}"
 STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+RUN_TOKEN="$(date -u +"%Y%m%d-%H%M%S")"
+RESOURCE_MONITOR_PID=""
 
 TASK="${KUYU_LEARNING_TASK:-lift}"
 SUITES="${KUYU_LEARNING_SUITES:-6}"
@@ -43,13 +47,22 @@ BOOTSTRAP_EPOCHS="${KUYU_LEARNING_BOOTSTRAP_EPOCHS:-1}"
 BOOTSTRAP_MAX_BATCHES="${KUYU_LEARNING_BOOTSTRAP_MAX_BATCHES:-1}"
 BOOTSTRAP_LR="${KUYU_LEARNING_BOOTSTRAP_LR:-0.001}"
 
+if [[ "$RESUME" != "0" && "$RESUME" != "1" ]]; then
+  echo "[learning-campaign] KUYU_LEARNING_RESUME must be 0 or 1: $RESUME" >&2
+  exit 1
+fi
+
 if [[ -e "$ARTIFACT_ROOT" ]]; then
   if [[ ! -d "$ARTIFACT_ROOT" ]]; then
     echo "[learning-campaign] artifact root is not a directory: $ARTIFACT_ROOT" >&2
     exit 1
   fi
-  if [[ -n "$(find "$ARTIFACT_ROOT" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  if [[ "$RESUME" != "1" && -n "$(find "$ARTIFACT_ROOT" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
     echo "[learning-campaign] refusing to reuse non-empty artifact root: $ARTIFACT_ROOT" >&2
+    exit 1
+  fi
+  if [[ "$RESUME" == "1" && ! -f "$ARTIFACT_ROOT/learning-campaign-plan.json" ]]; then
+    echo "[learning-campaign] cannot resume without learning-campaign-plan.json: $ARTIFACT_ROOT" >&2
     exit 1
   fi
 fi
@@ -93,6 +106,10 @@ PY
 
 finalize_campaign() {
   local status=$?
+  if [[ -n "$RESOURCE_MONITOR_PID" ]]; then
+    kill "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+    wait "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+  fi
   python3 - "$ARTIFACT_ROOT" "$status" "$STARTED_AT" <<'PY'
 import json
 import pathlib
@@ -128,7 +145,86 @@ trap finalize_campaign EXIT
 
 write_progress "campaign-started" "$ARTIFACT_ROOT"
 
-python3 - "$ARTIFACT_ROOT" "$MIN_FREE_GB" "$TASK" "$SUITES" "$EPISODES" "$WORKERS" "$POPULATION" "$GENERATIONS" "$ELITE_COUNT" "$CANDIDATE_EVALUATION_CONCURRENCY" "$SEEDS_CSV" "$SOURCE_CHECKPOINT" "$MODEL_DESCRIPTOR" "$VARIATION" "$SEARCH_STRATEGY" "$MUTATION_RATE" "$MUTATION_NOISE_SCALE" "$BOOTSTRAP_SUITE" "$BOOTSTRAP_EPISODES" "$BOOTSTRAP_SEQUENCE" "$BOOTSTRAP_EPOCHS" "$BOOTSTRAP_MAX_BATCHES" "$BOOTSTRAP_LR" <<'PY'
+start_resource_monitor() {
+  python3 - "$ARTIFACT_ROOT/resource-samples.jsonl" "$ARTIFACT_ROOT" "$RESOURCE_SAMPLE_SECONDS" "$$" <<'PY' &
+import json
+import math
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+
+path = pathlib.Path(sys.argv[1])
+artifact_root = pathlib.Path(sys.argv[2])
+interval = float(sys.argv[3])
+parent_pid = int(sys.argv[4])
+
+if not math.isfinite(interval) or interval <= 0:
+    raise SystemExit(0)
+
+def parent_alive():
+    try:
+        os.kill(parent_pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+def rss_kib(pid):
+    completed = subprocess.run(
+        ["ps", "-o", "rss=", "-p", str(pid)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    value = completed.stdout.strip()
+    return int(value) if value.isdigit() else None
+
+def vm_pages():
+    completed = subprocess.run(
+        ["vm_stat"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    pages = {}
+    for line in completed.stdout.splitlines():
+        if ":" not in line:
+            continue
+        key, raw = line.split(":", 1)
+        value = raw.strip().rstrip(".").replace(".", "")
+        if value.isdigit():
+            pages[key.strip()] = int(value)
+    return pages
+
+while parent_alive():
+    usage = shutil.disk_usage(artifact_root)
+    load_average = os.getloadavg()
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "artifactRootFreeBytes": usage.free,
+        "artifactRootUsedBytes": usage.used,
+        "loadAverage1m": load_average[0],
+        "loadAverage5m": load_average[1],
+        "loadAverage15m": load_average[2],
+        "parentPID": parent_pid,
+        "parentRSSKiB": rss_kib(parent_pid),
+        "vmPages": vm_pages(),
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    time.sleep(interval)
+PY
+  RESOURCE_MONITOR_PID="$!"
+}
+
+python3 - "$ARTIFACT_ROOT" "$MIN_FREE_GB" "$TASK" "$SUITES" "$EPISODES" "$WORKERS" "$POPULATION" "$GENERATIONS" "$ELITE_COUNT" "$CANDIDATE_EVALUATION_CONCURRENCY" "$SEEDS_CSV" "$SOURCE_CHECKPOINT" "$MODEL_DESCRIPTOR" "$VARIATION" "$SEARCH_STRATEGY" "$MUTATION_RATE" "$MUTATION_NOISE_SCALE" "$BOOTSTRAP_SUITE" "$BOOTSTRAP_EPISODES" "$BOOTSTRAP_SEQUENCE" "$BOOTSTRAP_EPOCHS" "$BOOTSTRAP_MAX_BATCHES" "$BOOTSTRAP_LR" "$RESUME" "$RESOURCE_SAMPLE_SECONDS" <<'PY'
 import json
 import math
 import pathlib
@@ -159,6 +255,8 @@ import sys
     bootstrap_epochs_raw,
     bootstrap_max_batches_raw,
     bootstrap_lr_raw,
+    resume_raw,
+    resource_sample_seconds_raw,
 ) = sys.argv[1:]
 
 root = pathlib.Path(root_raw)
@@ -204,6 +302,11 @@ mutation_rate = parse_nonnegative_float("KUYU_LEARNING_MUTATION_RATE", mutation_
 mutation_noise_scale = parse_nonnegative_float("KUYU_LEARNING_MUTATION_NOISE_SCALE", mutation_noise_scale_raw)
 bootstrap_lr = parse_positive_float("KUYU_LEARNING_BOOTSTRAP_LR", bootstrap_lr_raw)
 min_free_gb = parse_nonnegative_float("KUYU_LEARNING_MIN_FREE_GB", min_free_gb_raw)
+resource_sample_seconds = parse_nonnegative_float(
+    "KUYU_LEARNING_RESOURCE_SAMPLE_SECONDS",
+    resource_sample_seconds_raw,
+)
+resume_enabled = resume_raw == "1"
 
 if elite_count > population:
     raise SystemExit("KUYU_LEARNING_ELITE_COUNT must be <= KUYU_LEARNING_POPULATION")
@@ -277,6 +380,8 @@ plan = {
     "bootstrapEpochs": bootstrap_epochs,
     "bootstrapMaxBatches": bootstrap_max_batches,
     "bootstrapLearningRate": bootstrap_lr,
+    "resumeEnabled": resume_enabled,
+    "resourceSampleSeconds": resource_sample_seconds,
     "availableDiskBytes": usage.free,
     "requiredDiskBytes": required_bytes,
     "plannedCandidateEvaluations": planned_candidate_evaluations,
@@ -284,6 +389,24 @@ plan = {
     "plannedRegressionEpisodes": planned_regression_episodes,
 }
 plan_path = root / "learning-campaign-plan.json"
+if resume_enabled:
+    previous = json.loads(plan_path.read_text(encoding="utf-8"))
+    ignored_keys = {
+        "availableDiskBytes",
+        "requiredDiskBytes",
+        "resumeEnabled",
+        "resourceSampleSeconds",
+    }
+    mismatches = []
+    for key, value in plan.items():
+        if key in ignored_keys:
+            continue
+        if previous.get(key) != value:
+            mismatches.append(key)
+    if mismatches:
+        raise SystemExit(
+            "resume plan mismatch: " + ", ".join(sorted(mismatches))
+        )
 plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 print(f"[learning-campaign] plan={plan_path}")
 print(
@@ -294,6 +417,7 @@ print(
 PY
 
 write_progress "plan-written" "$ARTIFACT_ROOT/learning-campaign-plan.json"
+start_resource_monitor
 
 python3 - "$ARTIFACT_ROOT" "$ROOT_DIR" "$DERIVED_DATA" "$DESTINATION" "$CONFIGURATION" "$LOCK_PATH" <<'PY'
 import json
@@ -422,40 +546,122 @@ run_kuyu_allowing_harness_reject_with_model() {
   fi
 }
 
-run_kuyu_with_model check-kuyu-regression \
-  --controller teacherBaseline \
-  --tasks "$TASK" \
-  --suites "$SUITES" \
-  --episodes "$EPISODES" \
-  --artifact-root "$ARTIFACT_ROOT/teacher-regression"
-write_progress "teacher-regression-finished" "$ARTIFACT_ROOT/teacher-regression"
+checkpoint_complete() {
+  local checkpoint="$1"
+  [[ -f "$checkpoint/model.json" && -f "$checkpoint/core.safetensors" && -f "$checkpoint/reflex.safetensors" ]]
+}
+
+evolution_artifacts_complete() {
+  local evolution_root="$1"
+  [[ -f "$evolution_root/accepted-checkpoint.json" &&
+     -f "$evolution_root/evolution-manifest.json" &&
+     -f "$evolution_root/evaluation-trace.jsonl" &&
+     -f "$evolution_root/fitness.jsonl" &&
+     -f "$evolution_root/candidates.jsonl" ]]
+}
+
+resolve_accepted_checkpoint() {
+  local decision_path="$1"
+  local save_path="$2"
+  python3 - "$decision_path" "$save_path" <<'PY'
+import json
+import pathlib
+import shutil
+import sys
+
+decision_path = pathlib.Path(sys.argv[1])
+save_path = pathlib.Path(sys.argv[2])
+decision = json.loads(decision_path.read_text(encoding="utf-8"))
+checkpoint = decision.get("checkpointURL")
+if not decision.get("accepted") or not checkpoint:
+    print("")
+    raise SystemExit(0)
+source = pathlib.Path(checkpoint)
+missing = [
+    name
+    for name in ["model.json", "core.safetensors", "reflex.safetensors"]
+    if not (source / name).is_file()
+]
+if missing:
+    raise SystemExit(
+        f"accepted checkpoint is incomplete: {source} missing {', '.join(missing)}"
+    )
+if save_path.exists():
+    shutil.rmtree(save_path)
+shutil.copytree(source, save_path)
+print(save_path)
+PY
+}
+
+quarantine_artifact_path() {
+  local path="$1"
+  local label="$2"
+  if [[ ! -e "$path" ]]; then
+    return 0
+  fi
+  local quarantine_root="$ARTIFACT_ROOT/quarantine/$label-$RUN_TOKEN"
+  mkdir -p "$(dirname "$quarantine_root")"
+  mv "$path" "$quarantine_root"
+  echo "[learning-campaign] quarantined incomplete artifact: $quarantine_root"
+  write_progress "artifact-quarantined" "$quarantine_root"
+}
+
+if [[ "$RESUME" == "1" && -f "$ARTIFACT_ROOT/teacher-regression/kuyu-regression-summary.json" ]]; then
+  write_progress "teacher-regression-resumed" "$ARTIFACT_ROOT/teacher-regression"
+else
+  if [[ "$RESUME" == "1" ]]; then
+    quarantine_artifact_path "$ARTIFACT_ROOT/teacher-regression" "teacher-regression"
+  fi
+  run_kuyu_with_model check-kuyu-regression \
+    --controller teacherBaseline \
+    --tasks "$TASK" \
+    --suites "$SUITES" \
+    --episodes "$EPISODES" \
+    --artifact-root "$ARTIFACT_ROOT/teacher-regression"
+  write_progress "teacher-regression-finished" "$ARTIFACT_ROOT/teacher-regression"
+fi
 
 if [[ -n "$SOURCE_CHECKPOINT" ]]; then
   CURRENT_CHECKPOINT="$SOURCE_CHECKPOINT"
   write_progress "source-checkpoint-selected" "$CURRENT_CHECKPOINT"
 else
-  run_kuyu_with_model rollout \
-    --controller teacherBaseline \
-    --task "$TASK" \
-    --suite "$BOOTSTRAP_SUITE" \
-    --episodes "$BOOTSTRAP_EPISODES" \
-    --workers "$WORKERS" \
-    --export-dataset "$ARTIFACT_ROOT/bootstrap-dataset"
-  write_progress "bootstrap-dataset-written" "$ARTIFACT_ROOT/bootstrap-dataset"
+  if [[ "$RESUME" == "1" && -d "$ARTIFACT_ROOT/bootstrap-checkpoint" ]]; then
+    if ! checkpoint_complete "$ARTIFACT_ROOT/bootstrap-checkpoint"; then
+      quarantine_artifact_path "$ARTIFACT_ROOT/bootstrap-checkpoint" "bootstrap-checkpoint"
+      quarantine_artifact_path "$ARTIFACT_ROOT/bootstrap-dataset" "bootstrap-dataset"
+    else
+      CURRENT_CHECKPOINT="$ARTIFACT_ROOT/bootstrap-checkpoint"
+      write_progress "bootstrap-checkpoint-resumed" "$CURRENT_CHECKPOINT"
+    fi
+  fi
 
-  run_kuyu_plain train-manas-core \
-    --dataset "$ARTIFACT_ROOT/bootstrap-dataset" \
-    --output "$ARTIFACT_ROOT/bootstrap-checkpoint" \
-    --sequence "$BOOTSTRAP_SEQUENCE" \
-    --epochs "$BOOTSTRAP_EPOCHS" \
-    --max-batches "$BOOTSTRAP_MAX_BATCHES" \
-    --lr "$BOOTSTRAP_LR" \
-    --no-aux
-  CURRENT_CHECKPOINT="$ARTIFACT_ROOT/bootstrap-checkpoint"
-  write_progress "bootstrap-checkpoint-written" "$CURRENT_CHECKPOINT"
+  if [[ -z "${CURRENT_CHECKPOINT:-}" ]]; then
+    if [[ "$RESUME" == "1" ]]; then
+      quarantine_artifact_path "$ARTIFACT_ROOT/bootstrap-dataset" "bootstrap-dataset"
+    fi
+    run_kuyu_with_model rollout \
+      --controller teacherBaseline \
+      --task "$TASK" \
+      --suite "$BOOTSTRAP_SUITE" \
+      --episodes "$BOOTSTRAP_EPISODES" \
+      --workers "$WORKERS" \
+      --export-dataset "$ARTIFACT_ROOT/bootstrap-dataset"
+    write_progress "bootstrap-dataset-written" "$ARTIFACT_ROOT/bootstrap-dataset"
+
+    run_kuyu_plain train-manas-core \
+      --dataset "$ARTIFACT_ROOT/bootstrap-dataset" \
+      --output "$ARTIFACT_ROOT/bootstrap-checkpoint" \
+      --sequence "$BOOTSTRAP_SEQUENCE" \
+      --epochs "$BOOTSTRAP_EPOCHS" \
+      --max-batches "$BOOTSTRAP_MAX_BATCHES" \
+      --lr "$BOOTSTRAP_LR" \
+      --no-aux
+    CURRENT_CHECKPOINT="$ARTIFACT_ROOT/bootstrap-checkpoint"
+    write_progress "bootstrap-checkpoint-written" "$CURRENT_CHECKPOINT"
+  fi
 fi
 
-if [[ ! -f "$CURRENT_CHECKPOINT/model.json" || ! -f "$CURRENT_CHECKPOINT/core.safetensors" || ! -f "$CURRENT_CHECKPOINT/reflex.safetensors" ]]; then
+if ! checkpoint_complete "$CURRENT_CHECKPOINT"; then
   echo "[learning-campaign] incomplete source checkpoint: $CURRENT_CHECKPOINT" >&2
   exit 1
 fi
@@ -469,6 +675,24 @@ for raw_seed in "${SEEDS[@]}"; do
     continue
   fi
   RUN_ROOT="$ARTIFACT_ROOT/seeds/seed-$seed"
+
+  if [[ "$RESUME" == "1" && -d "$RUN_ROOT" ]]; then
+    if evolution_artifacts_complete "$RUN_ROOT/evolution"; then
+      NEXT_CHECKPOINT="$(resolve_accepted_checkpoint "$RUN_ROOT/evolution/accepted-checkpoint.json" "$ARTIFACT_ROOT/accepted-checkpoints/seed-$seed")"
+      if [[ -n "$NEXT_CHECKPOINT" ]]; then
+        CURRENT_CHECKPOINT="$NEXT_CHECKPOINT"
+      fi
+      echo "[learning-campaign] seed=$seed already complete; resumed parent=$CURRENT_CHECKPOINT"
+      write_progress "seed-resumed" "$seed"
+      continue
+    fi
+    QUARANTINE_ROOT="$ARTIFACT_ROOT/quarantine/seed-$seed-$RUN_TOKEN"
+    mkdir -p "$(dirname "$QUARANTINE_ROOT")"
+    mv "$RUN_ROOT" "$QUARANTINE_ROOT"
+    echo "[learning-campaign] quarantined incomplete seed artifact: $QUARANTINE_ROOT"
+    write_progress "seed-quarantined" "$QUARANTINE_ROOT"
+  fi
+
   mkdir -p "$RUN_ROOT"
   echo "[learning-campaign] seed=$seed parent=$CURRENT_CHECKPOINT"
   write_progress "seed-started" "$seed"
@@ -501,27 +725,7 @@ for raw_seed in "${SEEDS[@]}"; do
     --artifact-root "$RUN_ROOT/evolution" || true
   write_progress "evolution-finished" "$RUN_ROOT/evolution"
 
-  NEXT_CHECKPOINT="$(
-    python3 - "$RUN_ROOT/evolution/accepted-checkpoint.json" "$ARTIFACT_ROOT/accepted-checkpoints/seed-$seed" <<'PY'
-import json
-import pathlib
-import shutil
-import sys
-
-decision_path = pathlib.Path(sys.argv[1])
-save_path = pathlib.Path(sys.argv[2])
-decision = json.loads(decision_path.read_text(encoding="utf-8"))
-checkpoint = decision.get("checkpointURL")
-if not decision.get("accepted") or not checkpoint:
-    print("")
-    raise SystemExit(0)
-source = pathlib.Path(checkpoint)
-if save_path.exists():
-    shutil.rmtree(save_path)
-shutil.copytree(source, save_path)
-print(save_path)
-PY
-  )"
+  NEXT_CHECKPOINT="$(resolve_accepted_checkpoint "$RUN_ROOT/evolution/accepted-checkpoint.json" "$ARTIFACT_ROOT/accepted-checkpoints/seed-$seed")"
   if [[ -n "$NEXT_CHECKPOINT" ]]; then
     CURRENT_CHECKPOINT="$NEXT_CHECKPOINT"
     echo "[learning-campaign] seed=$seed acceptedCheckpoint=$CURRENT_CHECKPOINT"

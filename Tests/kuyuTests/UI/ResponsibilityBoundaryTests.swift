@@ -451,6 +451,7 @@ import Testing
 
 @Test func xcodeLearningCampaignScriptPersistsMultiSeedCheckpointProgression() throws {
     let script = try readSource("scripts/run-xcode-learning-campaign.sh")
+    let validator = try readSource("scripts/validate-learning-campaign-artifacts.sh")
     let readme = try readSource("README.md")
 
     #expect(script.contains("xcodebuild build"))
@@ -464,8 +465,16 @@ import Testing
     #expect(script.contains("campaign-status.json"))
     #expect(script.contains("progress.jsonl"))
     #expect(script.contains("KUYU_LEARNING_LOCK_PATH"))
+    #expect(script.contains("KUYU_LEARNING_RESUME"))
+    #expect(script.contains("KUYU_LEARNING_RESOURCE_SAMPLE_SECONDS"))
     #expect(script.contains("another campaign is running"))
     #expect(script.contains("campaign-finished"))
+    #expect(script.contains("resource-samples.jsonl"))
+    #expect(script.contains("resume plan mismatch"))
+    #expect(script.contains("seed-resumed"))
+    #expect(script.contains("seed-quarantined"))
+    #expect(script.contains("artifact-quarantined"))
+    #expect(script.contains("bootstrap-checkpoint-resumed"))
     #expect(script.contains("refusing to reuse non-empty artifact root"))
     #expect(script.contains("KUYU_LEARNING_MIN_FREE_GB"))
     #expect(script.contains("plannedCandidateEvaluations"))
@@ -499,8 +508,18 @@ import Testing
     #expect(readme.contains("learning-campaign-environment.json"))
     #expect(readme.contains("campaign-status.json"))
     #expect(readme.contains("progress.jsonl"))
+    #expect(readme.contains("resource-samples.jsonl"))
+    #expect(readme.contains("KUYU_LEARNING_RESUME=1"))
+    #expect(readme.contains("quarantine"))
+    #expect(readme.contains("./scripts/validate-learning-campaign-artifacts.sh"))
+    #expect(readme.contains("post-run artifact gate"))
     #expect(readme.contains("single-flight campaign lock"))
     #expect(readme.contains("refuses to reuse a non-empty artifact root"))
+    #expect(validator.contains("learning-campaign-validation.json"))
+    #expect(validator.contains("missing-seed-evolution-artifact"))
+    #expect(validator.contains("fitness-count-mismatch"))
+    #expect(validator.contains("incomplete-final-checkpoint"))
+    #expect(validator.contains("KUYU_VALIDATE_ALLOW_FAILED"))
 }
 
 private func readSource(_ relativePath: String) throws -> String {
