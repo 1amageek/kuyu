@@ -460,6 +460,12 @@ import Testing
     #expect(script.contains("accepted-checkpoints"))
     #expect(script.contains("learning-campaign-summary.json"))
     #expect(script.contains("learning-campaign-plan.json"))
+    #expect(script.contains("learning-campaign-environment.json"))
+    #expect(script.contains("campaign-status.json"))
+    #expect(script.contains("progress.jsonl"))
+    #expect(script.contains("KUYU_LEARNING_LOCK_PATH"))
+    #expect(script.contains("another campaign is running"))
+    #expect(script.contains("campaign-finished"))
     #expect(script.contains("refusing to reuse non-empty artifact root"))
     #expect(script.contains("KUYU_LEARNING_MIN_FREE_GB"))
     #expect(script.contains("plannedCandidateEvaluations"))
@@ -490,6 +496,10 @@ import Testing
     #expect(readme.contains("multiple seeds, multiple generations, persistent checkpoints"))
     #expect(readme.contains("task-specific teacher rollout bootstrap"))
     #expect(readme.contains("learning-campaign-plan.json"))
+    #expect(readme.contains("learning-campaign-environment.json"))
+    #expect(readme.contains("campaign-status.json"))
+    #expect(readme.contains("progress.jsonl"))
+    #expect(readme.contains("single-flight campaign lock"))
     #expect(readme.contains("refuses to reuse a non-empty artifact root"))
 }
 

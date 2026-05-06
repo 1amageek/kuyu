@@ -12,6 +12,8 @@ TIMEOUT_SECONDS="${KUYU_LEARNING_TIMEOUT_SECONDS:-1200}"
 RUN_TESTS="${KUYU_LEARNING_RUN_TESTS:-0}"
 TEST_TIMEOUT_SECONDS="${KUYU_XCODE_TEST_TIMEOUT_SECONDS:-60}"
 MIN_FREE_GB="${KUYU_LEARNING_MIN_FREE_GB:-20}"
+LOCK_PATH="${KUYU_LEARNING_LOCK_PATH:-${TMPDIR:-/tmp}/kuyu-learning-campaign.lock}"
+STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 TASK="${KUYU_LEARNING_TASK:-lift}"
 SUITES="${KUYU_LEARNING_SUITES:-6}"
@@ -52,6 +54,79 @@ if [[ -e "$ARTIFACT_ROOT" ]]; then
   fi
 fi
 mkdir -p "$ARTIFACT_ROOT"
+
+mkdir -p "$(dirname "$LOCK_PATH")"
+if ! mkdir "$LOCK_PATH" 2>/dev/null; then
+  lock_pid="$(cat "$LOCK_PATH/pid" 2>/dev/null || true)"
+  lock_artifact_root="$(cat "$LOCK_PATH/artifact-root" 2>/dev/null || true)"
+  if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
+    echo "[learning-campaign] another campaign is running: pid=$lock_pid artifactRoot=$lock_artifact_root lock=$LOCK_PATH" >&2
+    exit 1
+  fi
+  echo "[learning-campaign] removing stale campaign lock: $LOCK_PATH" >&2
+  rm -rf "$LOCK_PATH"
+  mkdir "$LOCK_PATH"
+fi
+printf "%s\n" "$$" > "$LOCK_PATH/pid"
+printf "%s\n" "$ARTIFACT_ROOT" > "$LOCK_PATH/artifact-root"
+
+write_progress() {
+  python3 - "$ARTIFACT_ROOT/progress.jsonl" "$1" "$2" <<'PY'
+import json
+import pathlib
+import sys
+from datetime import datetime, timezone
+
+path = pathlib.Path(sys.argv[1])
+event = sys.argv[2]
+detail = sys.argv[3]
+record = {
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "event": event,
+}
+if detail:
+    record["detail"] = detail
+with path.open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(record, sort_keys=True) + "\n")
+PY
+}
+
+finalize_campaign() {
+  local status=$?
+  python3 - "$ARTIFACT_ROOT" "$status" "$STARTED_AT" <<'PY'
+import json
+import pathlib
+import sys
+from datetime import datetime, timezone
+
+root = pathlib.Path(sys.argv[1])
+status = int(sys.argv[2])
+started_at = sys.argv[3]
+finished_at = datetime.now(timezone.utc).isoformat()
+summary = {
+    "status": "succeeded" if status == 0 else "failed",
+    "exitCode": status,
+    "startedAt": started_at,
+    "finishedAt": finished_at,
+}
+(root / "campaign-status.json").write_text(
+    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+with (root / "progress.jsonl").open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps({
+        "timestamp": finished_at,
+        "event": "campaign-finished",
+        "exitCode": status,
+        "status": summary["status"],
+    }, sort_keys=True) + "\n")
+PY
+  rm -rf "$LOCK_PATH"
+  exit "$status"
+}
+trap finalize_campaign EXIT
+
+write_progress "campaign-started" "$ARTIFACT_ROOT"
 
 python3 - "$ARTIFACT_ROOT" "$MIN_FREE_GB" "$TASK" "$SUITES" "$EPISODES" "$WORKERS" "$POPULATION" "$GENERATIONS" "$ELITE_COUNT" "$CANDIDATE_EVALUATION_CONCURRENCY" "$SEEDS_CSV" "$SOURCE_CHECKPOINT" "$MODEL_DESCRIPTOR" "$VARIATION" "$SEARCH_STRATEGY" "$MUTATION_RATE" "$MUTATION_NOISE_SCALE" "$BOOTSTRAP_SUITE" "$BOOTSTRAP_EPISODES" "$BOOTSTRAP_SEQUENCE" "$BOOTSTRAP_EPOCHS" "$BOOTSTRAP_MAX_BATCHES" "$BOOTSTRAP_LR" <<'PY'
 import json
@@ -218,6 +293,72 @@ print(
 )
 PY
 
+write_progress "plan-written" "$ARTIFACT_ROOT/learning-campaign-plan.json"
+
+python3 - "$ARTIFACT_ROOT" "$ROOT_DIR" "$DERIVED_DATA" "$DESTINATION" "$CONFIGURATION" "$LOCK_PATH" <<'PY'
+import json
+import pathlib
+import platform
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+root = pathlib.Path(sys.argv[1])
+repo_root = pathlib.Path(sys.argv[2])
+derived_data = sys.argv[3]
+destination = sys.argv[4]
+configuration = sys.argv[5]
+lock_path = sys.argv[6]
+
+def run(command):
+    completed = subprocess.run(
+        command,
+        cwd=repo_root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    return completed.stdout.strip()
+
+def repo_state(path):
+    path = pathlib.Path(path)
+    return {
+        "path": str(path),
+        "head": run(["git", "-C", str(path), "rev-parse", "HEAD"]),
+        "branch": run(["git", "-C", str(path), "branch", "--show-current"]),
+        "dirty": bool(run(["git", "-C", str(path), "status", "--short"])),
+    }
+
+environment = {
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "host": platform.node(),
+    "platform": platform.platform(),
+    "machine": platform.machine(),
+    "xcodebuildVersion": run(["xcodebuild", "-version"]),
+    "swiftVersion": run(["swift", "--version"]),
+    "derivedData": derived_data,
+    "destination": destination,
+    "configuration": configuration,
+    "lockPath": lock_path,
+    "repositories": [
+        repo_state(repo_root),
+        repo_state(repo_root.parent / "kuyu-core"),
+        repo_state(repo_root.parent / "kuyu-training"),
+        repo_state(repo_root.parent / "kuyu-world-model"),
+        repo_state(repo_root.parent / "kuyu-scenarios"),
+        repo_state(repo_root.parent / "kuyu-physics"),
+        repo_state(repo_root.parent / "manas"),
+    ],
+}
+(root / "learning-campaign-environment.json").write_text(
+    json.dumps(environment, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+
+write_progress "environment-written" "$ARTIFACT_ROOT/learning-campaign-environment.json"
+
 run_with_timeout() {
   python3 - "$TIMEOUT_SECONDS" "$@" <<'PY'
 import subprocess
@@ -238,17 +379,21 @@ run_allowing_harness_reject() {
 }
 
 if [[ "$RUN_TESTS" == "1" ]]; then
+  write_progress "xcode-test-started" "$DERIVED_DATA"
   run_with_timeout xcodebuild test \
     -scheme kuyu \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
     -maximum-test-execution-time-allowance "$TEST_TIMEOUT_SECONDS"
+  write_progress "xcode-test-finished" "$DERIVED_DATA"
 else
+  write_progress "xcode-build-started" "$DERIVED_DATA"
   run_with_timeout xcodebuild build \
     -scheme kuyu \
     -configuration "$CONFIGURATION" \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA"
+  write_progress "xcode-build-finished" "$DERIVED_DATA"
 fi
 
 KUYU_BIN="$DERIVED_DATA/Build/Products/$CONFIGURATION/kuyu"
@@ -283,9 +428,11 @@ run_kuyu_with_model check-kuyu-regression \
   --suites "$SUITES" \
   --episodes "$EPISODES" \
   --artifact-root "$ARTIFACT_ROOT/teacher-regression"
+write_progress "teacher-regression-finished" "$ARTIFACT_ROOT/teacher-regression"
 
 if [[ -n "$SOURCE_CHECKPOINT" ]]; then
   CURRENT_CHECKPOINT="$SOURCE_CHECKPOINT"
+  write_progress "source-checkpoint-selected" "$CURRENT_CHECKPOINT"
 else
   run_kuyu_with_model rollout \
     --controller teacherBaseline \
@@ -294,6 +441,7 @@ else
     --episodes "$BOOTSTRAP_EPISODES" \
     --workers "$WORKERS" \
     --export-dataset "$ARTIFACT_ROOT/bootstrap-dataset"
+  write_progress "bootstrap-dataset-written" "$ARTIFACT_ROOT/bootstrap-dataset"
 
   run_kuyu_plain train-manas-core \
     --dataset "$ARTIFACT_ROOT/bootstrap-dataset" \
@@ -304,6 +452,7 @@ else
     --lr "$BOOTSTRAP_LR" \
     --no-aux
   CURRENT_CHECKPOINT="$ARTIFACT_ROOT/bootstrap-checkpoint"
+  write_progress "bootstrap-checkpoint-written" "$CURRENT_CHECKPOINT"
 fi
 
 if [[ ! -f "$CURRENT_CHECKPOINT/model.json" || ! -f "$CURRENT_CHECKPOINT/core.safetensors" || ! -f "$CURRENT_CHECKPOINT/reflex.safetensors" ]]; then
@@ -322,6 +471,7 @@ for raw_seed in "${SEEDS[@]}"; do
   RUN_ROOT="$ARTIFACT_ROOT/seeds/seed-$seed"
   mkdir -p "$RUN_ROOT"
   echo "[learning-campaign] seed=$seed parent=$CURRENT_CHECKPOINT"
+  write_progress "seed-started" "$seed"
 
   run_kuyu_allowing_harness_reject_with_model check-kuyu-regression \
     --controller manasMLX \
@@ -330,6 +480,7 @@ for raw_seed in "${SEEDS[@]}"; do
     --suites "$SUITES" \
     --episodes "$EPISODES" \
     --artifact-root "$RUN_ROOT/incumbent-regression" || true
+  write_progress "incumbent-regression-finished" "$RUN_ROOT/incumbent-regression"
 
   run_kuyu_allowing_harness_reject_with_model evolve-manas \
     --snapshot "$CURRENT_CHECKPOINT" \
@@ -348,6 +499,7 @@ for raw_seed in "${SEEDS[@]}"; do
     --mutation-noise-scale "$MUTATION_NOISE_SCALE" \
     --common-random-seed "$seed" \
     --artifact-root "$RUN_ROOT/evolution" || true
+  write_progress "evolution-finished" "$RUN_ROOT/evolution"
 
   NEXT_CHECKPOINT="$(
     python3 - "$RUN_ROOT/evolution/accepted-checkpoint.json" "$ARTIFACT_ROOT/accepted-checkpoints/seed-$seed" <<'PY'
@@ -373,8 +525,10 @@ PY
   if [[ -n "$NEXT_CHECKPOINT" ]]; then
     CURRENT_CHECKPOINT="$NEXT_CHECKPOINT"
     echo "[learning-campaign] seed=$seed acceptedCheckpoint=$CURRENT_CHECKPOINT"
+    write_progress "seed-accepted" "$seed"
   else
     echo "[learning-campaign] seed=$seed no accepted checkpoint; keeping parent"
+    write_progress "seed-rejected" "$seed"
   fi
 done
 
@@ -520,3 +674,4 @@ summary_path.write_text(
 print(f"[learning-campaign] summary={summary_path}")
 print(f"[learning-campaign] acceptedCount={accepted_count} finalCheckpoint={final_checkpoint}")
 PY
+write_progress "summary-written" "$ARTIFACT_ROOT/learning-campaign-summary.json"
