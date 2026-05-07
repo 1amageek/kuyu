@@ -123,6 +123,51 @@ import Testing
     #expect(FileManager.default.fileExists(
         atPath: root.appendingPathComponent("learning-campaign-validation.json").path
     ))
+    #expect(FileManager.default.fileExists(
+        atPath: root.appendingPathComponent("artifact-retention.json").path
+    ))
+}
+
+@Test func learningCampaignArtifactPrunerCompactsRejectedCandidateArtifacts() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-retention-\(UUID().uuidString)", isDirectory: true)
+    let evolutionRoot = root.appendingPathComponent("evolution", isDirectory: true)
+    let candidateRoot = evolutionRoot.appendingPathComponent("candidates", isDirectory: true)
+    let incumbent = candidateRoot.appendingPathComponent("generation-0/candidate-0", isDirectory: true)
+    let accepted = candidateRoot.appendingPathComponent("generation-0/candidate-1", isDirectory: true)
+    let rejected = candidateRoot.appendingPathComponent("generation-0/candidate-2", isDirectory: true)
+    try makeCompleteCheckpoint(incumbent)
+    try makeCompleteCheckpoint(accepted)
+    try makeCompleteCheckpoint(rejected)
+    let candidateEvaluations = evolutionRoot.appendingPathComponent("candidate-evaluations", isDirectory: true)
+    try FileManager.default.createDirectory(at: candidateEvaluations, withIntermediateDirectories: true)
+    try Data("log".utf8).write(
+        to: candidateEvaluations.appendingPathComponent("candidate-log.json"),
+        options: [.atomic]
+    )
+    try writeRetentionEvolutionArtifacts(
+        evolutionRoot: evolutionRoot,
+        incumbent: incumbent,
+        accepted: accepted,
+        rejected: rejected
+    )
+    let bundle = try EvolutionRunArtifactValidator().loadAndValidate(from: evolutionRoot)
+
+    let record = try LearningCampaignArtifactPruner().pruneSeedArtifacts(
+        seed: "1",
+        evolutionRoot: evolutionRoot,
+        bundle: bundle,
+        policy: .compact
+    )
+
+    #expect(record.mode == .compact)
+    #expect(record.prunedCheckpointCount == 2)
+    #expect(record.prunedCandidateEvaluationArtifactCount == 1)
+    #expect(record.prunedByteCount > 0)
+    #expect(!FileManager.default.fileExists(atPath: incumbent.path))
+    #expect(FileManager.default.fileExists(atPath: accepted.path))
+    #expect(!FileManager.default.fileExists(atPath: rejected.path))
+    #expect(!FileManager.default.fileExists(atPath: candidateEvaluations.path))
 }
 
 @MainActor
@@ -207,6 +252,7 @@ private func makeCampaignConfig(root: URL, parent: URL, population: Int = 2) -> 
         searchStrategy: "qualityDiversity",
         mutationRate: 0.08,
         mutationNoiseScale: 0.01,
+        adaptiveMutation: LearningCampaignAdaptiveMutationPlan(),
         bootstrapSuite: "6",
         bootstrapEpisodes: 1,
         bootstrapSequence: 16,
@@ -217,6 +263,7 @@ private func makeCampaignConfig(root: URL, parent: URL, population: Int = 2) -> 
         verifyParentTask: true,
         resumeEnabled: false,
         resourceSampleSeconds: 0,
+        artifactRetentionPolicy: .full,
         availableDiskBytes: 1_000_000_000,
         requiredDiskBytes: 1,
         plannedCandidateEvaluations: population,
@@ -259,6 +306,168 @@ private func makeCompleteCheckpoint(_ url: URL) throws {
     try Data("{}".utf8).write(to: url.appendingPathComponent("model.json"), options: [.atomic])
     try Data("core".utf8).write(to: url.appendingPathComponent("core.safetensors"), options: [.atomic])
     try Data("reflex".utf8).write(to: url.appendingPathComponent("reflex.safetensors"), options: [.atomic])
+}
+
+private func writeRetentionEvolutionArtifacts(
+    evolutionRoot: URL,
+    incumbent: URL,
+    accepted: URL,
+    rejected: URL
+) throws {
+    let runID = "retention-run"
+    let startedAt = Date(timeIntervalSince1970: 1)
+    let completedAt = Date(timeIntervalSince1970: 2)
+    let manifest = EvolutionRunManifest(
+        runID: runID,
+        taskID: "lift",
+        configHash: "retention",
+        policyID: "manasMLX",
+        populationSize: 3,
+        generationCount: 1,
+        eliteCount: 1,
+        workerCount: 1,
+        candidateEvaluationConcurrency: 1,
+        searchStrategy: .qualityDiversity,
+        bootstrapSource: .checkpoint,
+        commonRandomSeed: 1,
+        mutationRate: 0.08,
+        mutationNoiseScale: 0.01,
+        startedAt: startedAt,
+        completedAt: completedAt,
+        terminalState: .completed
+    )
+    let candidates = [
+        GenomeCandidate(
+            runID: runID,
+            generationIndex: 0,
+            candidateID: "candidate-0",
+            genomeID: "genome-0",
+            checkpointID: "candidate-0",
+            checkpointURL: incumbent,
+            mutationRate: 0,
+            mutationNoiseScale: 0,
+            isIncumbent: true
+        ),
+        GenomeCandidate(
+            runID: runID,
+            generationIndex: 0,
+            candidateID: "candidate-1",
+            genomeID: "genome-1",
+            parentCandidateIDs: ["candidate-0"],
+            checkpointID: "candidate-1",
+            checkpointURL: accepted,
+            mutationRate: 0.08,
+            mutationNoiseScale: 0.01
+        ),
+        GenomeCandidate(
+            runID: runID,
+            generationIndex: 0,
+            candidateID: "candidate-2",
+            genomeID: "genome-2",
+            parentCandidateIDs: ["candidate-0"],
+            checkpointID: "candidate-2",
+            checkpointURL: rejected,
+            mutationRate: 0.08,
+            mutationNoiseScale: 0.01
+        ),
+    ]
+    let fitness = [
+        FitnessSummary(
+            runID: runID,
+            generationIndex: 0,
+            candidateID: "candidate-0",
+            taskID: "lift",
+            scalarFitness: 1,
+            rewardAverage: 1,
+            taskPassRate: 1,
+            safetyViolationRate: 0
+        ),
+        FitnessSummary(
+            runID: runID,
+            generationIndex: 0,
+            candidateID: "candidate-1",
+            taskID: "lift",
+            scalarFitness: 2,
+            rewardAverage: 2,
+            taskPassRate: 1,
+            safetyViolationRate: 0
+        ),
+        FitnessSummary(
+            runID: runID,
+            generationIndex: 0,
+            candidateID: "candidate-2",
+            taskID: "lift",
+            scalarFitness: 0,
+            rewardAverage: 0,
+            taskPassRate: 1,
+            safetyViolationRate: 0
+        ),
+    ]
+    try EvolutionArtifactWriter().write(
+        manifest: manifest,
+        generations: [
+            PopulationGenerationRecord(
+                runID: runID,
+                generationIndex: 0,
+                candidateCount: 3,
+                evaluatedCandidateCount: 3,
+                eliteCandidateIDs: ["candidate-1"],
+                bestCandidateID: "candidate-1",
+                bestFitness: 2,
+                incumbentCandidateID: "candidate-0",
+                incumbentFitness: 1,
+                bestVsIncumbentDelta: 1,
+                qualityDiversityCellCount: 1,
+                mutationRate: 0.08,
+                mutationNoiseScale: 0.01,
+                accepted: true,
+                rejectionReasons: [],
+                createdAt: completedAt
+            ),
+        ],
+        candidates: candidates,
+        fitness: fitness,
+        eliteArchive: EvolutionEliteArchive(
+            runID: runID,
+            eliteCandidateIDs: ["candidate-1"],
+            bestCandidateID: "candidate-1",
+            bestFitness: 2
+        ),
+        qualityDiversityArchive: EvolutionQualityDiversityArchive(
+            runID: runID,
+            descriptorKeys: ["rank"],
+            cells: [
+                EvolutionQualityDiversityCell(
+                    cellID: "rank-1",
+                    candidateID: "candidate-1",
+                    generationIndex: 0,
+                    fitness: 2,
+                    behaviorDescriptor: ["rank": 1]
+                ),
+            ]
+        ),
+        lineage: candidates.map {
+            EvolutionLineageRecord(
+                runID: runID,
+                generationIndex: $0.generationIndex,
+                candidateID: $0.candidateID,
+                genomeID: $0.genomeID,
+                parentCandidateIDs: $0.parentCandidateIDs
+            )
+        },
+        evaluationTraces: candidates.map {
+            EvolutionCandidateEvaluationTrace(
+                runID: runID,
+                generationIndex: $0.generationIndex,
+                candidateID: $0.candidateID,
+                requestedConcurrency: 1,
+                activeEvaluationCountAtStart: 1,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        },
+        to: evolutionRoot
+    )
 }
 
 @MainActor

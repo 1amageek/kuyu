@@ -112,6 +112,8 @@ enum EvolutionWorldModelUsageChoice: String, CaseIterable, ExpressibleByArgument
     }
 }
 
+extension LearningCampaignArtifactRetentionMode: ExpressibleByArgument {}
+
 struct Run: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Run a single KUY-ATT-1 suite.")
 
@@ -4512,6 +4514,27 @@ struct RunLearningCampaign: AsyncParsableCommand {
     @Option(name: .customLong("mutation-noise-scale"), help: "Gaussian mutation noise scale.")
     var mutationNoiseScale: Double = 0.01
 
+    @Flag(name: .customLong("adaptive-mutation"), help: "Adapt mutation rate and noise scale after each generation gate result.")
+    var adaptiveMutation: Bool = false
+
+    @Option(name: .customLong("mutation-increase-factor"), help: "Adaptive mutation multiplier after a rejected generation.")
+    var mutationIncreaseFactor: Double = 1.25
+
+    @Option(name: .customLong("mutation-decay-factor"), help: "Adaptive mutation multiplier after an accepted generation.")
+    var mutationDecayFactor: Double = 0.9
+
+    @Option(name: .customLong("min-mutation-rate"), help: "Lower bound for adaptive mutation rate.")
+    var minimumMutationRate: Double = 0
+
+    @Option(name: .customLong("max-mutation-rate"), help: "Upper bound for adaptive mutation rate.")
+    var maximumMutationRate: Double = 0.5
+
+    @Option(name: .customLong("min-mutation-noise-scale"), help: "Lower bound for adaptive mutation noise scale.")
+    var minimumMutationNoiseScale: Double = 0
+
+    @Option(name: .customLong("max-mutation-noise-scale"), help: "Upper bound for adaptive mutation noise scale.")
+    var maximumMutationNoiseScale: Double = 0.1
+
     @Option(name: .customLong("search-strategy"), help: "Evolution search strategy.")
     var searchStrategy: EvolutionSearchStrategyChoice = .qualityDiversity
 
@@ -4529,6 +4552,9 @@ struct RunLearningCampaign: AsyncParsableCommand {
 
     @Option(name: .customLong("resource-sample-seconds"), help: "Resource sample interval recorded in the campaign plan. Use 0 to disable resource samples.")
     var resourceSampleSeconds: Double = 30
+
+    @Option(name: .customLong("artifact-retention"), help: "Artifact retention mode: full or compact.")
+    var artifactRetention: LearningCampaignArtifactRetentionMode = .full
 
     @Option(name: .customLong("kp"), help: "IMU rate damping proportional gain.")
     var kp: Double = 0.35
@@ -4571,6 +4597,25 @@ struct RunLearningCampaign: AsyncParsableCommand {
         guard mutationNoiseScale.isFinite, mutationNoiseScale >= 0 else {
             throw ValidationError("--mutation-noise-scale must be finite and non-negative.")
         }
+        guard mutationIncreaseFactor.isFinite, mutationIncreaseFactor >= 1 else {
+            throw ValidationError("--mutation-increase-factor must be finite and at least 1.")
+        }
+        guard mutationDecayFactor.isFinite, mutationDecayFactor >= 0, mutationDecayFactor <= 1 else {
+            throw ValidationError("--mutation-decay-factor must be finite and between 0 and 1.")
+        }
+        guard minimumMutationRate.isFinite, minimumMutationRate >= 0 else {
+            throw ValidationError("--min-mutation-rate must be finite and non-negative.")
+        }
+        guard maximumMutationRate.isFinite, maximumMutationRate >= minimumMutationRate else {
+            throw ValidationError("--max-mutation-rate must be finite and no smaller than --min-mutation-rate.")
+        }
+        guard minimumMutationNoiseScale.isFinite, minimumMutationNoiseScale >= 0 else {
+            throw ValidationError("--min-mutation-noise-scale must be finite and non-negative.")
+        }
+        guard maximumMutationNoiseScale.isFinite,
+              maximumMutationNoiseScale >= minimumMutationNoiseScale else {
+            throw ValidationError("--max-mutation-noise-scale must be finite and no smaller than --min-mutation-noise-scale.")
+        }
         if let minimumRewardAverage, !minimumRewardAverage.isFinite {
             throw ValidationError("--min-reward-average must be finite when specified.")
         }
@@ -4611,6 +4656,21 @@ struct RunLearningCampaign: AsyncParsableCommand {
             hoverThrustScale: hoverScale
         )
         let availableDiskBytes = try availableDiskBytes(at: artifactRoot)
+        let adaptiveMutationPlan = LearningCampaignAdaptiveMutationPlan(
+            enabled: adaptiveMutation,
+            increaseFactor: mutationIncreaseFactor,
+            decayFactor: mutationDecayFactor,
+            minimumMutationRate: minimumMutationRate,
+            maximumMutationRate: maximumMutationRate,
+            minimumNoiseScale: minimumMutationNoiseScale,
+            maximumNoiseScale: maximumMutationNoiseScale
+        )
+        let retentionPolicy: LearningCampaignArtifactRetentionPolicy = switch artifactRetention {
+        case .full:
+            .full
+        case .compact:
+            .compact
+        }
         let plan = LearningCampaignPlan(
             artifactRoot: artifactRoot.path,
             task: profile.task,
@@ -4628,6 +4688,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
             searchStrategy: searchStrategy.rawValue,
             mutationRate: mutationRate,
             mutationNoiseScale: mutationNoiseScale,
+            adaptiveMutation: adaptiveMutationPlan,
             bootstrapSuite: selectedSuites.first.map(String.init) ?? "6",
             bootstrapEpisodes: 0,
             bootstrapSequence: 0,
@@ -4638,6 +4699,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
             verifyParentTask: true,
             resumeEnabled: false,
             resourceSampleSeconds: resourceSampleSeconds,
+            artifactRetentionPolicy: retentionPolicy,
             availableDiskBytes: availableDiskBytes,
             requiredDiskBytes: 1,
             plannedCandidateEvaluations: selectedSeeds.count * population * generations,
@@ -4667,6 +4729,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
             searchStrategy: searchStrategy,
             mutationRate: mutationRate,
             mutationNoiseScale: mutationNoiseScale,
+            adaptiveMutation: adaptiveMutationPlan,
             candidateEvaluationConcurrency: candidateEvaluationConcurrency,
             eliteCount: eliteCount,
             minimumRewardAverage: effectiveMinimumRewardAverage,
@@ -4964,6 +5027,7 @@ private struct CLILearningCampaignEvolutionRunner: LearningCampaignEvolutionRunn
     let searchStrategy: EvolutionSearchStrategyChoice
     let mutationRate: Double
     let mutationNoiseScale: Double
+    let adaptiveMutation: LearningCampaignAdaptiveMutationPlan
     let candidateEvaluationConcurrency: Int
     let eliteCount: Int
     let minimumRewardAverage: Double?
@@ -5019,6 +5083,7 @@ private struct CLILearningCampaignEvolutionRunner: LearningCampaignEvolutionRunn
                 commonRandomSeed: seedValue == 0 ? 1 : seedValue,
                 mutationRate: mutationRate,
                 mutationNoiseScale: mutationNoiseScale,
+                adaptiveMutation: adaptiveMutation.evolutionConfig,
                 parentCheckpointID: parentCheckpointURL.lastPathComponent,
                 parentCheckpointURL: parentCheckpointURL
             ),

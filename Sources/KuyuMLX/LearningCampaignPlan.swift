@@ -17,6 +17,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
     public let searchStrategy: String
     public let mutationRate: Double
     public let mutationNoiseScale: Double
+    public let adaptiveMutation: LearningCampaignAdaptiveMutationPlan
     public let bootstrapSuite: String
     public let bootstrapEpisodes: Int
     public let bootstrapSequence: Int
@@ -27,6 +28,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
     public let verifyParentTask: Bool?
     public let resumeEnabled: Bool?
     public let resourceSampleSeconds: Double?
+    public let artifactRetentionPolicy: LearningCampaignArtifactRetentionPolicy
     public let availableDiskBytes: Int64
     public let requiredDiskBytes: Int64
     public let plannedCandidateEvaluations: Int
@@ -50,6 +52,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
         searchStrategy: String,
         mutationRate: Double,
         mutationNoiseScale: Double,
+        adaptiveMutation: LearningCampaignAdaptiveMutationPlan = LearningCampaignAdaptiveMutationPlan(),
         bootstrapSuite: String,
         bootstrapEpisodes: Int,
         bootstrapSequence: Int,
@@ -60,6 +63,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
         verifyParentTask: Bool?,
         resumeEnabled: Bool?,
         resourceSampleSeconds: Double?,
+        artifactRetentionPolicy: LearningCampaignArtifactRetentionPolicy = .full,
         availableDiskBytes: Int64,
         requiredDiskBytes: Int64,
         plannedCandidateEvaluations: Int,
@@ -82,6 +86,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
         self.searchStrategy = searchStrategy
         self.mutationRate = mutationRate
         self.mutationNoiseScale = mutationNoiseScale
+        self.adaptiveMutation = adaptiveMutation
         self.bootstrapSuite = bootstrapSuite
         self.bootstrapEpisodes = bootstrapEpisodes
         self.bootstrapSequence = bootstrapSequence
@@ -92,6 +97,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
         self.verifyParentTask = verifyParentTask
         self.resumeEnabled = resumeEnabled
         self.resourceSampleSeconds = resourceSampleSeconds
+        self.artifactRetentionPolicy = artifactRetentionPolicy
         self.availableDiskBytes = availableDiskBytes
         self.requiredDiskBytes = requiredDiskBytes
         self.plannedCandidateEvaluations = plannedCandidateEvaluations

@@ -241,7 +241,23 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
     try write("""
     {
       "artifactRoot": "\(root.path)",
+      "artifactRetentionPolicy": {
+        "keepAcceptedCheckpoints": true,
+        "keepBestCandidateCheckpoints": true,
+        "keepCandidateEvaluationArtifacts": true,
+        "keepIncumbentCheckpoints": true,
+        "mode": "full"
+      },
       "availableDiskBytes": 1000000000,
+      "adaptiveMutation": {
+        "decayFactor": 0.9,
+        "enabled": false,
+        "increaseFactor": 1.25,
+        "maximumMutationRate": 0.5,
+        "maximumNoiseScale": 0.1,
+        "minimumMutationRate": 0,
+        "minimumNoiseScale": 0
+      },
       "bootstrapEpisodes": 1,
       "bootstrapEpochs": 1,
       "bootstrapLearningRate": 0.001,
@@ -310,6 +326,23 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
       "acceptedCount": 1,
       "artifactRoot": "\(root.path)",
       "finalCheckpoint": "\(checkpointRoot.path)",
+      "retention": {
+        "mode": "full",
+        "prunedByteCount": 0,
+        "prunedCandidateEvaluationArtifactCount": 0,
+        "prunedCheckpointCount": 0,
+        "records": [
+          {
+            "mode": "full",
+            "preservedCheckpointPaths": ["\(checkpointRoot.path)"],
+            "prunedByteCount": 0,
+            "prunedCandidateEvaluationArtifactCount": 0,
+            "prunedCheckpointCount": 0,
+            "seed": "1"
+          }
+        ],
+        "seedCount": 1
+      },
       "runs": [
         {
           "accepted": true,
@@ -343,6 +376,25 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
       "seedCount": 1
     }
     """, to: root.appendingPathComponent("learning-campaign-summary.json"))
+    try write("""
+    {
+      "mode": "full",
+      "prunedByteCount": 0,
+      "prunedCandidateEvaluationArtifactCount": 0,
+      "prunedCheckpointCount": 0,
+      "records": [
+        {
+          "mode": "full",
+          "preservedCheckpointPaths": ["\(checkpointRoot.path)"],
+          "prunedByteCount": 0,
+          "prunedCandidateEvaluationArtifactCount": 0,
+          "prunedCheckpointCount": 0,
+          "seed": "1"
+        }
+      ],
+      "seedCount": 1
+    }
+    """, to: root.appendingPathComponent("artifact-retention.json"))
 
     try write("{}", to: checkpointRoot.appendingPathComponent("model.json"))
     try write("core", to: checkpointRoot.appendingPathComponent("core.safetensors"))
@@ -708,7 +760,8 @@ private func rewriteSummaryFinalCheckpoint(root: URL, finalCheckpoint: String) t
         seedCount: summary.seedCount,
         acceptedCount: summary.acceptedCount,
         finalCheckpoint: finalCheckpoint,
-        runs: summary.runs
+        runs: summary.runs,
+        retention: summary.retention
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

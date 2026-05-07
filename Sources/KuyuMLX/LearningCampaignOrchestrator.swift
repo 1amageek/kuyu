@@ -51,23 +51,27 @@ public struct LearningCampaignOrchestrator: Sendable {
     private let evolutionRunner: any LearningCampaignEvolutionRunning
     private let checkpointRegressionChecker: (any LearningCampaignCheckpointRegressionChecking)?
     private let validator: LearningCampaignArtifactValidator
+    private let artifactPruner: LearningCampaignArtifactPruner
 
     public init(
         checkpointEvaluator: any CheckpointEvaluating,
         evolutionRunner: any LearningCampaignEvolutionRunning,
         checkpointRegressionChecker: (any LearningCampaignCheckpointRegressionChecking)? = nil,
-        validator: LearningCampaignArtifactValidator = LearningCampaignArtifactValidator()
+        validator: LearningCampaignArtifactValidator = LearningCampaignArtifactValidator(),
+        artifactPruner: LearningCampaignArtifactPruner = LearningCampaignArtifactPruner()
     ) {
         self.checkpointEvaluator = checkpointEvaluator
         self.evolutionRunner = evolutionRunner
         self.checkpointRegressionChecker = checkpointRegressionChecker
         self.validator = validator
+        self.artifactPruner = artifactPruner
     }
 
     public func run(config: LearningCampaignOrchestratorConfig) async throws -> LearningCampaignSummary {
         let startedAt = Date()
         var currentParentCheckpointURL = config.initialParentCheckpointURL
         var runs: [LearningCampaignSeedRunSummary] = []
+        var retentionRecords: [LearningCampaignArtifactRetentionRecord] = []
 
         try rejectNonEmptyArtifactRootIfNeeded(config)
         do {
@@ -125,14 +129,27 @@ public struct LearningCampaignOrchestrator: Sendable {
                     )
                     currentParentCheckpointURL = acceptedCheckpointURL
                 }
+                let retentionRecord = try artifactPruner.pruneSeedArtifacts(
+                    seed: seed,
+                    evolutionRoot: evolutionRoot,
+                    bundle: bundle,
+                    policy: config.plan.artifactRetentionPolicy
+                )
+                retentionRecords.append(retentionRecord)
             }
+            let retentionSummary = LearningCampaignArtifactRetentionSummary(
+                mode: config.plan.artifactRetentionPolicy.mode,
+                records: retentionRecords
+            )
+            try write(retentionSummary, fileName: "artifact-retention.json", root: config.artifactRoot)
 
             let summary = LearningCampaignSummary(
                 artifactRoot: config.artifactRoot.path,
                 seedCount: config.plan.seeds.count,
                 acceptedCount: runs.filter(\.accepted).count,
                 finalCheckpoint: currentParentCheckpointURL.path,
-                runs: runs
+                runs: runs,
+                retention: retentionSummary
             )
             try write(summary, fileName: "learning-campaign-summary.json", root: config.artifactRoot)
             try appendProgress(event: "summary-written", root: config.artifactRoot)

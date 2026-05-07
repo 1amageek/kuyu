@@ -58,6 +58,18 @@ public struct LearningCampaignArtifactValidator: Sendable {
             root: artifactRoot,
             issues: &issues
         )
+        let retentionURL = artifactRoot.appendingPathComponent("artifact-retention.json")
+        let retention: LearningCampaignArtifactRetentionSummary?
+        if summary != nil || fileManager.fileExists(atPath: retentionURL.path) {
+            retention = decodeJSON(
+                LearningCampaignArtifactRetentionSummary.self,
+                fileName: "artifact-retention.json",
+                root: artifactRoot,
+                issues: &issues
+            )
+        } else {
+            retention = nil
+        }
         let progress = decodeJSONLines(
             LearningCampaignProgressRecord.self,
             fileName: "progress.jsonl",
@@ -83,6 +95,7 @@ public struct LearningCampaignArtifactValidator: Sendable {
         validate(resourceSamples: resourceSamples, required: resourceSampleRequired, issues: &issues)
         validate(environment: environment, issues: &issues)
         validate(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
+        validate(plan: plan, summary: summary, retention: retention, issues: &issues)
         validateParentTaskEvaluations(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
         validateParentTaskRegressions(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
 
@@ -222,6 +235,47 @@ public struct LearningCampaignArtifactValidator: Sendable {
             issues.append(.init(
                 code: "final-checkpoint-mismatch",
                 detail: "expected=\(expectedFinalCheckpoint) actual=\(summary.finalCheckpoint)"
+            ))
+        }
+    }
+
+    private func validate(
+        plan: LearningCampaignPlan?,
+        summary: LearningCampaignSummary?,
+        retention: LearningCampaignArtifactRetentionSummary?,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard let plan, let summary else { return }
+        guard let retention else {
+            issues.append(.init(
+                code: "missing-artifact-retention",
+                detail: "artifact-retention.json"
+            ))
+            return
+        }
+        if retention.mode != plan.artifactRetentionPolicy.mode {
+            issues.append(.init(
+                code: "artifact-retention-mode-mismatch",
+                detail: "plan=\(plan.artifactRetentionPolicy.mode.rawValue) retention=\(retention.mode.rawValue)"
+            ))
+        }
+        if summary.retention != retention {
+            issues.append(.init(
+                code: "artifact-retention-summary-mismatch",
+                detail: "summary retention does not match artifact-retention.json"
+            ))
+        }
+        if retention.seedCount != plan.seeds.count || retention.records.map(\.seed) != plan.seeds {
+            issues.append(.init(
+                code: "artifact-retention-seed-mismatch",
+                detail: "plan=\(plan.seeds) retention=\(retention.records.map(\.seed))"
+            ))
+        }
+        if plan.artifactRetentionPolicy.mode == .compact,
+           retention.records.contains(where: { $0.mode != .compact }) {
+            issues.append(.init(
+                code: "artifact-retention-record-mode-mismatch",
+                detail: "compact campaign contains non-compact retention records"
             ))
         }
     }
