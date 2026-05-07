@@ -11,6 +11,7 @@ public struct KuyuRegressionArtifactValidator: Sendable {
         case nonFiniteRolloutMetric(track: String)
         case invalidRolloutCount(track: String)
         case invalidTaskQualityCount(track: String, expected: Int, actual: Int)
+        case duplicateTaskQuality(track: String, scenarioID: String, seed: UInt64)
         case nonFiniteTaskQuality(track: String, scenarioID: String)
         case invalidTaskQualityEvaluator(track: String, scenarioID: String, evaluatorID: String)
         case invalidTaskQualityTask(track: String, scenarioID: String, task: String, expected: String)
@@ -147,7 +148,16 @@ public struct KuyuRegressionArtifactValidator: Sendable {
         track: String,
         qualityGateTask: String
     ) throws {
+        var seenKeys = Set<String>()
         for summary in summaries {
+            let key = "\(summary.scenarioID)#\(summary.seed)"
+            guard seenKeys.insert(key).inserted else {
+                throw ValidationError.duplicateTaskQuality(
+                    track: track,
+                    scenarioID: summary.scenarioID,
+                    seed: summary.seed
+                )
+            }
             guard summary.evaluatorID == KuyuRegressionQualityGatePolicy.qualityEvaluatorID else {
                 throw ValidationError.invalidTaskQualityEvaluator(
                     track: track,

@@ -201,6 +201,35 @@ import Testing
     }
 }
 
+@Test func regressionArtifactValidatorRejectsDuplicateTaskQualityKeys() throws {
+    let directory = temporaryDirectory()
+    let duplicate = makeTaskQuality()
+    let entry = makeRegressionRolloutEntry(
+        rewardAverage: 1,
+        taskQuality: [duplicate, duplicate],
+        episodeCount: 2,
+        workerSummaries: [makeWorkerSummary(workerIndex: 0, episodeCount: 2, rewardSum: 2)]
+    )
+    let report = KuyuRegressionGatePolicy.report(
+        preflightFailure: nil,
+        environmentTasks: [makeEnvironmentTask()],
+        rolloutSuites: [entry],
+        failOnTruncation: false,
+        minimumRewardAverage: 0,
+        qualityGateTask: "lift"
+    )
+    let summary = makeRegressionSummary(
+        directory: directory,
+        rolloutSuites: [entry],
+        gateReport: report,
+        allPassed: report.accepted
+    )
+
+    #expect(throws: KuyuRegressionArtifactValidator.ValidationError.self) {
+        try KuyuRegressionArtifactValidator().validate(summary)
+    }
+}
+
 @Test func regressionArtifactValidatorRejectsTaskQualityEvaluatorMismatch() throws {
     let directory = temporaryDirectory()
     let entry = makeRegressionRolloutEntry(
@@ -361,26 +390,27 @@ private func makeEnvironmentTask() -> KuyuEnvironmentTaskReadiness {
 private func makeRegressionRolloutEntry(
     rewardAverage: Double,
     taskQuality: [ReferenceQuadrotorTaskQualitySummary]? = nil,
+    episodeCount: Int = 1,
     workerSummaries: [KuyuRegressionWorkerSummary]? = nil
 ) -> KuyuRegressionRolloutEntry {
     KuyuRegressionRolloutEntry(
         suite: 6,
         track: "lift-postRegression",
         policyID: "test",
-        episodeCount: 1,
-        rewardSum: rewardAverage,
+        episodeCount: episodeCount,
+        rewardSum: rewardAverage * Double(episodeCount),
         rewardAverage: rewardAverage,
-        doneCount: 1,
+        doneCount: episodeCount,
         truncatedCount: 0,
         failureCount: 0,
         cancelledCount: 0,
         failureReasons: [],
-        taskPassCount: 1,
+        taskPassCount: episodeCount,
         taskFailureCount: 0,
         taskFailureReasons: [],
         taskQuality: taskQuality ?? [makeTaskQuality()],
         workerSummaries: workerSummaries ?? [
-            makeWorkerSummary(workerIndex: 0, episodeCount: 1, rewardSum: rewardAverage)
+            makeWorkerSummary(workerIndex: 0, episodeCount: episodeCount, rewardSum: rewardAverage * Double(episodeCount))
         ],
         artifactPath: nil
     )

@@ -83,6 +83,8 @@ public struct LearningCampaignArtifactValidator: Sendable {
         validate(resourceSamples: resourceSamples, required: resourceSampleRequired, issues: &issues)
         validate(environment: environment, issues: &issues)
         validate(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
+        validateParentTaskEvaluations(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
+        validateParentTaskRegressions(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
 
         let validation = makeValidation(root: artifactRoot, issues: issues)
         if writesValidationArtifact {
@@ -210,11 +212,258 @@ public struct LearningCampaignArtifactValidator: Sendable {
                 detail: summary.finalCheckpoint
             ))
         }
-        if let expectedFinalCheckpoint = expectedFinalCheckpointPath(plan: plan, summary: summary, root: root),
+        if let expectedFinalCheckpoint = expectedFinalCheckpointPath(
+            plan: plan,
+            summary: summary,
+            root: root,
+            issues: &issues
+        ),
            normalizedCheckpointPath(summary.finalCheckpoint) != expectedFinalCheckpoint {
             issues.append(.init(
                 code: "final-checkpoint-mismatch",
                 detail: "expected=\(expectedFinalCheckpoint) actual=\(summary.finalCheckpoint)"
+            ))
+        }
+    }
+
+    private func validateParentTaskEvaluations(
+        plan: LearningCampaignPlan?,
+        summary: LearningCampaignSummary?,
+        root: URL,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard let plan, plan.verifyParentTask != false else { return }
+        guard plan.task == "lift" || plan.task == "singleLift" else { return }
+        if let initialCheckpoint = expectedInitialParentCheckpointPath(
+            plan: plan,
+            root: root,
+            issues: &issues
+        ) {
+            validateParentTaskEvaluation(
+                label: "initial-parent",
+                expectedTask: plan.task,
+                expectedCheckpointPath: initialCheckpoint,
+                root: root,
+                requiresPolicyPass: true,
+                issues: &issues
+            )
+        } else {
+            issues.append(.init(
+                code: "missing-initial-parent-checkpoint",
+                detail: "task=\(plan.task)"
+            ))
+        }
+        for run in summary?.runs ?? [] where run.accepted {
+            guard let acceptedCheckpoint = normalizedCheckpointPath(run.acceptedCheckpointURL) else {
+                issues.append(.init(
+                    code: "accepted-missing-parent-task-checkpoint",
+                    detail: "seed=\(run.seed)"
+                ))
+                continue
+            }
+            validateParentTaskEvaluation(
+                label: "seed-\(run.seed)-accepted",
+                expectedTask: plan.task,
+                expectedCheckpointPath: acceptedCheckpoint,
+                root: root,
+                requiresPolicyPass: true,
+                issues: &issues
+            )
+        }
+    }
+
+    private func validateParentTaskEvaluation(
+        label: String,
+        expectedTask: String,
+        expectedCheckpointPath: String,
+        root: URL,
+        requiresPolicyPass: Bool,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        let url = root
+            .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+            .appendingPathComponent(label, isDirectory: true)
+            .appendingPathComponent("checkpoint-evaluation.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            issues.append(.init(
+                code: "missing-parent-task-evaluation",
+                detail: "label=\(label) file=\(url.path)"
+            ))
+            return
+        }
+        let evaluation: CheckpointEvaluationArtifact
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            evaluation = try decoder.decode(CheckpointEvaluationArtifact.self, from: Data(contentsOf: url))
+        } catch {
+            issues.append(.init(
+                code: "invalid-parent-task-evaluation",
+                detail: "label=\(label) error=\(error)"
+            ))
+            return
+        }
+        let expectedProfile: TaskEvaluationProfile
+        do {
+            expectedProfile = try TaskEvaluationProfile.profile(task: expectedTask)
+        } catch {
+            issues.append(.init(
+                code: "parent-task-evaluation-profile-error",
+                detail: "label=\(label) error=\(error)"
+            ))
+            return
+        }
+        do {
+            try CheckpointEvaluationArtifactValidator.validate(
+                evaluation,
+                expectedProfile: expectedProfile,
+                expectedCheckpointPath: expectedCheckpointPath,
+                requiresPolicyPass: requiresPolicyPass
+            )
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.schemaVersionMismatch(let expected, let actual) {
+            issues.append(.init(
+                code: "parent-task-evaluation-schema-mismatch",
+                detail: "label=\(label) expected=\(expected) actual=\(actual)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.taskMismatch(let expected, let actual) {
+            issues.append(.init(
+                code: "parent-task-evaluation-task-mismatch",
+                detail: "label=\(label) expected=\(expected) actual=\(actual)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.profileMismatch(let expected, let actual) {
+            issues.append(.init(
+                code: "parent-task-evaluation-profile-mismatch",
+                detail: "label=\(label) expected=\(expected) actual=\(actual)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.checkpointMismatch(let expected, let actual) {
+            issues.append(.init(
+                code: "parent-task-evaluation-checkpoint-mismatch",
+                detail: "label=\(label) expected=\(expected) actual=\(actual)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.nonFiniteMetric(let metric) {
+            issues.append(.init(
+                code: "parent-task-evaluation-non-finite",
+                detail: "label=\(label) metric=\(metric)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.failedPolicy(let failures) {
+            issues.append(.init(
+                code: "parent-task-evaluation-failed",
+                detail: "label=\(label) failures=\(failures.joined(separator: ","))"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.missingTaskQuality(let task) {
+            issues.append(.init(
+                code: "parent-task-evaluation-missing-task-quality",
+                detail: "label=\(label) task=\(task)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.missingExpectedTaskQuality(let scenarioID, let seed) {
+            issues.append(.init(
+                code: "parent-task-evaluation-missing-expected-task-quality",
+                detail: "label=\(label) scenario=\(scenarioID) seed=\(seed)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.unexpectedTaskQuality(let scenarioID, let seed) {
+            issues.append(.init(
+                code: "parent-task-evaluation-unexpected-task-quality",
+                detail: "label=\(label) scenario=\(scenarioID) seed=\(seed)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.duplicateExpectedTaskQuality(let scenarioID, let seed) {
+            issues.append(.init(
+                code: "parent-task-evaluation-duplicate-expected-task-quality",
+                detail: "label=\(label) scenario=\(scenarioID) seed=\(seed)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.duplicateTaskQuality(let scenarioID, let seed) {
+            issues.append(.init(
+                code: "parent-task-evaluation-duplicate-task-quality",
+                detail: "label=\(label) scenario=\(scenarioID) seed=\(seed)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.qualityTaskMismatch(let expected, let actual) {
+            issues.append(.init(
+                code: "parent-task-evaluation-quality-task-mismatch",
+                detail: "label=\(label) expected=\(expected) actual=\(actual)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.qualityEvaluatorMismatch(let expected, let actual) {
+            issues.append(.init(
+                code: "parent-task-evaluation-quality-evaluator-mismatch",
+                detail: "label=\(label) expected=\(expected) actual=\(actual)"
+            ))
+        } catch CheckpointEvaluationArtifactValidator.ValidationError.failedTaskQuality(let scenarioID, let reasons) {
+            issues.append(.init(
+                code: "parent-task-evaluation-quality-failed",
+                detail: "label=\(label) scenario=\(scenarioID) failures=\(reasons.joined(separator: ","))"
+            ))
+        } catch {
+            issues.append(.init(
+                code: "invalid-parent-task-evaluation",
+                detail: "label=\(label) error=\(error)"
+            ))
+        }
+    }
+
+    private func validateParentTaskRegressions(
+        plan: LearningCampaignPlan?,
+        summary: LearningCampaignSummary?,
+        root: URL,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard let plan, plan.verifyParentTask != false else { return }
+        guard plan.task == "lift" || plan.task == "singleLift" else { return }
+        if let initialCheckpoint = expectedInitialParentCheckpointPath(
+            plan: plan,
+            root: root,
+            issues: &issues
+        ) {
+            validateParentTaskRegression(
+                label: "initial-parent",
+                expectedCheckpointPath: initialCheckpoint,
+                root: root,
+                issues: &issues
+            )
+        }
+        for run in summary?.runs ?? [] where run.accepted {
+            guard let acceptedCheckpoint = normalizedCheckpointPath(run.acceptedCheckpointURL) else { continue }
+            validateParentTaskRegression(
+                label: "seed-\(run.seed)-accepted",
+                expectedCheckpointPath: acceptedCheckpoint,
+                root: root,
+                issues: &issues
+            )
+        }
+    }
+
+    private func validateParentTaskRegression(
+        label: String,
+        expectedCheckpointPath: String,
+        root: URL,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        let artifactRoot = root
+            .appendingPathComponent("checkpoint-regressions", isDirectory: true)
+            .appendingPathComponent(label, isDirectory: true)
+        let summary: KuyuRegressionSummary
+        do {
+            summary = try KuyuRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
+        } catch KuyuRegressionArtifactValidator.ValidationError.missingFile(let fileName) {
+            issues.append(.init(
+                code: "missing-parent-task-regression",
+                detail: "label=\(label) file=\(fileName)"
+            ))
+            return
+        } catch {
+            issues.append(.init(
+                code: "invalid-parent-task-regression",
+                detail: "label=\(label) error=\(error)"
+            ))
+            return
+        }
+        if normalizedCheckpointPath(summary.snapshot) != normalizedCheckpointPath(expectedCheckpointPath) {
+            issues.append(.init(
+                code: "parent-task-regression-checkpoint-mismatch",
+                detail: "label=\(label) expected=\(expectedCheckpointPath) actual=\(summary.snapshot ?? "nil")"
+            ))
+        }
+        if !summary.allPassed {
+            issues.append(.init(
+                code: "parent-task-regression-failed",
+                detail: "label=\(label) reasons=\(summary.gateReport.reasons.joined(separator: ","))"
             ))
         }
     }
@@ -298,12 +547,41 @@ public struct LearningCampaignArtifactValidator: Sendable {
                 detail: "seed=\(run.seed) summary=\(run.acceptedCheckpointURL ?? "nil") artifact=\(bundle.acceptedCheckpoint.checkpointURL?.path ?? "nil")"
             ))
         }
-        let derivedBest = bundle.fitness.max { lhs, rhs in
-            if lhs.scalarFitness == rhs.scalarFitness {
-                return lhs.candidateID > rhs.candidateID
+        let derivedBest = bundle.fitness.sorted { lhs, rhs in
+            if lhs.scalarFitness != rhs.scalarFitness {
+                return lhs.scalarFitness > rhs.scalarFitness
             }
-            return lhs.scalarFitness < rhs.scalarFitness
-        }
+            if lhs.generationIndex != rhs.generationIndex {
+                return lhs.generationIndex > rhs.generationIndex
+            }
+            return lhs.candidateID < rhs.candidateID
+        }.first
+        let derivedGateNearest = bundle.fitness.sorted { lhs, rhs in
+            if lhs.taskPassRate != rhs.taskPassRate {
+                return lhs.taskPassRate > rhs.taskPassRate
+            }
+            if (lhs.holdTimeRatio ?? 0) != (rhs.holdTimeRatio ?? 0) {
+                return (lhs.holdTimeRatio ?? 0) > (rhs.holdTimeRatio ?? 0)
+            }
+            if (lhs.altitudeErrorRatio ?? .greatestFiniteMagnitude)
+                != (rhs.altitudeErrorRatio ?? .greatestFiniteMagnitude) {
+                return (lhs.altitudeErrorRatio ?? .greatestFiniteMagnitude)
+                    < (rhs.altitudeErrorRatio ?? .greatestFiniteMagnitude)
+            }
+            if lhs.safetyViolationRate != rhs.safetyViolationRate {
+                return lhs.safetyViolationRate < rhs.safetyViolationRate
+            }
+            if lhs.rewardAverage != rhs.rewardAverage {
+                return lhs.rewardAverage > rhs.rewardAverage
+            }
+            if lhs.scalarFitness != rhs.scalarFitness {
+                return lhs.scalarFitness > rhs.scalarFitness
+            }
+            if lhs.generationIndex != rhs.generationIndex {
+                return lhs.generationIndex > rhs.generationIndex
+            }
+            return lhs.candidateID < rhs.candidateID
+        }.first
         let derivedIncumbentCandidateID = bundle.candidates.first { $0.isIncumbent == true }?.candidateID
         let derivedIncumbent = derivedIncumbentCandidateID.flatMap { candidateID in
             bundle.fitness.first { $0.candidateID == candidateID }
@@ -338,6 +616,54 @@ public struct LearningCampaignArtifactValidator: Sendable {
         if !approximatelyEqual(run.bestVsIncumbentDelta, derivedDelta) {
             issues.append(.init(
                 code: "best-vs-incumbent-delta-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.bestAltitudeErrorRatio, derivedBest?.altitudeErrorRatio) {
+            issues.append(.init(
+                code: "best-altitude-error-ratio-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if run.gateNearestCandidateID != derivedGateNearest?.candidateID {
+            issues.append(.init(
+                code: "gate-nearest-candidate-mismatch",
+                detail: "seed=\(run.seed) summary=\(run.gateNearestCandidateID ?? "nil") artifact=\(derivedGateNearest?.candidateID ?? "nil")"
+            ))
+        }
+        if !approximatelyEqual(run.gateNearestFitness, derivedGateNearest?.scalarFitness) {
+            issues.append(.init(
+                code: "gate-nearest-fitness-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.gateNearestTaskPassRate, derivedGateNearest?.taskPassRate) {
+            issues.append(.init(
+                code: "gate-nearest-task-pass-rate-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.gateNearestHoldTimeRatio, derivedGateNearest?.holdTimeRatio) {
+            issues.append(.init(
+                code: "gate-nearest-hold-time-ratio-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.gateNearestAltitudeErrorRatio, derivedGateNearest?.altitudeErrorRatio) {
+            issues.append(.init(
+                code: "gate-nearest-altitude-error-ratio-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.gateNearestSafetyViolationRate, derivedGateNearest?.safetyViolationRate) {
+            issues.append(.init(
+                code: "gate-nearest-safety-violation-rate-mismatch",
+                detail: "seed=\(run.seed)"
+            ))
+        }
+        if !approximatelyEqual(run.gateNearestRewardAverage, derivedGateNearest?.rewardAverage) {
+            issues.append(.init(
+                code: "gate-nearest-reward-average-mismatch",
                 detail: "seed=\(run.seed)"
             ))
         }
@@ -387,7 +713,8 @@ public struct LearningCampaignArtifactValidator: Sendable {
     private func expectedFinalCheckpointPath(
         plan: LearningCampaignPlan,
         summary: LearningCampaignSummary,
-        root: URL
+        root: URL,
+        issues: inout [LearningCampaignValidationIssue]
     ) -> String? {
         if let acceptedCheckpoint = summary.runs.reversed().first(where: \.accepted)?.acceptedCheckpointURL {
             return normalizedCheckpointPath(acceptedCheckpoint)
@@ -396,7 +723,48 @@ public struct LearningCampaignArtifactValidator: Sendable {
            !sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return normalizedCheckpointPath(sourceCheckpoint)
         }
+        let repairSelectionURL = root.appendingPathComponent("bootstrap-repair-selection.json")
+        if let repairSelection = decodeBootstrapRepairSelection(from: repairSelectionURL, issues: &issues),
+           let selectedCheckpointPath = repairSelection.selectedCheckpointPath,
+           !selectedCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return normalizedCheckpointPath(selectedCheckpointPath)
+        }
         return root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true).path
+    }
+
+    private func expectedInitialParentCheckpointPath(
+        plan: LearningCampaignPlan,
+        root: URL,
+        issues: inout [LearningCampaignValidationIssue]
+    ) -> String? {
+        if let sourceCheckpoint = plan.sourceCheckpoint,
+           !sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return normalizedCheckpointPath(sourceCheckpoint)
+        }
+        let repairSelectionURL = root.appendingPathComponent("bootstrap-repair-selection.json")
+        if let repairSelection = decodeBootstrapRepairSelection(from: repairSelectionURL, issues: &issues),
+           let selectedCheckpointPath = repairSelection.selectedCheckpointPath,
+           !selectedCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return normalizedCheckpointPath(selectedCheckpointPath)
+        }
+        return root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true).path
+    }
+
+    private func decodeBootstrapRepairSelection(
+        from url: URL,
+        issues: inout [LearningCampaignValidationIssue]
+    ) -> BootstrapRepairSelection? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(BootstrapRepairSelection.self, from: data)
+        } catch {
+            issues.append(.init(
+                code: "invalid-bootstrap-repair-selection",
+                detail: "\(url.lastPathComponent): \(error)"
+            ))
+            return nil
+        }
     }
 
     private func approximatelyEqual(_ lhs: Double?, _ rhs: Double?) -> Bool {
@@ -518,4 +886,9 @@ private struct LearningCampaignProgressRecord: Decodable {
 
 private struct LearningCampaignResourceSample: Decodable {
     let artifactRootFreeBytes: Int64
+}
+
+
+private struct BootstrapRepairSelection: Decodable {
+    let selectedCheckpointPath: String?
 }

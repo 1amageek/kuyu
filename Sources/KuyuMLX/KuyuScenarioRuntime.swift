@@ -16,6 +16,7 @@ public struct KuyuScenarioRuntime {
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         descriptor: RobotDescriptor?,
+        definitions: [ReferenceQuadrotorScenarioDefinition]? = nil,
         control: SimulationControl? = nil,
         telemetry: ((WorldStepLog) -> Void)? = nil
     ) async throws -> KuyAtt1RunOutput {
@@ -25,6 +26,7 @@ public struct KuyuScenarioRuntime {
                 request: request,
                 parameters: parameters,
                 schedule: schedule,
+                definitions: definitions,
                 control: control,
                 telemetry: telemetry
             )
@@ -35,6 +37,7 @@ public struct KuyuScenarioRuntime {
                 schedule: schedule,
                 request: request,
                 descriptor: descriptor,
+                definitions: definitions,
                 control: control,
                 telemetry: telemetry
             )
@@ -45,6 +48,7 @@ public struct KuyuScenarioRuntime {
         request: SimulationRunRequest,
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
+        definitions: [ReferenceQuadrotorScenarioDefinition]?,
         control: SimulationControl?,
         telemetry: ((WorldStepLog) -> Void)?
     ) async throws -> KuyAtt1RunOutput {
@@ -64,6 +68,7 @@ public struct KuyuScenarioRuntime {
                 request: request,
                 parameters: parameters,
                 schedule: schedule,
+                definitions: definitions,
                 control: control,
                 telemetry: telemetry
             )
@@ -72,6 +77,7 @@ public struct KuyuScenarioRuntime {
                 request: request,
                 parameters: parameters,
                 schedule: schedule,
+                definitions: definitions,
                 control: control,
                 telemetry: telemetry
             )
@@ -82,6 +88,7 @@ public struct KuyuScenarioRuntime {
         request: SimulationRunRequest,
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
+        definitions overrideDefinitions: [ReferenceQuadrotorScenarioDefinition]?,
         control: SimulationControl?,
         telemetry: ((WorldStepLog) -> Void)?
     ) async throws -> KuyAtt1RunOutput {
@@ -94,7 +101,7 @@ public struct KuyuScenarioRuntime {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions = try KuyLiftSuite().scenarios()
+        let definitions = try overrideDefinitions ?? KuyLiftSuite().scenarios()
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []
 
@@ -134,6 +141,7 @@ public struct KuyuScenarioRuntime {
         request: SimulationRunRequest,
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
+        definitions overrideDefinitions: [ReferenceQuadrotorScenarioDefinition]?,
         control: SimulationControl?,
         telemetry: ((WorldStepLog) -> Void)?
     ) async throws -> KuyAtt1RunOutput {
@@ -150,7 +158,7 @@ public struct KuyuScenarioRuntime {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions = try KuySingleLiftSuite().scenarios()
+        let definitions = try overrideDefinitions ?? KuySingleLiftSuite().scenarios()
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []
 

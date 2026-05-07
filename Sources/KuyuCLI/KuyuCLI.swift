@@ -11,7 +11,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self]
     )
 }
 
@@ -32,6 +32,20 @@ enum RolloutTaskChoice: String, CaseIterable, ExpressibleByArgument {
     case attitude
     case lift
     case singleLift
+}
+
+enum LearningCampaignTaskChoice: String, CaseIterable, ExpressibleByArgument {
+    case lift
+    case singleLift
+
+    var rolloutTask: RolloutTaskChoice {
+        switch self {
+        case .lift:
+            return .lift
+        case .singleLift:
+            return .singleLift
+        }
+    }
 }
 
 enum EvolutionVariationChoice: String, CaseIterable, ExpressibleByArgument {
@@ -284,6 +298,9 @@ struct Rollout: AsyncParsableCommand {
     @Option(name: .customLong("export-dataset"), help: "Directory to export rollout dataset.")
     var exportDatasetPath: String?
 
+    @Flag(name: .customLong("training-suite"), help: "Use task-specific training scenarios instead of regression scenarios for dataset bootstrap.")
+    var useTrainingSuite: Bool = false
+
     mutating func run() async throws {
         guard episodes > 0 else {
             throw ValidationError("--episodes must be greater than 0.")
@@ -310,14 +327,24 @@ struct Rollout: AsyncParsableCommand {
             }
         }()
 
-        let suiteDefinitions = try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
-        let definitions = Array(suiteDefinitions.prefix(min(episodes, suiteDefinitions.count)))
-        if definitions.count < episodes {
-            print("[rollout] requested episodes=\(episodes) available=\(definitions.count); using available KUY-ATT-1 scenarios")
+        let suiteDefinitions = try makeRolloutDefinitions(
+            task: task,
+            suite: suite,
+            episodes: episodes,
+            useTrainingSuite: useTrainingSuite
+        )
+        let requestedEpisodeCount = useTrainingSuite ? max(episodes, suiteDefinitions.count) : episodes
+        let definitions = Array(suiteDefinitions.prefix(min(requestedEpisodeCount, suiteDefinitions.count)))
+        if definitions.count < requestedEpisodeCount {
+            print("[rollout] requested episodes=\(requestedEpisodeCount) available=\(definitions.count); using available KUY-ATT-1 scenarios")
         }
 
         let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
-        let rolloutParameters = try makeRolloutParameters(task: task, loadedDescriptor: loadedDescriptor)
+        let rolloutParameters = try makeRolloutParameters(
+            task: task,
+            loadedDescriptor: loadedDescriptor,
+            hoverThrustScale: hoverScale
+        )
         let limits = try RolloutRunner.Limits.validated(
             maxStepsPerEpisode: maxSteps,
             maxWallTimeSeconds: maxWallTime
@@ -1058,10 +1085,10 @@ struct TrainManasCore: AsyncParsableCommand {
     var sequenceLength: Int = 16
 
     @Option(name: .customLong("epochs"), help: "Epochs.")
-    var epochs: Int = 1
+    var epochs: Int = 3
 
     @Option(name: .customLong("lr"), help: "Learning rate.")
-    var learningRate: Double = 0.001
+    var learningRate: Double = 0.0001
 
     @Option(name: .customLong("max-batches"), help: "Maximum training batches.")
     var maxBatches: Int?
@@ -1111,10 +1138,20 @@ struct TrainManasCore: AsyncParsableCommand {
             maxBatches: maxBatches
         )
         let manifest = try store.saveModel(to: outputURL)
+        let reloadedStore = ManasMLXModelStore()
+        _ = try reloadedStore.loadModel(from: outputURL)
+        let reloadedOpenLoop = try reloadedStore.evaluateOpenLoopDriveFit(
+            datasetURL: datasetURL,
+            sequenceLength: sequenceLength,
+            useQualityGating: !noQualityGate,
+            maxBatches: maxBatches
+        )
 
         print("[train-manas-core] dataset=\(datasetURL.path)")
         print("[train-manas-core] checkpoint=\(outputURL.path)")
         print("[train-manas-core] model=\(manifest.name) finalLoss=\(String(format: "%.6f", result.finalLoss)) epochs=\(result.epochs)")
+        print("[train-manas-core] openLoopDriveMAE=\(formatOptional(result.openLoopDriveMAE)) predictionAverage=\(formatOptional(result.openLoopPredictionAverage)) targetAverage=\(formatOptional(result.openLoopTargetAverage)) firstPrediction=\(formatOptional(result.openLoopFit?.firstPrediction)) firstTarget=\(formatOptional(result.openLoopFit?.firstTarget))")
+        print("[train-manas-core] reloadedOpenLoopDriveMAE=\(formatOptional(reloadedOpenLoop?.meanAbsoluteError)) predictionAverage=\(formatOptional(reloadedOpenLoop?.predictionAverage)) targetAverage=\(formatOptional(reloadedOpenLoop?.targetAverage)) firstPrediction=\(formatOptional(reloadedOpenLoop?.firstPrediction)) firstTarget=\(formatOptional(reloadedOpenLoop?.firstTarget))")
     }
 }
 
@@ -1184,167 +1221,438 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
     @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX evaluation.")
     var noQualityGate: Bool = false
 
+    @Flag(name: .customLong("require-policy-pass"), help: "Exit non-zero unless the typed checkpoint evaluation artifact passes strict policy validation.")
+    var requirePolicyPass: Bool = false
+
     @MainActor
     mutating func run() async throws {
         let checkpointURL = URL(fileURLWithPath: checkpointPath, isDirectory: true)
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
-        _ = try ManasMLXE2EPreflight().check(
-            descriptorPath: model,
-            sourceCheckpointURL: checkpointURL
-        )
+        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
-        let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let taskMode = simulationTaskMode(from: task)
-        let teacherRequest = SimulationRunRequest(
-            controller: .teacherBaseline,
-            taskMode: taskMode,
-            gains: gains,
-            cutPeriodSteps: cutPeriodSteps,
-            noise: .zero,
-            determinism: determinism,
-            modelDescriptorPath: model,
-            overrideParameters: model.isEmpty ? nil : parameters,
-            useAux: true,
-            useQualityGating: !noQualityGate
+        let evaluator = ManasMLXCheckpointEvaluator(
+            config: ManasMLXCheckpointEvaluatorConfig(
+                descriptorPath: model,
+                determinism: determinism,
+                schedule: schedule,
+                gains: gains,
+                useQualityGating: !noQualityGate
+            )
         )
-        let policyRequest = SimulationRunRequest(
-            controller: .manasMLX,
-            taskMode: taskMode,
-            gains: gains,
-            cutPeriodSteps: cutPeriodSteps,
-            noise: .zero,
-            determinism: determinism,
-            modelDescriptorPath: model,
-            overrideParameters: model.isEmpty ? nil : parameters,
-            useAux: true,
-            useQualityGating: !noQualityGate
+        let summary = try await evaluator.evaluateCheckpoint(
+            request: CheckpointEvaluationRequest(
+                profile: profile,
+                checkpointURL: checkpointURL,
+                artifactRoot: artifactRoot
+            )
         )
+        if requirePolicyPass {
+            try CheckpointEvaluationArtifactValidator.validate(
+                summary,
+                expectedProfile: profile,
+                expectedCheckpointPath: checkpointURL.path,
+                requiresPolicyPass: true
+            )
+        }
 
-        let store = ManasMLXModelStore()
-        let runtime = KuyuScenarioRuntime(modelStore: store)
-        let teacherOutput = try await runtime.run(
-            request: teacherRequest,
-            parameters: parameters,
-            schedule: schedule,
-            descriptor: descriptor,
-            control: nil
-        )
-        _ = try store.loadModel(from: checkpointURL)
-        let policyOutput = try await store.runManasMLX(
-            parameters: parameters,
-            schedule: schedule,
-            request: policyRequest,
-            descriptor: descriptor,
-            control: nil
-        )
-        let teacher = TrainingProbeRunSummary(stage: .teacherBaseline, output: teacherOutput)
-        let policy = TrainingProbeRunSummary(stage: .initialPolicy, output: policyOutput)
-        let summary = ManasCheckpointEvaluationSummary(
-            evaluationID: "checkpoint-eval-\(UUID().uuidString)",
-            startedAt: Date(),
-            task: task.rawValue,
-            checkpointPath: checkpointURL.path,
-            teacher: teacher,
-            policy: policy
-        )
-
-        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(teacher).write(
-            to: artifactRoot.appendingPathComponent("teacher-run.json"),
-            options: [.atomic]
-        )
-        try encoder.encode(policy).write(
-            to: artifactRoot.appendingPathComponent("policy-run.json"),
-            options: [.atomic]
-        )
-        try encoder.encode(summary).write(
-            to: artifactRoot.appendingPathComponent("checkpoint-evaluation.json"),
-            options: [.atomic]
-        )
-
-        print("[evaluate-manas-checkpoint] task=\(task.rawValue) policyPassed=\(summary.policyPassed) score=\(String(format: "%.6f", summary.policyScore)) teacherScore=\(String(format: "%.6f", summary.teacherScore))")
-        print("[evaluate-manas-checkpoint] motorMAE=\(formatOptional(summary.teacherMotorAverageMAE)) driveMAE=\(formatOptional(summary.teacherDriveAverageMAE)) finalAltitudeDelta=\(formatOptional(summary.teacherFinalAltitudeDelta)) failures=\(summary.policyFailureReasons.joined(separator: ","))")
+        print("[evaluate-manas-checkpoint] task=\(summary.task) profile=\(summary.profileID) policyPassed=\(summary.policyPassed) score=\(String(format: "%.6f", summary.policyScore)) teacherScore=\(String(format: "%.6f", summary.teacherScore))")
+        print("[evaluate-manas-checkpoint] motorMAE=\(formatOptional(summary.motorMAE)) driveMAE=\(formatOptional(summary.driveMAE)) finalAltitudeDelta=\(formatOptional(summary.finalAltitudeDelta)) failures=\(summary.failureReasons.joined(separator: ","))")
+        if let diagnostics = summary.diagnostics {
+            print("[evaluate-manas-checkpoint] diagnostics worstAltitudeDelta=\(formatOptional(diagnostics.worstFinalAltitudeDelta)) worstVzDelta=\(formatOptional(diagnostics.worstFinalVerticalVelocityDelta)) earliestAltitudeDivergence=\(formatOptional(diagnostics.earliestAltitudeDivergenceTime))")
+            if let failed = diagnostics.scenarioComparisons.first(where: { $0.policyFailureReason != nil }) {
+                print("[evaluate-manas-checkpoint] firstFailedScenario id=\(failed.scenarioID) seed=\(failed.seed) reason=\(failed.policyFailureReason ?? "n/a") failureTime=\(formatOptional(failed.policyFailureTime)) motorMAE=\(formatOptional(failed.motorOutputMAE)) initialDrive=\(formatOptional(failed.policyInitialDriveActivation)) earlyDriveAvg=\(formatOptional(failed.policyEarlyDriveActivationAverage)) teacherEarlyDriveAvg=\(formatOptional(failed.teacherEarlyDriveActivationAverage))")
+            }
+        }
         print("[evaluate-manas-checkpoint] artifacts path=\(artifactRoot.path)")
     }
 }
 
-private struct ManasCheckpointEvaluationSummary: Codable {
-    let evaluationID: String
-    let startedAt: Date
-    let task: String
-    let checkpointPath: String
-    let teacherScore: Double
-    let policyScore: Double
-    let scoreDeltaFromTeacher: Double
-    let teacherPassed: Bool
-    let policyPassed: Bool
-    let policyFailureReasons: [String]
-    let teacherDriveAverageMAE: Double?
-    let teacherMotorAverageMAE: Double?
-    let teacherFinalAltitudeDelta: Double?
-    let policyAverageMotorFinalOutputByIndex: [Double]?
-    let teacherAverageMotorFinalOutputByIndex: [Double]?
+struct CalibrateManasCheckpoint: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "calibrate-manas-checkpoint",
+        abstract: "Create a calibrated ManasMLX checkpoint by applying a raw drive-head bias delta."
+    )
 
-    init(
-        evaluationID: String,
-        startedAt: Date,
-        task: String,
-        checkpointPath: String,
-        teacher: TrainingProbeRunSummary,
-        policy: TrainingProbeRunSummary
-    ) {
-        self.evaluationID = evaluationID
-        self.startedAt = startedAt
-        self.task = task
-        self.checkpointPath = checkpointPath
-        self.teacherScore = teacher.score
-        self.policyScore = policy.score
-        self.scoreDeltaFromTeacher = policy.score - teacher.score
-        self.teacherPassed = teacher.suitePassed
-        self.policyPassed = policy.suitePassed
-        self.policyFailureReasons = policy.diagnostics.failureReasons
-        self.teacherDriveAverageMAE = meanAbsoluteError(
-            policy.diagnostics.averageDriveActivationByIndex,
-            teacher.diagnostics.averageDriveActivationByIndex
+    @Option(name: .customLong("source-checkpoint"), help: "Source checkpoint directory.")
+    var sourceCheckpointPath: String
+
+    @Option(name: .customLong("output"), help: "Output checkpoint directory.")
+    var outputPath: String
+
+    @Option(name: .customLong("raw-bias-delta"), help: "Raw drive-head bias delta to apply before tanh.")
+    var rawBiasDelta: Double
+
+    mutating func run() throws {
+        let sourceURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
+        let outputURL = URL(fileURLWithPath: outputPath, isDirectory: true)
+        let summary = try ManasMLXCheckpointBiasCalibrator().calibrate(
+            sourceCheckpointURL: sourceURL,
+            outputCheckpointURL: outputURL,
+            rawBiasDelta: rawBiasDelta
         )
-        self.teacherMotorAverageMAE = meanAbsoluteError(
-            policy.diagnostics.averageMotorFinalOutputByIndex,
-            teacher.diagnostics.averageMotorFinalOutputByIndex
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(summary).write(
+            to: outputURL.appendingPathComponent("bias-calibration.json"),
+            options: [.atomic]
         )
-        self.teacherFinalAltitudeDelta = delta(
-            policy.diagnostics.finalAltitudeZ,
-            teacher.diagnostics.finalAltitudeZ
-        )
-        self.policyAverageMotorFinalOutputByIndex = policy.diagnostics.averageMotorFinalOutputByIndex
-        self.teacherAverageMotorFinalOutputByIndex = teacher.diagnostics.averageMotorFinalOutputByIndex
+        print("[calibrate-manas-checkpoint] source=\(summary.sourceCheckpointPath)")
+        print("[calibrate-manas-checkpoint] output=\(summary.outputCheckpointPath)")
+        print("[calibrate-manas-checkpoint] rawBiasDelta=\(String(format: "%.6f", summary.rawBiasDelta))")
     }
 }
 
-private func meanAbsoluteError(_ lhs: [Double]?, _ rhs: [Double]?) -> Double? {
-    guard let lhs, let rhs, !lhs.isEmpty, lhs.count == rhs.count else {
-        return nil
+struct SelectManasBiasCalibration: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "select-manas-bias-calibration",
+        abstract: "Evaluate calibrated ManasMLX bias candidates with the typed Kuyu regression gate."
+    )
+
+    @Option(name: .customLong("source-checkpoint"), help: "Source checkpoint directory.")
+    var sourceCheckpointPath: String
+
+    @Option(name: .customLong("artifact-root"), help: "Directory where calibration selection artifacts are written.")
+    var artifactRootPath: String
+
+    @Option(help: "Task suite to evaluate: lift or singleLift.")
+    var task: LearningCampaignTaskChoice = .singleLift
+
+    @Option(help: "Comma-separated M2 suite list: 6,7,8.")
+    var suites: String = "6"
+
+    @Option(help: "Episodes per suite track.")
+    var episodes: Int = 1
+
+    @Option(help: "Worker count for rollout regression.")
+    var workers: Int = 1
+
+    @Option(help: "Comma-separated raw drive-head bias deltas.")
+    var deltas: String = "-0.016,-0.0152,-0.0148,-0.01465,-0.0146,-0.01455,-0.0145,-0.0144,-0.0143,-0.0142,-0.0140,-0.0138,-0.0132,-0.0125,-0.0115,-0.0105,-0.0095,-0.0085,-0.0075,-0.0065"
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: TierChoice = .tier1
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Model descriptor path.")
+    var model: String = ""
+
+    @Option(help: "kp gain for baseline controller.")
+    var kp: Double = 2.0
+
+    @Option(help: "kd gain for baseline controller.")
+    var kd: Double = 0.25
+
+    @Option(name: .customLong("yaw-damping"), help: "Yaw damping gain for baseline controller.")
+    var yawDamping: Double = 0.2
+
+    @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
+    var hoverScale: Double = 1.0
+
+    @Option(name: .customLong("min-reward-average"), help: "Override the task default minimum reward average required for every rollout track.")
+    var minimumRewardAverage: Double?
+
+    @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
+    var noQualityGate: Bool = false
+
+    @MainActor
+    mutating func run() async throws {
+        guard episodes > 0 else {
+            throw ValidationError("--episodes must be greater than 0.")
+        }
+        guard workers > 0 else {
+            throw ValidationError("--workers must be greater than 0.")
+        }
+        if let minimumRewardAverage, !minimumRewardAverage.isFinite {
+            throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+
+        let sourceCheckpointURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
+        try validateCheckpointDirectory(sourceCheckpointURL)
+        let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+        try createFreshArtifactRoot(artifactRoot)
+
+        let rawBiasDeltas = try parseRawBiasDeltas(deltas)
+        let selectedSuites = try parseCalibrationSuites(suites)
+        let rolloutTask = task.rolloutTask
+        let profile = try TaskEvaluationProfile.profile(task: rolloutTask.rawValue)
+        if noQualityGate && profile.requiresParentCheckpointEvaluation {
+            throw ValidationError("--no-quality-gate is not allowed for \(profile.task) calibration selection.")
+        }
+        let determinism = try makeDeterminism(tier: tier)
+        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
+        let gains = try ImuRateDampingCutGains(
+            kp: kp,
+            kd: kd,
+            yawDamping: yawDamping,
+            hoverThrustScale: hoverScale
+        )
+        let checkpointEvaluator = ManasMLXCheckpointEvaluator(
+            config: ManasMLXCheckpointEvaluatorConfig(
+                descriptorPath: model,
+                determinism: determinism,
+                schedule: schedule,
+                gains: gains,
+                useQualityGating: !noQualityGate
+            )
+        )
+        let selectedTasks = [simulationTaskMode(from: rolloutTask)]
+
+        var candidates: [ManasMLXBiasCalibrationCandidateSummary] = []
+        let calibrator = ManasMLXCheckpointBiasCalibrator()
+        for rawBiasDelta in rawBiasDeltas {
+            let candidateID = safePathComponent("bias-\(String(format: "%.6f", rawBiasDelta))")
+            let candidateCheckpointURL = artifactRoot
+                .appendingPathComponent("candidate-checkpoints", isDirectory: true)
+                .appendingPathComponent(candidateID, isDirectory: true)
+            _ = try calibrator.calibrate(
+                sourceCheckpointURL: sourceCheckpointURL,
+                outputCheckpointURL: candidateCheckpointURL,
+                rawBiasDelta: rawBiasDelta
+            )
+
+            let regressionRoot = artifactRoot
+                .appendingPathComponent("candidate-regressions", isDirectory: true)
+                .appendingPathComponent(candidateID, isDirectory: true)
+            let regressionSummary = try await runKuyuRegression(
+                controller: .manasMLX,
+                snapshotURL: candidateCheckpointURL,
+                tier: tier,
+                cutPeriodSteps: cutPeriodSteps,
+                tasks: selectedTasks,
+                suites: selectedSuites,
+                episodes: episodes,
+                workers: workers,
+                maxSteps: nil,
+                maxWallTime: nil,
+                model: model,
+                artifactRoot: regressionRoot,
+                kp: kp,
+                kd: kd,
+                yawDamping: yawDamping,
+                hoverScale: hoverScale,
+                failOnTruncation: profile.failOnTruncation,
+                minimumRewardAverage: minimumRewardAverage,
+                useQualityGating: !noQualityGate
+            )
+            let evaluationRoot = artifactRoot
+                .appendingPathComponent("candidate-checkpoint-evaluations", isDirectory: true)
+                .appendingPathComponent(candidateID, isDirectory: true)
+            let checkpointEvaluationReasons: [String]
+            let checkpointEvaluationPassed: Bool
+            do {
+                let checkpointEvaluation = try await checkpointEvaluator.evaluateCheckpoint(
+                    request: CheckpointEvaluationRequest(
+                        profile: profile,
+                        checkpointURL: candidateCheckpointURL,
+                        artifactRoot: evaluationRoot
+                    )
+                )
+                do {
+                    try CheckpointEvaluationArtifactValidator.validate(
+                        checkpointEvaluation,
+                        expectedProfile: profile,
+                        expectedCheckpointPath: candidateCheckpointURL.path,
+                        requiresPolicyPass: true
+                    )
+                    checkpointEvaluationPassed = true
+                    checkpointEvaluationReasons = []
+                } catch {
+                    checkpointEvaluationPassed = false
+                    checkpointEvaluationReasons = [String(describing: error)]
+                }
+            } catch {
+                checkpointEvaluationPassed = false
+                checkpointEvaluationReasons = [String(describing: error)]
+            }
+            candidates.append(
+                makeBiasCalibrationCandidateSummary(
+                    rawBiasDelta: rawBiasDelta,
+                    checkpointURL: candidateCheckpointURL,
+                    regressionRoot: regressionRoot,
+                    checkpointEvaluationRoot: evaluationRoot,
+                    regressionSummary: regressionSummary,
+                    checkpointEvaluationPassed: checkpointEvaluationPassed,
+                    checkpointEvaluationReasons: checkpointEvaluationReasons
+                )
+            )
+        }
+
+        let selectedCandidate = selectAcceptedBiasCalibrationCandidate(candidates)
+        let summary = ManasMLXBiasCalibrationSelectionSummary(
+            sourceCheckpointPath: sourceCheckpointURL.path,
+            selectedCheckpointPath: selectedCandidate?.checkpointPath,
+            selectedRawBiasDelta: selectedCandidate?.rawBiasDelta,
+            selectedAccepted: selectedCandidate?.accepted ?? false,
+            task: rolloutTask.rawValue,
+            suites: selectedSuites,
+            episodes: episodes,
+            workers: workers,
+            candidates: candidates
+        )
+        try ManasMLXBiasCalibrationSelectionValidator.validate(summary)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(summary).write(
+            to: artifactRoot.appendingPathComponent("bias-calibration-selection.json"),
+            options: [.atomic]
+        )
+
+        if let selectedCandidate {
+            print("[select-manas-bias-calibration] selected=true accepted=\(selectedCandidate.accepted) delta=\(String(format: "%.6f", selectedCandidate.rawBiasDelta)) checkpoint=\(selectedCandidate.checkpointPath)")
+        } else {
+            print("[select-manas-bias-calibration] selected=false accepted=false")
+        }
+        print("[select-manas-bias-calibration] artifacts path=\(artifactRoot.path)")
     }
-    return zip(lhs, rhs).reduce(0.0) { partial, pair in
-        partial + abs(pair.0 - pair.1)
-    } / Double(lhs.count)
 }
 
-private func delta(_ lhs: Double?, _ rhs: Double?) -> Double? {
-    guard let lhs, let rhs else {
-        return nil
+private func validateCheckpointDirectory(_ checkpointURL: URL) throws {
+    let requiredFiles = ["model.json", "core.safetensors", "reflex.safetensors"]
+    for fileName in requiredFiles {
+        let fileURL = checkpointURL.appendingPathComponent(fileName)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw ValidationError("Checkpoint is missing required file: \(fileURL.path)")
+        }
     }
-    return lhs - rhs
+}
+
+private func createFreshArtifactRoot(_ artifactRoot: URL) throws {
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: artifactRoot.path) {
+        let contents = try fileManager.contentsOfDirectory(
+            at: artifactRoot,
+            includingPropertiesForKeys: nil
+        )
+        guard contents.isEmpty else {
+            throw ValidationError("--artifact-root must be empty: \(artifactRoot.path)")
+        }
+    }
+    try fileManager.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+}
+
+private func parseRawBiasDeltas(_ raw: String) throws -> [Double] {
+    let values = raw
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    guard !values.isEmpty else {
+        throw ValidationError("--deltas must include at least one raw bias delta.")
+    }
+    var seen: Set<Double> = []
+    var parsed: [Double] = []
+    for value in values {
+        guard let delta = Double(value), delta.isFinite else {
+            throw ValidationError("--deltas contains a non-finite value: \(value)")
+        }
+        if seen.insert(delta).inserted {
+            parsed.append(delta)
+        }
+    }
+    return parsed
+}
+
+private func parseCalibrationSuites(_ raw: String) throws -> [Int] {
+    let values = raw
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    guard !values.isEmpty else {
+        throw ValidationError("--suites must include at least one suite.")
+    }
+    var seenSuites = Set<Int>()
+    return try values.map { value in
+        guard let suite = Int(value), [6, 7, 8].contains(suite) else {
+            throw ValidationError("--suites only supports 6, 7, and 8.")
+        }
+        guard seenSuites.insert(suite).inserted else {
+            throw ValidationError("--suites contains a duplicate suite: \(suite)")
+        }
+        return suite
+    }
+}
+
+private func makeBiasCalibrationCandidateSummary(
+    rawBiasDelta: Double,
+    checkpointURL: URL,
+    regressionRoot: URL,
+    checkpointEvaluationRoot: URL,
+    regressionSummary: KuyuRegressionSummary,
+    checkpointEvaluationPassed: Bool,
+    checkpointEvaluationReasons: [String]
+) -> ManasMLXBiasCalibrationCandidateSummary {
+    let episodeCount = regressionSummary.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
+    let rewardSum = regressionSummary.rolloutSuites.reduce(0.0) { $0 + $1.rewardSum }
+    let taskPassCount = regressionSummary.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
+    let rewardAverage = episodeCount > 0 ? rewardSum / Double(episodeCount) : nil
+    let taskPassRate = episodeCount > 0 ? Double(taskPassCount) / Double(episodeCount) : nil
+    let quality = regressionSummary.rolloutSuites.flatMap(\.taskQuality)
+    let holdTimeRatios = quality.compactMap { summary -> Double? in
+        guard let achieved = summary.achievedHoldTime,
+              let required = summary.requiredHoldTime,
+              required > 0 else {
+            return nil
+        }
+        return achieved / required
+    }
+    let altitudeErrorRatios = quality.compactMap { summary -> Double? in
+        guard let error = summary.maxAltitudeErrorAfterWarmup,
+              let tolerance = summary.tolerance,
+              tolerance > 0 else {
+            return nil
+        }
+        return error / tolerance
+    }
+    return ManasMLXBiasCalibrationCandidateSummary(
+        rawBiasDelta: rawBiasDelta,
+        checkpointPath: checkpointURL.path,
+        regressionArtifactRoot: regressionRoot.path,
+        checkpointEvaluationArtifactRoot: checkpointEvaluationRoot.path,
+        accepted: regressionSummary.allPassed && checkpointEvaluationPassed,
+        regressionAccepted: regressionSummary.allPassed,
+        checkpointEvaluationPassed: checkpointEvaluationPassed,
+        rewardAverage: rewardAverage?.isFinite == true ? rewardAverage : nil,
+        taskPassRate: taskPassRate?.isFinite == true ? taskPassRate : nil,
+        minimumHoldTimeRatio: holdTimeRatios.min(),
+        maximumAltitudeErrorRatio: altitudeErrorRatios.max(),
+        reasons: regressionSummary.gateReport.reasons,
+        checkpointEvaluationReasons: checkpointEvaluationReasons
+    )
+}
+
+private func selectAcceptedBiasCalibrationCandidate(
+    _ candidates: [ManasMLXBiasCalibrationCandidateSummary]
+) -> ManasMLXBiasCalibrationCandidateSummary? {
+    candidates
+        .filter(\.accepted)
+        .sorted { lhs, rhs in
+            let lhsReward = lhs.rewardAverage ?? -Double.infinity
+            let rhsReward = rhs.rewardAverage ?? -Double.infinity
+            if lhsReward != rhsReward {
+                return lhsReward > rhsReward
+            }
+            let lhsAltitudeError = lhs.maximumAltitudeErrorRatio ?? Double.infinity
+            let rhsAltitudeError = rhs.maximumAltitudeErrorRatio ?? Double.infinity
+            if lhsAltitudeError != rhsAltitudeError {
+                return lhsAltitudeError < rhsAltitudeError
+            }
+            let lhsHold = lhs.minimumHoldTimeRatio ?? -Double.infinity
+            let rhsHold = rhs.minimumHoldTimeRatio ?? -Double.infinity
+            if lhsHold != rhsHold {
+                return lhsHold > rhsHold
+            }
+            return abs(lhs.rawBiasDelta) < abs(rhs.rawBiasDelta)
+        }
+        .first
 }
 
 private func formatOptional(_ value: Double?) -> String {
@@ -1520,22 +1828,22 @@ struct CheckTrainingHarness: AsyncParsableCommand {
     var sourceCheckpointPath: String?
 
     @Option(name: .customLong("sequence"), help: "Sequence length for MLX training.")
-    var sequenceLength: Int = 8
+    var sequenceLength: Int = 16
 
     @Option(name: .customLong("epochs"), help: "Epochs for the supervised ManasMLX probe.")
-    var epochs: Int = 50
+    var epochs: Int = 40
 
     @Option(name: .customLong("lr"), help: "Learning rate for the supervised ManasMLX probe.")
-    var learningRate: Double = 0.0001
+    var learningRate: Double = 0.001
 
     @Option(name: .customLong("max-batches"), help: "Maximum training batches for the supervised ManasMLX probe.")
-    var maxBatches: Int = 35
+    var maxBatches: Int = 64
 
     @Option(help: "Maximum probe attempts per task. Each attempt writes separate artifacts.")
     var attempts: Int = 3
 
     @Option(name: .customLong("recovery-repeat"), help: "Repeat recovery relabel datasets this many times when mixing retry training data.")
-    var recoveryRepeat: Int = 3
+    var recoveryRepeat: Int = 1
 
     @Option(name: .customLong("mlx-seed"), help: "Base MLX random seed. Each retry increments this value.")
     var mlxSeed: UInt64 = 10_000
@@ -1619,6 +1927,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                 artifactRoot: artifactRoot.path,
                 environmentReady: false,
                 probes: [],
+                selectedCandidate: nil,
                 allPassed: false
             )
             try writeHarnessSummary(summary, to: artifactRoot)
@@ -1727,6 +2036,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                     artifactRoot: artifactRoot.path,
                     environmentReady: true,
                     probes: probeEntries,
+                    selectedCandidate: selectedHarnessCandidate(from: probeEntries),
                     allPassed: false
                 )
                 try writeHarnessSummary(summary, to: artifactRoot)
@@ -1739,6 +2049,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
             artifactRoot: artifactRoot.path,
             environmentReady: true,
             probes: probeEntries,
+            selectedCandidate: selectedHarnessCandidate(from: probeEntries),
             allPassed: true
         )
         try writeHarnessSummary(summary, to: artifactRoot)
@@ -1782,16 +2093,16 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
     var sourceCheckpointPath: String?
 
     @Option(name: .customLong("sequence"), help: "Sequence length for MLX training.")
-    var sequenceLength: Int = 8
+    var sequenceLength: Int = 16
 
     @Option(name: .customLong("epochs"), help: "Epochs for each supervised ManasMLX probe.")
-    var epochs: Int = 50
+    var epochs: Int = 40
 
     @Option(name: .customLong("lr"), help: "Learning rate for each supervised ManasMLX probe.")
-    var learningRate: Double = 0.0001
+    var learningRate: Double = 0.001
 
     @Option(name: .customLong("max-batches"), help: "Maximum training batches for each supervised ManasMLX probe.")
-    var maxBatches: Int = 35
+    var maxBatches: Int = 64
 
     @Option(help: "Number of seed bases to evaluate.")
     var seeds: Int = 5
@@ -1803,7 +2114,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
     var attempts: Int = 3
 
     @Option(name: .customLong("recovery-repeat"), help: "Repeat recovery relabel datasets this many times when mixing retry training data.")
-    var recoveryRepeat: Int = 3
+    var recoveryRepeat: Int = 1
 
     @Option(name: .customLong("mlx-seed"), help: "Base MLX random seed for the sweep.")
     var mlxSeed: UInt64 = 10_000
@@ -2294,9 +2605,13 @@ struct CheckKuyuRegression: AsyncParsableCommand {
         guard !values.isEmpty else {
             throw ValidationError("--suites must include at least one suite.")
         }
+        var seenSuites = Set<Int>()
         return try values.map { value in
             guard let suite = Int(value), [6, 7, 8].contains(suite) else {
                 throw ValidationError("--suites only supports 6, 7, and 8.")
+            }
+            guard seenSuites.insert(suite).inserted else {
+                throw ValidationError("--suites contains a duplicate suite: \(suite)")
             }
             return suite
         }
@@ -2517,9 +2832,10 @@ private func runKuyuRegression(
         : .teacherBaseline
     let snapshotPath = snapshotURL?.path
     let regressionTask = regressionRolloutTask(selectedTasks)
+    let regressionProfile = try TaskEvaluationProfile.profile(task: regressionTask.rawValue)
     let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
         override: minimumRewardAverage,
-        task: regressionTask.rawValue
+        task: regressionProfile.task
     )
 
     if selectedController == .manasMLX {
@@ -2536,7 +2852,7 @@ private func runKuyuRegression(
                 rolloutSuites: [],
                 failOnTruncation: failOnTruncation,
                 minimumRewardAverage: effectiveMinimumRewardAverage,
-                qualityGateTask: regressionTask.rawValue
+                qualityGateTask: regressionProfile.task
             )
             let summary = KuyuRegressionSummary(
                 schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
@@ -2563,7 +2879,11 @@ private func runKuyuRegression(
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
     let descriptor = try loadDescriptor(modelPath: model)
     let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
-    let parameters = try makeRolloutParameters(task: regressionTask, loadedDescriptor: loadedDescriptor)
+    let parameters = try makeRolloutParameters(
+        task: regressionTask,
+        loadedDescriptor: loadedDescriptor,
+        hoverThrustScale: hoverScale
+    )
     let gains = try ImuRateDampingCutGains(
         kp: kp,
         kd: kd,
@@ -2587,7 +2907,10 @@ private func runKuyuRegression(
     if
         selectedController == .manasMLX,
         let snapshotURL,
-        let compatibilityFailure = try regressionSnapshotCompatibilityFailure(snapshotURL: snapshotURL)
+        let compatibilityFailure = try regressionSnapshotCompatibilityFailure(
+            snapshotURL: snapshotURL,
+            task: regressionTask
+        )
     {
         let rolloutEntries = selectedSuites.map { suite in
             KuyuRegressionRolloutEntry(
@@ -2616,7 +2939,7 @@ private func runKuyuRegression(
             rolloutSuites: rolloutEntries,
             failOnTruncation: failOnTruncation,
             minimumRewardAverage: effectiveMinimumRewardAverage,
-            qualityGateTask: regressionTask.rawValue
+            qualityGateTask: regressionProfile.task
         )
         let summary = KuyuRegressionSummary(
             schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
@@ -2647,14 +2970,15 @@ private func runKuyuRegression(
             episodes: episodes
         )
         let track = regressionTrackName(for: suite)
+        let motorNerveSettings = regressionProfile.motorNerveSettings(controllerRawValue: selectedController.rawValue)
         let runner = RolloutRunner(
             parameters: parameters,
             schedule: schedule,
             determinism: determinism,
             hoverThrustScale: hoverScale,
             loadedDescriptor: loadedDescriptor,
-            motorNerveRateLimitPerSecond: selectedController == .teacherBaseline ? 100.0 : 2.0,
-            motorNerveSmoothingTimeConstant: selectedController == .teacherBaseline ? nil : 0.08,
+            motorNerveRateLimitPerSecond: motorNerveSettings.rateLimitPerSecond,
+            motorNerveSmoothingTimeConstant: motorNerveSettings.smoothingTimeConstant,
             limits: try RolloutRunner.Limits.validated(
                 maxStepsPerEpisode: maxSteps,
                 maxWallTimeSeconds: maxWallTime
@@ -2747,7 +3071,7 @@ private func runKuyuRegression(
         rolloutSuites: rolloutEntries,
         failOnTruncation: failOnTruncation,
         minimumRewardAverage: effectiveMinimumRewardAverage,
-        qualityGateTask: regressionTask.rawValue
+        qualityGateTask: regressionProfile.task
     )
     let summary = KuyuRegressionSummary(
         schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
@@ -2850,10 +3174,22 @@ private func makeRegressionPolicyFactory(
     }
 }
 
-private func regressionSnapshotCompatibilityFailure(snapshotURL: URL) throws -> String? {
-    try ManasMLXCheckpointCompatibility(expectedDriveCount: 4)
+private func regressionSnapshotCompatibilityFailure(
+    snapshotURL: URL,
+    task: RolloutTaskChoice
+) throws -> String? {
+    try ManasMLXCheckpointCompatibility(expectedDriveCount: regressionExpectedDriveCount(task: task))
         .validate(snapshotURL: snapshotURL)?
         .description
+}
+
+private func regressionExpectedDriveCount(task: RolloutTaskChoice) -> Int {
+    switch task {
+    case .singleLift:
+        return 1
+    case .attitude, .lift:
+        return 4
+    }
 }
 
 private func parseRegressionSuites(_ raw: String) throws -> [Int] {
@@ -2864,9 +3200,13 @@ private func parseRegressionSuites(_ raw: String) throws -> [Int] {
     guard !values.isEmpty else {
         throw ValidationError("--suites must include at least one suite.")
     }
+    var seenSuites = Set<Int>()
     return try values.map { value in
         guard let suite = Int(value), [6, 7, 8].contains(suite) else {
             throw ValidationError("--suites only supports 6, 7, and 8.")
+        }
+        guard seenSuites.insert(suite).inserted else {
+            throw ValidationError("--suites contains a duplicate suite: \(suite)")
         }
         return suite
     }
@@ -3280,9 +3620,32 @@ private func selectedCandidateCheckpointURL(_ comparison: TrainingProbeCompariso
     return comparison.selectedCheckpointURL
 }
 
+private func selectedHarnessCandidate(from entries: [CheckTrainingHarnessProbeEntry]) -> CheckTrainingHarnessSelectedCandidate? {
+    for entry in entries.reversed() where entry.gateReport.accepted && entry.selectedCheckpointRole == "candidate" {
+        guard let checkpointPath = entry.selectedCheckpointPath else {
+            continue
+        }
+        return CheckTrainingHarnessSelectedCandidate(
+            task: entry.task,
+            attempt: entry.attempt,
+            checkpoint: checkpointPath,
+            artifactPath: entry.artifactPath,
+            score: entry.trainedScore,
+            scoreDelta: entry.scoreDelta
+        )
+    }
+    return nil
+}
+
 private func repairSourceCheckpointURL(from result: TrainingProbeResult) -> URL? {
-    if let selected = result.comparison.selectedCheckpointURL {
+    if result.comparison.probeAccepted, let selected = result.comparison.selectedCheckpointURL {
         return selected
+    }
+    if let repairCandidate = rejectedCandidateRepairSourceCheckpointURL(from: result) {
+        return repairCandidate
+    }
+    if result.comparison.selectedCheckpointRole == .source {
+        return result.comparison.selectedCheckpointURL
     }
     guard result.comparison.policySatisfied,
           result.comparison.trainedPassed == true,
@@ -3291,6 +3654,21 @@ private func repairSourceCheckpointURL(from result: TrainingProbeResult) -> URL?
         return nil
     }
     return result.training.checkpointDecision.candidateCheckpointURL
+}
+
+private func rejectedCandidateRepairSourceCheckpointURL(from result: TrainingProbeResult) -> URL? {
+    guard result.comparison.reloadSucceeded, result.trained != nil else {
+        return nil
+    }
+    guard !hasHardSafetyFailure(result.trained?.diagnostics.failureReasons ?? []) else {
+        return nil
+    }
+    return result.probeCheckpointDecision.candidateCheckpointURL
+}
+
+private func hasHardSafetyFailure(_ reasons: [String]) -> Bool {
+    let hardFailures: Set<String> = ["ground-violation", "sustained-fall", "sustained-violation"]
+    return reasons.contains { hardFailures.contains($0) }
 }
 
 private func acceptedRecoveryDatasetURL(from result: TrainingProbeResult) -> URL? {
@@ -3321,7 +3699,17 @@ private struct CheckTrainingHarnessSummary: Codable {
     let artifactRoot: String
     let environmentReady: Bool
     let probes: [CheckTrainingHarnessProbeEntry]
+    let selectedCandidate: CheckTrainingHarnessSelectedCandidate?
     let allPassed: Bool
+}
+
+private struct CheckTrainingHarnessSelectedCandidate: Codable {
+    let task: String
+    let attempt: Int
+    let checkpoint: String
+    let artifactPath: String
+    let score: Double?
+    let scoreDelta: Double?
 }
 
 private struct CheckTrainingHarnessSweepSummary: Codable {
@@ -3895,6 +4283,11 @@ struct EvolveManas: AsyncParsableCommand {
         if let minimumRewardAverage, !minimumRewardAverage.isFinite {
             throw ValidationError("--min-reward-average must be finite when specified.")
         }
+        let evolutionProfile = try TaskEvaluationProfile.profile(task: task.rawValue)
+        let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+            override: minimumRewardAverage,
+            task: evolutionProfile.task
+        )
         guard minimumIncumbentImprovement.isFinite, minimumIncumbentImprovement >= 0 else {
             throw ValidationError("--min-incumbent-improvement must be finite and non-negative.")
         }
@@ -3933,7 +4326,7 @@ struct EvolveManas: AsyncParsableCommand {
                 workers: workers,
                 model: model,
                 artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
-                minimumRewardAverage: minimumRewardAverage,
+                minimumRewardAverage: effectiveMinimumRewardAverage,
                 useQualityGating: !noQualityGate
             )
         case .candidateOnly:
@@ -3968,10 +4361,11 @@ struct EvolveManas: AsyncParsableCommand {
             ),
             gatePolicy: EvolutionGatePolicy(
                 eliteCount: eliteCount,
-                minimumTaskPassRate: 1.0,
+                minimumTaskPassRate: evolutionProfile.minimumTaskPassRate,
                 maximumSafetyViolationRate: 0,
-                minimumHoldTimeRatio: task == .lift || task == .singleLift ? 1.0 : nil,
-                minimumRewardAverage: minimumRewardAverage,
+                minimumHoldTimeRatio: evolutionProfile.minimumHoldTimeRatio,
+                maximumAltitudeErrorRatio: evolutionProfile.maximumAltitudeErrorRatio,
+                minimumRewardAverage: effectiveMinimumRewardAverage,
                 minimumImprovementOverIncumbent: minimumIncumbentImprovement,
                 minimumNoveltyScore: minimumNoveltyScore
             ),
@@ -4058,6 +4452,337 @@ struct EvolveManas: AsyncParsableCommand {
             }
             print("[evolve] preflight mode=lightweight sourceDirectory=true")
         }
+    }
+}
+
+struct RunLearningCampaign: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "run-learning-campaign",
+        abstract: "Run a typed Swift learning campaign over one or more seeds."
+    )
+
+    @Option(help: "Task to optimize: lift or singleLift.")
+    var task: LearningCampaignTaskChoice = .lift
+
+    @Option(name: .customLong("source-checkpoint"), help: "Task-specific source checkpoint directory.")
+    var sourceCheckpoint: String
+
+    @Option(name: .customLong("artifact-root"), help: "Directory where campaign artifacts are written.")
+    var artifactRootPath: String
+
+    @Option(help: "Comma-separated explicit campaign seed values.")
+    var seeds: String?
+
+    @Option(name: .customLong("seed-count"), help: "Generate sequential campaign seeds from 1 through this count.")
+    var seedCount: Int = 1
+
+    @Option(help: "Population size per seed.")
+    var population: Int = 4
+
+    @Option(help: "Generation count per seed.")
+    var generations: Int = 1
+
+    @Option(name: .customLong("elite-count"), help: "Number of candidates selected as parents.")
+    var eliteCount: Int = 1
+
+    @Option(help: "Worker count for rollout regression.")
+    var workers: Int = 1
+
+    @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
+    var candidateEvaluationConcurrency: Int = 1
+
+    @Option(help: "Comma-separated M2 suite list: 6,7,8.")
+    var suites: String = "6"
+
+    @Option(help: "Episodes per candidate regression.")
+    var episodes: Int = 1
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: TierChoice = .tier1
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Model descriptor path.")
+    var model: String = ""
+
+    @Option(name: .customLong("mutation-rate"), help: "Mutation rate passed to the ManasMLX variation provider.")
+    var mutationRate: Double = 0.08
+
+    @Option(name: .customLong("mutation-noise-scale"), help: "Gaussian mutation noise scale.")
+    var mutationNoiseScale: Double = 0.01
+
+    @Option(name: .customLong("search-strategy"), help: "Evolution search strategy.")
+    var searchStrategy: EvolutionSearchStrategyChoice = .qualityDiversity
+
+    @Option(help: "Candidate variation mode: gaussian or copy.")
+    var variation: EvolutionVariationChoice = .gaussian
+
+    @Option(name: .customLong("min-reward-average"), help: "Override task default minimum reward average.")
+    var minimumRewardAverage: Double?
+
+    @Option(name: .customLong("min-incumbent-improvement"), help: "Minimum strict scalar-fitness improvement over the incumbent checkpoint.")
+    var minimumIncumbentImprovement: Double = 0
+
+    @Option(name: .customLong("min-novelty-score"), help: "Minimum novelty score required for a candidate to enter the evolution archive.")
+    var minimumNoveltyScore: Double?
+
+    @Option(name: .customLong("resource-sample-seconds"), help: "Resource sample interval recorded in the campaign plan. Use 0 to disable resource samples.")
+    var resourceSampleSeconds: Double = 30
+
+    @Option(name: .customLong("kp"), help: "IMU rate damping proportional gain.")
+    var kp: Double = 0.35
+
+    @Option(name: .customLong("kd"), help: "IMU rate damping derivative gain.")
+    var kd: Double = 0.08
+
+    @Option(name: .customLong("yaw-damping"), help: "Yaw damping gain.")
+    var yawDamping: Double = 0.04
+
+    @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
+    var hoverScale: Double = 1.0
+
+    @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
+    var noQualityGate: Bool = false
+
+    @MainActor
+    mutating func run() async throws {
+        guard population > 0 else {
+            throw ValidationError("--population must be greater than 0.")
+        }
+        guard generations > 0 else {
+            throw ValidationError("--generations must be greater than 0.")
+        }
+        guard eliteCount > 0, eliteCount <= population else {
+            throw ValidationError("--elite-count must be greater than 0 and no larger than --population.")
+        }
+        guard workers > 0 else {
+            throw ValidationError("--workers must be greater than 0.")
+        }
+        guard candidateEvaluationConcurrency > 0, candidateEvaluationConcurrency <= population else {
+            throw ValidationError("--candidate-evaluation-concurrency must be greater than 0 and no larger than --population.")
+        }
+        guard episodes > 0 else {
+            throw ValidationError("--episodes must be greater than 0.")
+        }
+        guard mutationRate.isFinite, mutationRate >= 0 else {
+            throw ValidationError("--mutation-rate must be finite and non-negative.")
+        }
+        guard mutationNoiseScale.isFinite, mutationNoiseScale >= 0 else {
+            throw ValidationError("--mutation-noise-scale must be finite and non-negative.")
+        }
+        if let minimumRewardAverage, !minimumRewardAverage.isFinite {
+            throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+        guard minimumIncumbentImprovement.isFinite, minimumIncumbentImprovement >= 0 else {
+            throw ValidationError("--min-incumbent-improvement must be finite and non-negative.")
+        }
+        if let minimumNoveltyScore,
+           (!minimumNoveltyScore.isFinite || minimumNoveltyScore < 0) {
+            throw ValidationError("--min-novelty-score must be finite and non-negative when specified.")
+        }
+        guard resourceSampleSeconds.isFinite, resourceSampleSeconds >= 0 else {
+            throw ValidationError("--resource-sample-seconds must be finite and non-negative.")
+        }
+        let trimmedSource = sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSource.isEmpty else {
+            throw ValidationError("--source-checkpoint is required.")
+        }
+        let sourceCheckpointURL = URL(fileURLWithPath: trimmedSource, isDirectory: true)
+        _ = try ManasMLXE2EPreflight().check(
+            descriptorPath: model,
+            sourceCheckpointURL: sourceCheckpointURL,
+            requireSourceCheckpoint: true
+        )
+        let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        let selectedSeeds = try resolveCampaignSeeds(explicitSeeds: seeds, seedCount: seedCount)
+        let selectedSuites = try parseRegressionSuites(suites)
+        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
+        if noQualityGate && profile.requiresParentCheckpointEvaluation {
+            throw ValidationError("--no-quality-gate is not allowed for \(profile.task) learning campaigns.")
+        }
+        let determinism = try makeDeterminism(tier: tier)
+        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
+        let gains = try ImuRateDampingCutGains(
+            kp: kp,
+            kd: kd,
+            yawDamping: yawDamping,
+            hoverThrustScale: hoverScale
+        )
+        let availableDiskBytes = try availableDiskBytes(at: artifactRoot)
+        let plan = LearningCampaignPlan(
+            artifactRoot: artifactRoot.path,
+            task: profile.task,
+            suites: selectedSuites.map(String.init),
+            episodes: episodes,
+            workers: workers,
+            population: population,
+            generations: generations,
+            eliteCount: eliteCount,
+            candidateEvaluationConcurrency: candidateEvaluationConcurrency,
+            seeds: selectedSeeds,
+            sourceCheckpoint: sourceCheckpointURL.path,
+            modelDescriptor: model.isEmpty ? nil : model,
+            variation: variation.rawValue,
+            searchStrategy: searchStrategy.rawValue,
+            mutationRate: mutationRate,
+            mutationNoiseScale: mutationNoiseScale,
+            bootstrapSuite: selectedSuites.first.map(String.init) ?? "6",
+            bootstrapEpisodes: 0,
+            bootstrapSequence: 0,
+            bootstrapEpochs: 0,
+            bootstrapMaxBatches: 0,
+            bootstrapLearningRate: 0,
+            bootstrapRepairAttempts: 0,
+            verifyParentTask: true,
+            resumeEnabled: false,
+            resourceSampleSeconds: resourceSampleSeconds,
+            availableDiskBytes: availableDiskBytes,
+            requiredDiskBytes: 1,
+            plannedCandidateEvaluations: selectedSeeds.count * population * generations,
+            plannedRegressionRollouts: selectedSeeds.count * population * generations * selectedSuites.count,
+            plannedRegressionEpisodes: selectedSeeds.count * population * generations * selectedSuites.count * episodes
+        )
+        let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+            override: minimumRewardAverage,
+            task: profile.task
+        )
+        let checkpointEvaluator = ManasMLXCheckpointEvaluator(config: ManasMLXCheckpointEvaluatorConfig(
+            descriptorPath: model,
+            determinism: determinism,
+            schedule: schedule,
+            gains: gains,
+            useQualityGating: !noQualityGate
+        ))
+        let evolutionRunner = CLILearningCampaignEvolutionRunner(
+            task: task,
+            tier: tier,
+            cutPeriodSteps: cutPeriodSteps,
+            suites: selectedSuites,
+            episodes: episodes,
+            workers: workers,
+            model: model,
+            variation: variation,
+            searchStrategy: searchStrategy,
+            mutationRate: mutationRate,
+            mutationNoiseScale: mutationNoiseScale,
+            candidateEvaluationConcurrency: candidateEvaluationConcurrency,
+            eliteCount: eliteCount,
+            minimumRewardAverage: effectiveMinimumRewardAverage,
+            minimumIncumbentImprovement: minimumIncumbentImprovement,
+            minimumNoveltyScore: minimumNoveltyScore,
+            useQualityGating: !noQualityGate
+        )
+        let checkpointRegressionChecker = CLILearningCampaignCheckpointRegressionChecker(
+            task: task,
+            tier: tier,
+            cutPeriodSteps: cutPeriodSteps,
+            suites: selectedSuites,
+            episodes: episodes,
+            workers: workers,
+            model: model,
+            minimumRewardAverage: effectiveMinimumRewardAverage,
+            useQualityGating: !noQualityGate
+        )
+        let summary = try await LearningCampaignOrchestrator(
+            checkpointEvaluator: checkpointEvaluator,
+            evolutionRunner: evolutionRunner,
+            checkpointRegressionChecker: checkpointRegressionChecker
+        ).run(config: LearningCampaignOrchestratorConfig(
+            plan: plan,
+            artifactRoot: artifactRoot,
+            initialParentCheckpointURL: sourceCheckpointURL
+        ))
+        print("[learning-campaign] artifacts path=\(artifactRoot.path)")
+        print("[learning-campaign] finalCheckpoint=\(summary.finalCheckpoint) accepted=\(summary.acceptedCount)/\(summary.seedCount)")
+    }
+
+    private func resolveCampaignSeeds(explicitSeeds rawSeeds: String?, seedCount: Int) throws -> [String] {
+        guard seedCount > 0 else {
+            throw ValidationError("--seed-count must be greater than 0.")
+        }
+        guard let rawSeeds else {
+            return (1...seedCount).map(String.init)
+        }
+        let values = try parseCampaignSeeds(rawSeeds)
+        if seedCount != 1 {
+            throw ValidationError("--seeds and --seed-count cannot both be used.")
+        }
+        return values
+    }
+
+    private func parseCampaignSeeds(_ raw: String) throws -> [String] {
+        let values = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else {
+            throw ValidationError("--seeds must include at least one seed.")
+        }
+        var seenSeeds = Set<String>()
+        var parsedSeeds: [String] = []
+        for value in values {
+            guard let seed = UInt64(value) else {
+                throw ValidationError("--seeds contains an invalid unsigned integer seed: \(value)")
+            }
+            let canonicalValue = String(seed)
+            guard seenSeeds.insert(canonicalValue).inserted else {
+                throw ValidationError("--seeds contains a duplicate seed: \(canonicalValue)")
+            }
+            parsedSeeds.append(canonicalValue)
+        }
+        return parsedSeeds
+    }
+
+    private func availableDiskBytes(at root: URL) throws -> Int64 {
+        let values = try FileManager.default.attributesOfFileSystem(forPath: root.path)
+        return (values[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+    }
+}
+
+private struct CLILearningCampaignCheckpointRegressionChecker: LearningCampaignCheckpointRegressionChecking {
+    let task: LearningCampaignTaskChoice
+    let tier: TierChoice
+    let cutPeriodSteps: UInt64
+    let suites: [Int]
+    let episodes: Int
+    let workers: Int
+    let model: String
+    let minimumRewardAverage: Double?
+    let useQualityGating: Bool
+
+    @MainActor
+    func checkCheckpointRegression(
+        label: String,
+        checkpointURL: URL,
+        artifactRoot: URL,
+        plan: LearningCampaignPlan
+    ) async throws -> KuyuRegressionSummary {
+        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
+        let summary = try await runKuyuRegression(
+            controller: .manasMLX,
+            snapshotURL: checkpointURL,
+            tier: tier,
+            cutPeriodSteps: cutPeriodSteps,
+            tasks: [simulationTaskMode(from: task.rolloutTask)],
+            suites: suites,
+            episodes: episodes,
+            workers: workers,
+            maxSteps: nil,
+            maxWallTime: nil,
+            model: model,
+            artifactRoot: artifactRoot,
+            kp: 2.0,
+            kd: 0.25,
+            yawDamping: 0.2,
+            hoverScale: 1.0,
+            failOnTruncation: profile.failOnTruncation,
+            minimumRewardAverage: minimumRewardAverage,
+            useQualityGating: useQualityGating
+        )
+        _ = plan
+        return summary
     }
 }
 
@@ -4148,6 +4873,7 @@ private struct CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
             taskPassRate: 0,
             safetyViolationRate: 1,
             holdTimeRatio: 0,
+            altitudeErrorRatio: nil,
             workerThroughput: 0,
             failureReasons: [reason]
         )
@@ -4167,10 +4893,12 @@ private struct CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
         let taskPassRate = totalEpisodes > 0 ? Double(totalPasses) / Double(totalEpisodes) : 0
         let safetyViolationRate = totalEpisodes > 0 ? Double(totalFailures) / Double(totalEpisodes) : 1
         let holdTimeRatio = averageHoldTimeRatio(regression.rolloutSuites)
+        let altitudeErrorRatio = maximumAltitudeErrorRatio(regression.rolloutSuites)
         let throughput = minimumWorkerThroughput(regression.rolloutSuites)
         let scalarFitness = rewardAverage
             + taskPassRate * 100
             + (holdTimeRatio ?? 0) * 10
+            - (altitudeErrorRatio ?? 0) * 10
             - safetyViolationRate * 100
         return FitnessSummary(
             runID: request.config.runID,
@@ -4182,6 +4910,7 @@ private struct CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
             taskPassRate: taskPassRate,
             safetyViolationRate: safetyViolationRate,
             holdTimeRatio: holdTimeRatio,
+            altitudeErrorRatio: altitudeErrorRatio,
             energyPenalty: nil,
             noveltyScore: nil,
             teacherDelta: nil,
@@ -4205,9 +4934,120 @@ private struct CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
         return ratios.reduce(0, +) / Double(ratios.count)
     }
 
+    private func maximumAltitudeErrorRatio(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
+        let ratios = entries.flatMap(\.taskQuality).compactMap { quality -> Double? in
+            guard let error = quality.maxAltitudeErrorAfterWarmup,
+                  let tolerance = quality.tolerance,
+                  tolerance > 0 else {
+                return nil
+            }
+            return error / tolerance
+        }
+        return ratios.max()
+    }
+
     private func minimumWorkerThroughput(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
         let throughputs = entries.flatMap(\.workerSummaries).map(\.throughput)
         return throughputs.min()
+    }
+}
+
+private struct CLILearningCampaignEvolutionRunner: LearningCampaignEvolutionRunning {
+    let task: LearningCampaignTaskChoice
+    let tier: TierChoice
+    let cutPeriodSteps: UInt64
+    let suites: [Int]
+    let episodes: Int
+    let workers: Int
+    let model: String
+    let variation: EvolutionVariationChoice
+    let searchStrategy: EvolutionSearchStrategyChoice
+    let mutationRate: Double
+    let mutationNoiseScale: Double
+    let candidateEvaluationConcurrency: Int
+    let eliteCount: Int
+    let minimumRewardAverage: Double?
+    let minimumIncumbentImprovement: Double
+    let minimumNoveltyScore: Double?
+    let useQualityGating: Bool
+
+    @MainActor
+    func runEvolution(
+        seed: String,
+        parentCheckpointURL: URL,
+        artifactRoot: URL,
+        plan: LearningCampaignPlan
+    ) async throws -> EvolutionRunArtifactBundle {
+        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
+        let backend = ManasMLXEvolutionBackend(
+            rootDirectory: artifactRoot.appendingPathComponent("candidates", isDirectory: true),
+            variationProvider: makeVariationProvider()
+        )
+        let evaluator = CLIEvolutionRegressionEvaluator(
+            task: simulationTaskMode(from: task.rolloutTask),
+            tier: tier,
+            cutPeriodSteps: cutPeriodSteps,
+            suites: suites,
+            episodes: episodes,
+            workers: workers,
+            model: model,
+            artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
+            minimumRewardAverage: minimumRewardAverage,
+            useQualityGating: useQualityGating
+        )
+        let orchestrator = EvolutionRunOrchestrator(
+            backend: backend,
+            evaluator: evaluator
+        )
+        let seedValue = UInt64(seed) ?? 1
+        _ = await orchestrator.run(
+            config: EvolutionRunConfig(
+                taskID: profile.task,
+                descriptorID: model.isEmpty ? nil : model,
+                descriptorHash: model.isEmpty ? nil : model,
+                configHash: "\(profile.task)-\(seed)-\(suites)-\(episodes)-\(workers)-\(candidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
+                policyID: "manasMLX",
+                populationSize: plan.population,
+                generationCount: plan.generations,
+                eliteCount: eliteCount,
+                workerCount: workers,
+                candidateEvaluationConcurrency: candidateEvaluationConcurrency,
+                searchStrategy: searchStrategy.trainingStrategy,
+                bootstrapSource: .checkpoint,
+                worldModelUsage: .disabled,
+                antitheticSampling: searchStrategy == .antitheticEvolutionStrategy,
+                commonRandomSeed: seedValue == 0 ? 1 : seedValue,
+                mutationRate: mutationRate,
+                mutationNoiseScale: mutationNoiseScale,
+                parentCheckpointID: parentCheckpointURL.lastPathComponent,
+                parentCheckpointURL: parentCheckpointURL
+            ),
+            gatePolicy: EvolutionGatePolicy(
+                eliteCount: eliteCount,
+                minimumTaskPassRate: profile.minimumTaskPassRate,
+                maximumSafetyViolationRate: 0,
+                minimumHoldTimeRatio: profile.minimumHoldTimeRatio,
+                maximumAltitudeErrorRatio: profile.maximumAltitudeErrorRatio,
+                minimumRewardAverage: minimumRewardAverage,
+                minimumImprovementOverIncumbent: minimumIncumbentImprovement,
+                minimumNoveltyScore: minimumNoveltyScore
+            ),
+            artifactDirectory: artifactRoot
+        )
+        return try EvolutionRunArtifactValidator().loadAndValidate(from: artifactRoot)
+    }
+
+    @MainActor
+    private func makeVariationProvider() -> any ManasMLXGenomeVariationProviding {
+        switch variation {
+        case .copy:
+            return ManasMLXFileBackedGenomeVariationProvider()
+        case .gaussian:
+            return ManasMLXGaussianMutationProvider(config: ManasMLXGaussianMutationConfig(
+                noiseScale: 1,
+                crossoverEnabled: true
+            ))
+        }
     }
 }
 
@@ -4234,6 +5074,7 @@ private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating 
             taskPassRate: 1,
             safetyViolationRate: 0,
             holdTimeRatio: 1,
+            altitudeErrorRatio: 0,
             noveltyScore: candidateScore,
             workerThroughput: Double(request.workerCount),
             behaviorDescriptor: [
@@ -4419,8 +5260,12 @@ private func printRolloutSummary(summary: RolloutSummary, workers: Int, policyId
 private func makeRolloutDefinitions(
     task: RolloutTaskChoice,
     suite: Int?,
-    episodes: Int
+    episodes: Int,
+    useTrainingSuite: Bool = false
 ) throws -> [ReferenceQuadrotorScenarioDefinition] {
+    if useTrainingSuite {
+        return try makeTrainingSuiteDefinitions(task: task, suite: suite, episodes: episodes)
+    }
     if let suite {
         if task == .lift || task == .singleLift {
             return try makeLiftSuiteDefinitions(task: task, suite: suite, episodes: episodes)
@@ -4453,6 +5298,61 @@ private func makeRolloutDefinitions(
     case .singleLift:
         return try KuySingleLiftSuite().scenarios()
     }
+}
+
+private func makeTrainingSuiteDefinitions(
+    task: RolloutTaskChoice,
+    suite: Int?,
+    episodes: Int
+) throws -> [ReferenceQuadrotorScenarioDefinition] {
+    switch task {
+    case .singleLift:
+        let definitions = try KuyuSingleLiftTrainingSuite().scenarios()
+        guard !definitions.isEmpty else {
+            throw ValidationError("No singleLift training definitions are available.")
+        }
+        return try (0..<max(episodes, definitions.count)).map { index in
+            try singleLiftTrainingDefinition(
+                task: task,
+                suite: suite ?? 6,
+                index: index,
+                definition: definitions[index % definitions.count]
+            )
+        }
+    case .lift:
+        return try makeLiftSuiteDefinitions(task: task, suite: suite ?? 6, episodes: episodes)
+    case .attitude:
+        return try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
+    }
+}
+
+private func singleLiftTrainingDefinition(
+    task: RolloutTaskChoice,
+    suite: Int,
+    index: Int,
+    definition: ReferenceQuadrotorScenarioDefinition
+) throws -> ReferenceQuadrotorScenarioDefinition {
+    guard task == .singleLift else { return definition }
+    let scenarioIndex = index + 1
+    return ReferenceQuadrotorScenarioDefinition(
+        config: try ScenarioConfig(
+            id: try ScenarioID("KUY-SLIFT-TRAIN-M2-S\(suite)/SCN-\(scenarioIndex)"),
+            seed: ScenarioSeed(definition.config.seed.rawValue &+ UInt64(suite * 10_000 + index)),
+            duration: definition.config.duration,
+            timeStep: definition.config.timeStep
+        ),
+        kind: definition.kind,
+        initialPosition: definition.initialPosition,
+        initialAttitude: definition.initialAttitude,
+        initialAngularVelocity: definition.initialAngularVelocity,
+        safetyEnvelope: definition.safetyEnvelope,
+        liftEnvelope: definition.liftEnvelope,
+        torqueEvents: definition.torqueEvents,
+        actuatorDegradation: definition.actuatorDegradation,
+        gyroDriftScale: definition.gyroDriftScale,
+        swapEvents: definition.swapEvents,
+        hfEvents: definition.hfEvents
+    )
 }
 
 private func makeRegressionRolloutDefinitions(
@@ -4632,28 +5532,31 @@ private func parseRegressionControllers(_ raw: String) throws -> [ControllerChoi
 
 private func makeRolloutParameters(
     task: RolloutTaskChoice,
-    loadedDescriptor: LoadedRobotDescriptor? = nil
+    loadedDescriptor: LoadedRobotDescriptor? = nil,
+    hoverThrustScale: Double = 1.0
 ) throws -> ReferenceQuadrotorParameters {
+    guard hoverThrustScale.isFinite, hoverThrustScale > 0 else {
+        throw ValidationError("--hover-scale must be finite and greater than 0.")
+    }
+
     if let loadedDescriptor {
         let loader = RobotDescriptorLoader()
         let inertial = try loader.loadPlantInertialProperties(descriptor: loadedDescriptor)
-        return try ReferenceQuadrotorParameters.reference(
+        let parameters = try ReferenceQuadrotorParameters.reference(
             from: inertial,
             robotID: loadedDescriptor.descriptor.robot.robotID
+        )
+        guard task == .singleLift else { return parameters }
+        return try KuyuSingleLiftParameterTuning.tuned(
+            parameters: parameters,
+            hoverThrustScale: hoverThrustScale
         )
     }
 
     guard task == .singleLift else { return .baseline }
-    let baseline = ReferenceQuadrotorParameters.baseline
-    return try ReferenceQuadrotorParameters(
-        mass: baseline.mass,
-        inertia: baseline.inertia,
-        armLength: baseline.armLength,
-        motorTimeConstant: baseline.motorTimeConstant,
-        maxThrust: 12.0,
-        yawCoefficient: baseline.yawCoefficient,
-        gravity: baseline.gravity,
-        aerodynamics: baseline.aerodynamics
+    return try KuyuSingleLiftParameterTuning.tuned(
+        parameters: .baseline,
+        hoverThrustScale: hoverThrustScale
     )
 }
 

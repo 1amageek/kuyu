@@ -7,11 +7,11 @@ import Testing
 @Test func singleLiftTrainingSuiteAddsBalancedAltitudeOffsets() throws {
     let scenarios = try KuyuSingleLiftTrainingSuite().scenarios()
 
-    #expect(scenarios.count == 7)
+    #expect(scenarios.count == 13)
     let altitudes = scenarios.map(\.initialPosition.z)
-    #expect(altitudes.contains(0.44))
+    #expect(altitudes.contains(0.25))
     #expect(altitudes.contains(0.5))
-    #expect(altitudes.contains(0.56))
+    #expect(altitudes.contains(0.75))
     #expect(altitudes.filter { $0 == 0.5 }.count == 3)
     #expect(scenarios.allSatisfy { $0.kind == .singleLiftHover })
 }
@@ -36,8 +36,8 @@ import Testing
     )
 
     #expect(output.summary.suitePassed)
-    #expect(output.summary.evaluations.count == 7)
-    #expect(output.logs.count == 7)
+    #expect(output.summary.evaluations.count == 13)
+    #expect(output.logs.count == 13)
     #expect(output.logs.allSatisfy { entry in
         entry.log.events.contains { !$0.driveIntents.isEmpty }
     })

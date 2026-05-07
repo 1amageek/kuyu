@@ -93,8 +93,9 @@ public enum KuyuRegressionGatePolicy {
             if achievedHoldTime < requiredHoldTimeWithRatio {
                 reasons.append("hold-time-below-min:\(entry.track):\(quality.scenarioID):\(achievedHoldTime)<\(requiredHoldTimeWithRatio)")
             }
-            if maxAltitudeError > tolerance {
-                reasons.append("altitude-error-above-tolerance:\(entry.track):\(quality.scenarioID):\(maxAltitudeError)>\(tolerance)")
+            let maximumAltitudeError = tolerance * (requirement.maximumAltitudeErrorRatio ?? 1.0)
+            if maxAltitudeError > maximumAltitudeError {
+                reasons.append("altitude-error-above-tolerance:\(entry.track):\(quality.scenarioID):\(maxAltitudeError)>\(maximumAltitudeError)")
             }
         }
         return reasons

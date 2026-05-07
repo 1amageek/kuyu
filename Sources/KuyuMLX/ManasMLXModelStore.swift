@@ -39,6 +39,7 @@ public final class ManasMLXModelStore {
         schedule: SimulationSchedule,
         request: SimulationRunRequest,
         descriptor: RobotDescriptor?,
+        definitions overrideDefinitions: [ReferenceQuadrotorScenarioDefinition]? = nil,
         control: SimulationControl?,
         telemetry: ((WorldStepLog) -> Void)? = nil
     ) async throws -> KuyAtt1RunOutput {
@@ -51,23 +52,28 @@ public final class ManasMLXModelStore {
             useQualityGating: request.useQualityGating
         )
         let driveCount = request.taskMode == .singleLift ? 1 : sizing.driveCount
+        let auxEnabled = effectiveInferenceAuxEnabled(requested: request.useAux)
 
         let core = prepareCore(
             inputSize: sizing.trunkSize,
             driveCount: driveCount,
-            auxEnabled: request.useAux,
+            auxEnabled: auxEnabled,
             descriptor: descriptor
         )
         let reflex = prepareReflex(inputSize: sizing.fastTapCount, driveCount: driveCount)
 
         let definitions: [ReferenceQuadrotorScenarioDefinition]
-        switch request.taskMode {
-        case .lift:
-            definitions = try KuyLiftSuite().scenarios()
-        case .singleLift:
-            definitions = try KuySingleLiftSuite().scenarios()
-        case .attitude:
-            definitions = try KuyAtt1Suite().scenarios()
+        if let overrideDefinitions {
+            definitions = overrideDefinitions
+        } else {
+            switch request.taskMode {
+            case .lift:
+                definitions = try KuyLiftSuite().scenarios()
+            case .singleLift:
+                definitions = try KuySingleLiftSuite().scenarios()
+            case .attitude:
+                definitions = try KuyAtt1Suite().scenarios()
+            }
         }
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
 
@@ -80,7 +86,8 @@ public final class ManasMLXModelStore {
             "controller": "ManasMLX",
             "task": .string(request.taskMode.rawValue),
             "observation": .string("\(observationMode)"),
-            "driveCount": .string("\(driveCount)")
+            "driveCount": .string("\(driveCount)"),
+            "aux": .string("\(auxEnabled)")
         ])
 
         switch request.taskMode {
@@ -667,7 +674,106 @@ public final class ManasMLXModelStore {
             "epochs": .string("\(epochs)")
         ])
 
-        return TrainingResult(finalLoss: Double(losses.last ?? 0), epochs: epochs)
+        let openLoop = evaluateOpenLoopDriveFit(
+            model: core,
+            batches: allAuxBatches.isEmpty ? allBatches.map { ($0.trunks, $0.targetDrives) } : allAuxBatches.map { ($0.trunks, $0.targetDrives) }
+        )
+        if let openLoop {
+            logger.notice("ManasMLX open-loop drive fit", metadata: [
+                "mae": .string(String(format: "%.6f", openLoop.meanAbsoluteError)),
+                "predictionAverage": .string(String(format: "%.6f", openLoop.predictionAverage)),
+                "targetAverage": .string(String(format: "%.6f", openLoop.targetAverage))
+            ])
+        }
+
+        return TrainingResult(
+            finalLoss: Double(losses.last ?? 0),
+            epochs: epochs,
+            openLoopFit: openLoop
+        )
+    }
+
+    public func evaluateOpenLoopDriveFit(
+        datasetURL: URL,
+        sequenceLength: Int,
+        useQualityGating: Bool,
+        maxBatches: Int? = nil
+    ) throws -> OpenLoopDriveFit? {
+        try beginExclusive()
+        defer { endExclusive() }
+
+        guard let coreModel else {
+            throw ModelStoreError.coreModelNotInitialized
+        }
+        let datasets = try loadTrainingDatasets(from: datasetURL)
+        let driveCount = datasets.first?.metadata.driveCount ?? 0
+        guard driveCount > 0 else {
+            throw ModelStoreError.invalidDriveCount
+        }
+        let observationMode = ManasMLXObservationMode.trainingMode(
+            channelCount: datasets.first?.metadata.channelCount ?? 0,
+            driveCount: driveCount
+        )
+        let perDatasetMaxBatches = maxBatches.map { limit in
+            max(1, Int(ceil(Double(limit) / Double(max(datasets.count, 1)))))
+        }
+        var batchGroups: [[(trunks: MLXArray, targets: MLXArray)]] = []
+        for dataset in datasets {
+            var pipeline = buildTrainingPipeline(
+                useQualityGating: useQualityGating,
+                observationMode: observationMode
+            )
+            let builder = ManasTrainingBatchBuilder(
+                sequenceLength: sequenceLength,
+                driveCount: driveCount,
+                maxBatches: perDatasetMaxBatches
+            )
+            let batches = try builder.makeCoreBatches(dataset: dataset, pipeline: &pipeline)
+            batchGroups.append(batches.map { ($0.trunks, $0.targetDrives) })
+        }
+        let batches = cappedBatches(interleavedBatches(batchGroups), limit: maxBatches, currentCount: 0)
+        return evaluateOpenLoopDriveFit(model: coreModel, batches: batches)
+    }
+
+    private func evaluateOpenLoopDriveFit(
+        model: ManasMLXCore,
+        batches: [(trunks: MLXArray, targets: MLXArray)]
+    ) -> OpenLoopDriveFit? {
+        var absoluteErrorSum: Double = 0
+        var predictionSum: Double = 0
+        var targetSum: Double = 0
+        var valueCount = 0
+        var firstPrediction: Double?
+        var firstTarget: Double?
+
+        for batch in batches {
+            let predictions = model.forward(trunks: batch.trunks).drives
+            eval(predictions, batch.targets)
+            let predictedValues = predictions.asArray(Float.self).map(Double.init)
+            let targetValues = batch.targets.asArray(Float.self).map(Double.init)
+            guard predictedValues.count == targetValues.count, !predictedValues.isEmpty else {
+                continue
+            }
+            for (prediction, target) in zip(predictedValues, targetValues) {
+                if firstPrediction == nil {
+                    firstPrediction = prediction
+                    firstTarget = target
+                }
+                absoluteErrorSum += abs(prediction - target)
+                predictionSum += prediction
+                targetSum += target
+                valueCount += 1
+            }
+        }
+
+        guard valueCount > 0 else { return nil }
+        return OpenLoopDriveFit(
+            meanAbsoluteError: absoluteErrorSum / Double(valueCount),
+            predictionAverage: predictionSum / Double(valueCount),
+            targetAverage: targetSum / Double(valueCount),
+            firstPrediction: firstPrediction,
+            firstTarget: firstTarget
+        )
     }
 
     public func makeManifest(name: String = "manas-core") throws -> ManasMLXModelManifest {
@@ -1066,6 +1172,10 @@ public final class ManasMLXModelStore {
         return result
     }
 
+    private func effectiveInferenceAuxEnabled(requested: Bool) -> Bool {
+        coreConfig?.auxEnabled ?? requested
+    }
+
     private func beginExclusive() throws {
         if isBusy {
             throw ModelStoreError.busy
@@ -1086,6 +1196,10 @@ public final class ManasMLXModelStore {
     ) {
         _ = prepareCore(inputSize: inputSize, driveCount: driveCount, auxEnabled: auxEnabled)
         _ = prepareReflex(inputSize: reflexInputSize, driveCount: driveCount)
+    }
+
+    func effectiveInferenceAuxEnabledForTesting(requested: Bool) -> Bool {
+        effectiveInferenceAuxEnabled(requested: requested)
     }
 
     func holdExclusiveForTesting(control: SimulationControl) async throws {

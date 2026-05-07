@@ -16,6 +16,19 @@ import Testing
     #expect(failure == .incompatibleDriveCount(expected: 4, actual: 1))
 }
 
+@Test(.timeLimit(.minutes(1))) func checkpointCompatibilityAcceptsSingleDriveSnapshotForSingleLiftRegression() throws {
+    let root = try makeCheckpointRoot(
+        driveCount: 1,
+        reflexConfig: ManasMLXReflexConfig(inputSize: 8, driveCount: 1),
+        writeReflex: true
+    )
+    defer { removeTemporaryRoot(root) }
+
+    let failure = try ManasMLXCheckpointCompatibility(expectedDriveCount: 1)
+        .validate(snapshotURL: root)
+    #expect(failure == nil)
+}
+
 @Test(.timeLimit(.minutes(1))) func checkpointCompatibilityRejectsMissingReflexConfig() throws {
     let root = try makeCheckpointRoot(
         driveCount: 4,
@@ -55,6 +68,27 @@ import Testing
     #expect(failure == nil)
 }
 
+@Test(.timeLimit(.minutes(1))) func checkpointBiasCalibratorRejectsNonFiniteRawBiasDeltaBeforeWritingOutput() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-bias-calibrator-\(UUID().uuidString)", isDirectory: true)
+    let source = root.appendingPathComponent("source", isDirectory: true)
+    let output = root.appendingPathComponent("output", isDirectory: true)
+    defer { removeTemporaryRoot(root) }
+
+    do {
+        _ = try ManasMLXCheckpointBiasCalibrator().calibrate(
+            sourceCheckpointURL: source,
+            outputCheckpointURL: output,
+            rawBiasDelta: .infinity
+        )
+        Issue.record("Expected non-finite raw bias delta to reject.")
+    } catch ManasMLXCheckpointBiasCalibratorError.nonFiniteRawBiasDelta {
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
 private func makeCheckpointRoot(
     driveCount: Int,
     reflexConfig: ManasMLXReflexConfig?,
@@ -89,6 +123,9 @@ private func makeCheckpointRoot(
 }
 
 private func removeTemporaryRoot(_ root: URL) {
+    guard FileManager.default.fileExists(atPath: root.path) else {
+        return
+    }
     do {
         try FileManager.default.removeItem(at: root)
     } catch {

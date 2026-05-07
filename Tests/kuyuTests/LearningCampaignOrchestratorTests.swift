@@ -1,0 +1,600 @@
+import Foundation
+import KuyuMLX
+import KuyuScenarios
+import KuyuTraining
+import Testing
+
+@MainActor
+@Test func learningCampaignOrchestratorRejectsFailingInitialParentRegressionBeforeEvolution() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-parent-regression-\(UUID().uuidString)", isDirectory: true)
+    let parent = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("parent-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    try makeCompleteCheckpoint(parent)
+    let checkpointEvaluator = FakeCampaignCheckpointEvaluator(policyPassed: true)
+    let regressionChecker = FakeCampaignCheckpointRegressionChecker(allPassed: false)
+    let evolutionRunner = FakeCampaignEvolutionRunner(acceptedCheckpointURL: parent)
+    let orchestrator = LearningCampaignOrchestrator(
+        checkpointEvaluator: checkpointEvaluator,
+        evolutionRunner: evolutionRunner,
+        checkpointRegressionChecker: regressionChecker
+    )
+
+    do {
+        _ = try await orchestrator.run(config: makeCampaignConfig(root: root, parent: parent))
+        Issue.record("Expected failing initial parent regression to reject before evolution.")
+    } catch LearningCampaignOrchestratorError.parentCheckpointRegressionRejected(
+        let label,
+        let checkpointPath,
+        let reasons
+    ) {
+        #expect(label == "initial-parent")
+        #expect(checkpointPath == parent.path)
+        #expect(reasons.contains { $0.contains("task-pass-rate-below-min") })
+        #expect(await evolutionRunner.callCount == 0)
+        #expect(FileManager.default.fileExists(
+            atPath: root
+                .appendingPathComponent("checkpoint-regressions", isDirectory: true)
+                .appendingPathComponent("initial-parent", isDirectory: true)
+                .appendingPathComponent("kuyu-regression-summary.json")
+                .path
+        ))
+        let status = try decodeJSON(TestCampaignStatus.self, from: root.appendingPathComponent("campaign-status.json"))
+        #expect(status.status == "failed")
+        #expect(status.exitCode == 1)
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
+@MainActor
+@Test func learningCampaignOrchestratorRejectsFailingInitialParentBeforeEvolution() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-orchestrator-\(UUID().uuidString)", isDirectory: true)
+    let parent = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("parent-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    try makeCompleteCheckpoint(parent)
+    let checkpointEvaluator = FakeCampaignCheckpointEvaluator(policyPassed: true, initialPolicyPassed: false)
+    let evolutionRunner = FakeCampaignEvolutionRunner(acceptedCheckpointURL: parent)
+    let orchestrator = LearningCampaignOrchestrator(
+        checkpointEvaluator: checkpointEvaluator,
+        evolutionRunner: evolutionRunner
+    )
+
+    do {
+        _ = try await orchestrator.run(config: makeCampaignConfig(root: root, parent: parent))
+        Issue.record("Expected failing initial parent checkpoint to reject before evolution.")
+    } catch LearningCampaignOrchestratorError.parentCheckpointEvaluationRejected(let label, let checkpointPath) {
+        #expect(label == "initial-parent")
+        #expect(checkpointPath == parent.path)
+        #expect(await evolutionRunner.callCount == 0)
+        let status = try decodeJSON(TestCampaignStatus.self, from: root.appendingPathComponent("campaign-status.json"))
+        let validation = try decodeJSON(LearningCampaignValidation.self, from: root.appendingPathComponent("learning-campaign-validation.json"))
+        #expect(status.status == "failed")
+        #expect(status.exitCode == 1)
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "parent-task-evaluation-failed" })
+        #expect(FileManager.default.fileExists(
+            atPath: root
+                .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+                .appendingPathComponent("initial-parent", isDirectory: true)
+                .appendingPathComponent("checkpoint-evaluation.json")
+                .path
+        ))
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
+@MainActor
+@Test func learningCampaignOrchestratorPromotesAcceptedCheckpointAfterAcceptedEvaluationPasses() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-orchestrator-\(UUID().uuidString)", isDirectory: true)
+    let parent = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("parent-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    let accepted = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("accepted-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    try makeCompleteCheckpoint(parent)
+    try makeCompleteCheckpoint(accepted)
+    let checkpointEvaluator = FakeCampaignCheckpointEvaluator(policyPassed: true)
+    let evolutionRunner = FakeCampaignEvolutionRunner(acceptedCheckpointURL: accepted)
+    let orchestrator = LearningCampaignOrchestrator(
+        checkpointEvaluator: checkpointEvaluator,
+        evolutionRunner: evolutionRunner,
+        checkpointRegressionChecker: FakeCampaignCheckpointRegressionChecker(allPassed: true)
+    )
+
+    let summary = try await orchestrator.run(config: makeCampaignConfig(root: root, parent: parent))
+
+    #expect(summary.finalCheckpoint == accepted.path)
+    #expect(summary.acceptedCount == 1)
+    #expect(summary.runs.first?.acceptedCheckpointURL == accepted.path)
+    #expect(FileManager.default.fileExists(
+        atPath: root
+            .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+            .appendingPathComponent("initial-parent", isDirectory: true)
+            .appendingPathComponent("checkpoint-evaluation.json")
+            .path
+    ))
+    #expect(FileManager.default.fileExists(
+        atPath: root.appendingPathComponent("learning-campaign-validation.json").path
+    ))
+}
+
+@MainActor
+@Test func learningCampaignOrchestratorRejectsNonEmptyArtifactRootBeforeWritingPlan() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-non-empty-\(UUID().uuidString)", isDirectory: true)
+    let parent = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("parent-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data("stale".utf8).write(to: root.appendingPathComponent("stale.txt"), options: [.atomic])
+    try makeCompleteCheckpoint(parent)
+    let orchestrator = LearningCampaignOrchestrator(
+        checkpointEvaluator: FakeCampaignCheckpointEvaluator(policyPassed: true),
+        evolutionRunner: FakeCampaignEvolutionRunner(acceptedCheckpointURL: parent)
+    )
+
+    do {
+        _ = try await orchestrator.run(config: makeCampaignConfig(root: root, parent: parent))
+        Issue.record("Expected non-empty artifact root to reject.")
+    } catch LearningCampaignOrchestratorError.artifactRootNotEmpty(let path) {
+        #expect(path == root.path)
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("learning-campaign-plan.json").path
+        ))
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
+@MainActor
+@Test func learningCampaignOrchestratorRegeneratesFailedValidationArtifactAfterValidationReject() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-validation-reject-\(UUID().uuidString)", isDirectory: true)
+    let parent = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("parent-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    let accepted = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("accepted-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    try makeCompleteCheckpoint(parent)
+    try makeCompleteCheckpoint(accepted)
+    let orchestrator = LearningCampaignOrchestrator(
+        checkpointEvaluator: FakeCampaignCheckpointEvaluator(policyPassed: true),
+        evolutionRunner: FakeCampaignEvolutionRunner(acceptedCheckpointURL: accepted),
+        checkpointRegressionChecker: FakeCampaignCheckpointRegressionChecker(allPassed: true)
+    )
+
+    do {
+        _ = try await orchestrator.run(config: makeCampaignConfig(root: root, parent: parent, population: 3))
+        Issue.record("Expected validation reject.")
+    } catch LearningCampaignOrchestratorError.validationRejected {
+        let status = try decodeJSON(TestCampaignStatus.self, from: root.appendingPathComponent("campaign-status.json"))
+        let validation = try decodeJSON(LearningCampaignValidation.self, from: root.appendingPathComponent("learning-campaign-validation.json"))
+        let progress = try readProgress(root.appendingPathComponent("progress.jsonl"))
+        #expect(status.status == "failed")
+        #expect(status.exitCode == 1)
+        #expect(progress.filter { $0.event == "campaign-finished" }.count == 1)
+        #expect(progress.last?.status == "failed")
+        #expect(!validation.issues.contains { $0.code == "campaign-not-succeeded" })
+        #expect(validation.issues.contains { $0.code == "fitness-count-mismatch" || $0.code == "invalid-seed-evolution-artifact" })
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
+private func makeCampaignConfig(root: URL, parent: URL, population: Int = 2) -> LearningCampaignOrchestratorConfig {
+    let plan = LearningCampaignPlan(
+        artifactRoot: root.path,
+        task: "lift",
+        suites: ["6"],
+        episodes: 1,
+        workers: 1,
+        population: population,
+        generations: 1,
+        eliteCount: 1,
+        candidateEvaluationConcurrency: 2,
+        seeds: ["1"],
+        sourceCheckpoint: parent.path,
+        modelDescriptor: nil,
+        variation: "gaussian",
+        searchStrategy: "qualityDiversity",
+        mutationRate: 0.08,
+        mutationNoiseScale: 0.01,
+        bootstrapSuite: "6",
+        bootstrapEpisodes: 1,
+        bootstrapSequence: 16,
+        bootstrapEpochs: 1,
+        bootstrapMaxBatches: 1,
+        bootstrapLearningRate: 0.001,
+        bootstrapRepairAttempts: 0,
+        verifyParentTask: true,
+        resumeEnabled: false,
+        resourceSampleSeconds: 0,
+        availableDiskBytes: 1_000_000_000,
+        requiredDiskBytes: 1,
+        plannedCandidateEvaluations: population,
+        plannedRegressionRollouts: 1,
+        plannedRegressionEpisodes: 1
+    )
+    return LearningCampaignOrchestratorConfig(
+        plan: plan,
+        artifactRoot: root,
+        initialParentCheckpointURL: parent
+    )
+}
+
+private struct TestCampaignStatus: Decodable {
+    let status: String
+    let exitCode: Int
+}
+
+private struct TestProgressRecord: Decodable {
+    let event: String
+    let status: String?
+}
+
+private func decodeJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
+    try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
+}
+
+private func readProgress(_ url: URL) throws -> [TestProgressRecord] {
+    let raw = try String(contentsOf: url, encoding: .utf8)
+    return try raw
+        .split(separator: "\n")
+        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .map { line in
+            try JSONDecoder().decode(TestProgressRecord.self, from: Data(line.utf8))
+        }
+}
+
+private func makeCompleteCheckpoint(_ url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: url.appendingPathComponent("model.json"), options: [.atomic])
+    try Data("core".utf8).write(to: url.appendingPathComponent("core.safetensors"), options: [.atomic])
+    try Data("reflex".utf8).write(to: url.appendingPathComponent("reflex.safetensors"), options: [.atomic])
+}
+
+@MainActor
+private final class FakeCampaignCheckpointEvaluator: CheckpointEvaluating {
+    private let policyPassed: Bool
+    private let initialPolicyPassed: Bool?
+
+    init(policyPassed: Bool, initialPolicyPassed: Bool? = nil) {
+        self.policyPassed = policyPassed
+        self.initialPolicyPassed = initialPolicyPassed
+    }
+
+    func evaluateCheckpoint(request: CheckpointEvaluationRequest) async throws -> CheckpointEvaluationArtifact {
+        let effectivePolicyPassed = request.evaluationID.contains("initial-parent")
+            ? (initialPolicyPassed ?? policyPassed)
+            : policyPassed
+        let quality = makeCampaignTaskQuality(task: request.profile.task)
+        let artifact = CheckpointEvaluationArtifact(
+            schemaVersion: CheckpointEvaluationArtifact.currentSchemaVersion,
+            evaluationID: request.evaluationID,
+            startedAt: Date(timeIntervalSince1970: 1),
+            task: request.profile.task,
+            profileID: request.profile.profileID,
+            checkpointPath: request.checkpointURL.path,
+            teacherScore: 1,
+            policyScore: effectivePolicyPassed ? 1 : 0,
+            teacherPassed: true,
+            policyPassed: effectivePolicyPassed,
+            failureReasons: effectivePolicyPassed ? [] : ["policy-failed"],
+            expectedQualityKeys: [CheckpointEvaluationScenarioKey(qualitySummary: quality)],
+            qualitySummary: [quality],
+            motorMAE: 0,
+            driveMAE: 0,
+            finalAltitudeDelta: 0,
+            policyAverageMotorFinalOutputByIndex: [0, 0, 0, 0],
+            teacherAverageMotorFinalOutputByIndex: [0, 0, 0, 0],
+            diagnostics: CheckpointEvaluationDiagnostics(scenarioComparisons: [
+                CheckpointEvaluationScenarioDiagnostics(
+                    key: CheckpointEvaluationScenarioKey(qualitySummary: quality),
+                    teacherLog: nil,
+                    policyLog: nil,
+                    altitudeDivergenceThreshold: 0.25
+                )
+            ])
+        )
+        try FileManager.default.createDirectory(at: request.artifactRoot, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(artifact).write(
+            to: request.artifactRoot.appendingPathComponent(CheckpointEvaluationArtifact.fileName),
+            options: [.atomic]
+        )
+        return artifact
+    }
+}
+
+private actor FakeCampaignEvolutionRunner: LearningCampaignEvolutionRunning {
+    private(set) var callCount = 0
+    private let acceptedCheckpointURL: URL
+
+    init(acceptedCheckpointURL: URL) {
+        self.acceptedCheckpointURL = acceptedCheckpointURL
+    }
+
+    func runEvolution(
+        seed: String,
+        parentCheckpointURL: URL,
+        artifactRoot: URL,
+        plan: LearningCampaignPlan
+    ) async throws -> EvolutionRunArtifactBundle {
+        callCount += 1
+        let runID = "campaign-seed-\(seed)"
+        let startedAt = Date(timeIntervalSince1970: 1)
+        let completedAt = Date(timeIntervalSince1970: 2)
+        let manifest = EvolutionRunManifest(
+            runID: runID,
+            taskID: plan.task,
+            configHash: "config",
+            policyID: "manasMLX",
+            populationSize: plan.population,
+            generationCount: plan.generations,
+            eliteCount: plan.eliteCount,
+            workerCount: plan.workers,
+            candidateEvaluationConcurrency: plan.candidateEvaluationConcurrency,
+            searchStrategy: .qualityDiversity,
+            bootstrapSource: .checkpoint,
+            commonRandomSeed: 1,
+            mutationRate: plan.mutationRate,
+            mutationNoiseScale: plan.mutationNoiseScale,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            terminalState: .completed
+        )
+        let candidates = [
+            GenomeCandidate(
+                runID: runID,
+                generationIndex: 0,
+                candidateID: "candidate-0",
+                genomeID: "genome-0",
+                checkpointID: "parent",
+                checkpointURL: parentCheckpointURL,
+                mutationRate: 0,
+                mutationNoiseScale: 0,
+                isIncumbent: true
+            ),
+            GenomeCandidate(
+                runID: runID,
+                generationIndex: 0,
+                candidateID: "candidate-1",
+                genomeID: "genome-1",
+                parentCandidateIDs: ["candidate-0"],
+                checkpointID: "accepted",
+                checkpointURL: acceptedCheckpointURL,
+                mutationRate: plan.mutationRate,
+                mutationNoiseScale: plan.mutationNoiseScale
+            ),
+        ]
+        let fitness = [
+            FitnessSummary(
+                runID: runID,
+                generationIndex: 0,
+                candidateID: "candidate-0",
+                taskID: plan.task,
+                scalarFitness: 1,
+                rewardAverage: 1,
+                taskPassRate: 1,
+                safetyViolationRate: 0,
+                holdTimeRatio: 1,
+                altitudeErrorRatio: 0,
+                workerThroughput: 1
+            ),
+            FitnessSummary(
+                runID: runID,
+                generationIndex: 0,
+                candidateID: "candidate-1",
+                taskID: plan.task,
+                scalarFitness: 2,
+                rewardAverage: 2,
+                taskPassRate: 1,
+                safetyViolationRate: 0,
+                holdTimeRatio: 1,
+                altitudeErrorRatio: 0,
+                workerThroughput: 1
+            ),
+        ]
+        let generation = PopulationGenerationRecord(
+            runID: runID,
+            generationIndex: 0,
+            candidateCount: 2,
+            evaluatedCandidateCount: 2,
+            eliteCandidateIDs: ["candidate-1"],
+            bestCandidateID: "candidate-1",
+            bestFitness: 2,
+            incumbentCandidateID: "candidate-0",
+            incumbentFitness: 1,
+            bestVsIncumbentDelta: 1,
+            qualityDiversityCellCount: 1,
+            mutationRate: plan.mutationRate,
+            mutationNoiseScale: plan.mutationNoiseScale,
+            accepted: true,
+            rejectionReasons: [],
+            createdAt: completedAt
+        )
+        try EvolutionArtifactWriter().write(
+            manifest: manifest,
+            generations: [generation],
+            candidates: candidates,
+            fitness: fitness,
+            eliteArchive: EvolutionEliteArchive(
+                runID: runID,
+                eliteCandidateIDs: ["candidate-1"],
+                bestCandidateID: "candidate-1",
+                bestFitness: 2
+            ),
+            qualityDiversityArchive: EvolutionQualityDiversityArchive(
+                runID: runID,
+                descriptorKeys: ["rank"],
+                cells: [
+                    EvolutionQualityDiversityCell(
+                        cellID: "rank-1",
+                        candidateID: "candidate-1",
+                        generationIndex: 0,
+                        fitness: 2,
+                        behaviorDescriptor: ["rank": 1]
+                    ),
+                ]
+            ),
+            lineage: [
+                EvolutionLineageRecord(
+                    runID: runID,
+                    generationIndex: 0,
+                    candidateID: "candidate-0",
+                    genomeID: "genome-0",
+                    parentCandidateIDs: []
+                ),
+                EvolutionLineageRecord(
+                    runID: runID,
+                    generationIndex: 0,
+                    candidateID: "candidate-1",
+                    genomeID: "genome-1",
+                    parentCandidateIDs: ["candidate-0"]
+                ),
+            ],
+            evaluationTraces: [
+                EvolutionCandidateEvaluationTrace(
+                    runID: runID,
+                    generationIndex: 0,
+                    candidateID: "candidate-0",
+                    requestedConcurrency: plan.candidateEvaluationConcurrency,
+                    activeEvaluationCountAtStart: 1,
+                    startedAt: startedAt,
+                    completedAt: completedAt
+                ),
+                EvolutionCandidateEvaluationTrace(
+                    runID: runID,
+                    generationIndex: 0,
+                    candidateID: "candidate-1",
+                    requestedConcurrency: plan.candidateEvaluationConcurrency,
+                    activeEvaluationCountAtStart: 2,
+                    startedAt: startedAt,
+                    completedAt: completedAt
+                ),
+            ],
+            to: artifactRoot
+        )
+        return try EvolutionRunArtifactValidator().loadAndValidate(from: artifactRoot)
+    }
+}
+
+private struct FakeCampaignCheckpointRegressionChecker: LearningCampaignCheckpointRegressionChecking {
+    let allPassed: Bool
+
+    func checkCheckpointRegression(
+        label: String,
+        checkpointURL: URL,
+        artifactRoot: URL,
+        plan: LearningCampaignPlan
+    ) async throws -> KuyuRegressionSummary {
+        let quality = ReferenceQuadrotorTaskQualitySummary(
+            task: plan.task,
+            scenarioID: "\(plan.task)-regression",
+            seed: 1,
+            passed: allPassed,
+            failureReasons: allPassed ? [] : ["task-pass-rate-below-min"],
+            evaluatorID: "ReferenceQuadrotorTaskQualityEvaluator",
+            targetZ: 1,
+            tolerance: 0.1,
+            warmupTime: 0,
+            requiredHoldTime: 1,
+            achievedHoldTime: allPassed ? 1 : 0,
+            maxAltitudeErrorAfterWarmup: allPassed ? 0 : 1,
+            maxVerticalVelocityAfterWarmup: 0
+        )
+        let entry = KuyuRegressionRolloutEntry(
+            suite: 6,
+            track: "longHorizonTask",
+            policyID: "manasMLX-regression",
+            episodeCount: 1,
+            rewardSum: allPassed ? 1 : -1,
+            rewardAverage: allPassed ? 1 : -1,
+            doneCount: allPassed ? 1 : 0,
+            truncatedCount: 0,
+            failureCount: allPassed ? 0 : 1,
+            cancelledCount: 0,
+            failureReasons: allPassed ? [] : ["task-pass-rate-below-min"],
+            taskPassCount: allPassed ? 1 : 0,
+            taskFailureCount: allPassed ? 0 : 1,
+            taskFailureReasons: allPassed ? [] : ["task-pass-rate-below-min"],
+            taskQuality: [quality],
+            workerSummaries: [
+                KuyuRegressionWorkerSummary(
+                    workerIndex: 0,
+                    snapshotID: checkpointURL.lastPathComponent,
+                    rolloutShardPath: nil,
+                    episodeCount: 1,
+                    rewardSum: allPassed ? 1 : -1,
+                    rewardAverage: allPassed ? 1 : -1,
+                    throughput: 1,
+                    doneCount: allPassed ? 1 : 0,
+                    truncatedCount: 0,
+                    failureCount: allPassed ? 0 : 1,
+                    cancelledCount: 0
+                ),
+            ],
+            artifactPath: nil
+        )
+        let gateReport = KuyuRegressionGatePolicy.report(
+            preflightFailure: nil,
+            environmentTasks: [],
+            rolloutSuites: [entry],
+            failOnTruncation: false,
+            minimumRewardAverage: nil,
+            qualityGateTask: plan.task
+        )
+        let summary = KuyuRegressionSummary(
+            artifactRoot: artifactRoot.path,
+            startedAt: Date(timeIntervalSince1970: 1),
+            controller: "manasMLX",
+            environmentController: "teacherBaseline",
+            snapshot: checkpointURL.path,
+            preflightPassed: true,
+            preflightFailure: nil,
+            environmentReady: true,
+            environmentTasks: [],
+            rolloutPassed: allPassed,
+            rolloutSuites: [entry],
+            gateReport: gateReport,
+            allPassed: gateReport.accepted
+        )
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(summary).write(
+            to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
+            options: [.atomic]
+        )
+        return summary
+    }
+}
+
+private func makeCampaignTaskQuality(task: String) -> ReferenceQuadrotorTaskQualitySummary {
+    ReferenceQuadrotorTaskQualitySummary(
+        task: task,
+        scenarioID: "\(task)-campaign",
+        seed: 1,
+        passed: true,
+        failureReasons: [],
+        evaluatorID: "ReferenceQuadrotorTaskQualityEvaluator",
+        targetZ: 1,
+        tolerance: 0.1,
+        warmupTime: 0,
+        requiredHoldTime: 1,
+        achievedHoldTime: 1,
+        maxAltitudeErrorAfterWarmup: 0,
+        maxVerticalVelocityAfterWarmup: 0
+    )
+}

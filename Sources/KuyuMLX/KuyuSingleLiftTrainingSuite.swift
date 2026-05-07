@@ -11,7 +11,11 @@ public struct KuyuSingleLiftTrainingSuite {
             return base
         }
 
-        let altitudeOffsets: [Double] = [-0.06, -0.03, 0.0, 0.0, 0.0, 0.03, 0.06]
+        let altitudeOffsets: [Double] = [
+            -0.25, -0.15, -0.09, -0.06, -0.03,
+            0.0, 0.0, 0.0,
+            0.03, 0.06, 0.09, 0.15, 0.25
+        ]
         return try altitudeOffsets.enumerated().map { index, offset in
             let scenarioIndex = index + 1
             let config = try ScenarioConfig(

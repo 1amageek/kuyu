@@ -1,14 +1,14 @@
 import Foundation
+import KuyuTraining
 
 public enum KuyuRegressionQualityGatePolicy {
     public static let referenceEvaluatorID = "ReferenceQuadrotorScenarioEvaluator"
     public static let qualityEvaluatorID = "ReferenceQuadrotorTaskQualityEvaluator"
 
     public static func defaultMinimumRewardAverage(for task: String) -> Double? {
-        switch task {
-        case "lift", "singleLift":
-            return 0
-        default:
+        do {
+            return try TaskEvaluationProfile.profile(task: task).minimumRewardAverage
+        } catch {
             return nil
         }
     }
@@ -24,15 +24,22 @@ public enum KuyuRegressionQualityGatePolicy {
         task: String,
         minimumRewardAverage: Double?
     ) -> KuyuRegressionQualityRequirement {
-        KuyuRegressionQualityRequirement(
+        let profile: TaskEvaluationProfile?
+        do {
+            profile = try TaskEvaluationProfile.profile(task: task)
+        } catch {
+            profile = nil
+        }
+        return KuyuRegressionQualityRequirement(
             task: task,
-            evaluatorID: referenceEvaluatorID,
-            qualityEvaluatorID: qualityEvaluatorID,
-            requiresReferenceTaskPass: true,
-            minimumTaskPassRate: 1.0,
+            evaluatorID: profile?.referenceEvaluatorID ?? referenceEvaluatorID,
+            qualityEvaluatorID: profile?.qualityEvaluatorID ?? qualityEvaluatorID,
+            requiresReferenceTaskPass: profile?.requiresReferenceTaskPass ?? true,
+            minimumTaskPassRate: profile?.minimumTaskPassRate ?? 1.0,
             minimumRewardAverage: minimumRewardAverage,
-            minimumHoldTimeRatio: 1.0,
-            liftThresholdSource: liftThresholdSource(for: task)
+            minimumHoldTimeRatio: profile?.minimumHoldTimeRatio ?? 1.0,
+            maximumAltitudeErrorRatio: profile?.maximumAltitudeErrorRatio,
+            liftThresholdSource: profile?.liftThresholdSource ?? liftThresholdSource(for: task)
         )
     }
 

@@ -75,6 +75,28 @@ import KuyuTraining
     #expect(meta.observation?.modalities?.first?.id == "imu")
 }
 
+@Test(.timeLimit(.minutes(1))) func trainingDatasetWriterBackfillsLeadingEmptyDriveIntents() async throws {
+    let log = try makeLog(firstStepHasDrive: false)
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+    let writer = TrainingDatasetWriter()
+    let output = try writer.write(log: log, to: directory)
+    let recordsURL = output.appendingPathComponent("records.jsonl")
+    let recordLines = try String(contentsOf: recordsURL, encoding: .utf8)
+        .split(separator: "\n")
+
+    #expect(recordLines.count == log.events.count)
+    let first = try JSONDecoder().decode(TrainingDatasetRecord.self, from: Data(recordLines[0].utf8))
+    #expect(first.driveIntents.count == 1)
+    guard let firstDrive = first.driveIntents.first else {
+        Issue.record("Expected leading drive intent to be backfilled")
+        return
+    }
+    #expect(firstDrive.driveIndex == 0)
+    #expect(firstDrive.value == 0.2)
+}
+
 @Test(.timeLimit(.minutes(1))) func trainingDatasetWriterExportsProvenanceManifest() async throws {
     let log = try makeLog()
     let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -100,7 +122,7 @@ import KuyuTraining
     #expect(meta.provenance?.plannerProfileID == "planner-default")
 }
 
-private func makeLog() throws -> SimulationLog {
+private func makeLog(firstStepHasDrive: Bool = true) throws -> SimulationLog {
     let scenarioId = try ScenarioID("TRAIN")
     let seed = ScenarioSeed(42)
     let timeStep = try TimeStep(delta: 0.01)
@@ -127,7 +149,7 @@ private func makeLog() throws -> SimulationLog {
         time: try WorldTime(stepIndex: 0, time: 0.0),
         events: [.timeAdvance, .logging],
         sensorSamples: [sample],
-        driveIntents: [drive],
+        driveIntents: firstStepHasDrive ? [drive] : [],
         reflexCorrections: [reflex],
         actuatorValues: [],
         actuatorTelemetry: ActuatorTelemetrySnapshot(channels: []),

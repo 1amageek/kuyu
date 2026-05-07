@@ -1,5 +1,6 @@
 import Foundation
 import KuyuMLX
+import KuyuScenarios
 import KuyuTraining
 import Testing
 
@@ -11,6 +12,26 @@ import Testing
     #expect(validation.valid)
     #expect(validation.issueCount == 0)
     #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("learning-campaign-validation.json").path))
+}
+
+@Test func learningCampaignArtifactValidatorRejectsFailedInitialParentEvaluation() throws {
+    let root = try makeLearningCampaignArtifactRoot()
+    let checkpointRoot = root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true)
+    try writeCheckpointEvaluation(
+        root: root,
+        label: "initial-parent",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: false
+    )
+
+    do {
+        _ = try LearningCampaignArtifactValidator().validate(artifactRoot: root)
+        Issue.record("Expected failed initial parent evaluation to reject.")
+    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "parent-task-evaluation-failed" })
+    }
 }
 
 @Test func learningCampaignArtifactValidatorRejectsIncompleteFinalCheckpoint() throws {
@@ -129,6 +150,83 @@ import Testing
     }
 }
 
+@Test func learningCampaignArtifactValidatorRejectsMissingParentTaskEvaluation() throws {
+    let root = try makeLearningCampaignArtifactRoot()
+    try FileManager.default.removeItem(
+        at: root
+            .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+            .appendingPathComponent("initial-parent", isDirectory: true)
+            .appendingPathComponent("checkpoint-evaluation.json")
+    )
+
+    do {
+        _ = try LearningCampaignArtifactValidator().validate(artifactRoot: root)
+        Issue.record("Expected parent task evaluation validation to fail.")
+    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "missing-parent-task-evaluation" })
+    }
+}
+
+@Test func learningCampaignArtifactValidatorRejectsMissingParentTaskRegression() throws {
+    let root = try makeLearningCampaignArtifactRoot()
+    try FileManager.default.removeItem(
+        at: root
+            .appendingPathComponent("checkpoint-regressions", isDirectory: true)
+            .appendingPathComponent("initial-parent", isDirectory: true)
+            .appendingPathComponent("kuyu-regression-summary.json")
+    )
+
+    do {
+        _ = try LearningCampaignArtifactValidator().validate(artifactRoot: root)
+        Issue.record("Expected parent task regression validation to fail.")
+    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "missing-parent-task-regression" })
+    }
+}
+
+@Test func learningCampaignArtifactValidatorRejectsFailedAcceptedParentTaskEvaluation() throws {
+    let root = try makeLearningCampaignArtifactRoot()
+    let checkpointRoot = root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true)
+    try writeCheckpointEvaluation(
+        root: root,
+        label: "seed-1-accepted",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: false
+    )
+
+    do {
+        _ = try LearningCampaignArtifactValidator().validate(artifactRoot: root)
+        Issue.record("Expected failed parent task evaluation validation to fail.")
+    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "parent-task-evaluation-failed" })
+    }
+}
+
+@Test func learningCampaignArtifactValidatorRejectsMissingAcceptedParentTaskQuality() throws {
+    let root = try makeLearningCampaignArtifactRoot()
+    let checkpointRoot = root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true)
+    try writeCheckpointEvaluation(
+        root: root,
+        label: "seed-1-accepted",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: true,
+        includesQualitySummary: false
+    )
+
+    do {
+        _ = try LearningCampaignArtifactValidator().validate(artifactRoot: root)
+        Issue.record("Expected missing checkpoint task quality validation to fail.")
+    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
+        #expect(!validation.valid)
+        #expect(validation.issues.contains { $0.code == "parent-task-evaluation-missing-expected-task-quality" })
+    }
+}
+
 private func makeLearningCampaignArtifactRoot() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-learning-campaign-artifact-\(UUID().uuidString)", isDirectory: true)
@@ -148,6 +246,7 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
       "bootstrapEpochs": 1,
       "bootstrapLearningRate": 0.001,
       "bootstrapMaxBatches": 1,
+      "bootstrapRepairAttempts": 0,
       "bootstrapSequence": 16,
       "bootstrapSuite": "6",
       "candidateEvaluationConcurrency": 2,
@@ -170,6 +269,7 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
       "suites": ["6"],
       "task": "lift",
       "variation": "gaussian",
+      "verifyParentTask": true,
       "workers": 1
     }
     """, to: root.appendingPathComponent("learning-campaign-plan.json"))
@@ -217,11 +317,19 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
           "acceptedCheckpointURL": "\(checkpointRoot.path)",
           "bestCandidateID": "candidate-1",
           "bestFitness": 2.0,
+          "bestAltitudeErrorRatio": 0.0,
           "bestHoldTimeRatio": 1.0,
           "bestRewardAverage": 2.0,
           "bestSafetyViolationRate": 0.0,
           "bestTaskPassRate": 1.0,
           "bestVsIncumbentDelta": 1.0,
+          "gateNearestCandidateID": "candidate-1",
+          "gateNearestFitness": 2.0,
+          "gateNearestAltitudeErrorRatio": 0.0,
+          "gateNearestHoldTimeRatio": 1.0,
+          "gateNearestRewardAverage": 2.0,
+          "gateNearestSafetyViolationRate": 0.0,
+          "gateNearestTaskPassRate": 1.0,
           "evaluationTraceCount": 2,
           "fitnessCount": 2,
           "incumbentCandidateID": "candidate-0",
@@ -239,8 +347,189 @@ private func makeLearningCampaignArtifactRoot() throws -> URL {
     try write("{}", to: checkpointRoot.appendingPathComponent("model.json"))
     try write("core", to: checkpointRoot.appendingPathComponent("core.safetensors"))
     try write("reflex", to: checkpointRoot.appendingPathComponent("reflex.safetensors"))
+    try writeCheckpointEvaluation(
+        root: root,
+        label: "initial-parent",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: true
+    )
+    try writeParentRegression(
+        root: root,
+        label: "initial-parent",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: true
+    )
+    try writeCheckpointEvaluation(
+        root: root,
+        label: "seed-1-accepted",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: true
+    )
+    try writeParentRegression(
+        root: root,
+        label: "seed-1-accepted",
+        task: "lift",
+        checkpointRoot: checkpointRoot,
+        passed: true
+    )
     try writeValidEvolutionArtifacts(evolutionRoot: evolutionRoot, checkpointRoot: checkpointRoot)
     return root
+}
+
+private func writeCheckpointEvaluation(
+    root: URL,
+    label: String,
+    task: String,
+    checkpointRoot: URL,
+    passed: Bool,
+    includesQualitySummary: Bool = true
+) throws {
+    let failures = passed ? "" : #""lift-unsettled""#
+    let expectedQualityKeys = """
+      [
+        {
+          "scenarioID": "\(task)-fixture",
+          "seed": 1
+        }
+      ]
+    """
+    let qualitySummary = includesQualitySummary ? """
+      [
+        {
+          "achievedHoldTime": 1.0,
+          "evaluatorID": "ReferenceQuadrotorTaskQualityEvaluator",
+          "failureReasons": [],
+          "maxAltitudeErrorAfterWarmup": 0.0,
+          "maxVerticalVelocityAfterWarmup": 0.0,
+          "passed": true,
+          "requiredHoldTime": 1.0,
+          "scenarioID": "\(task)-fixture",
+          "seed": 1,
+          "targetZ": 1.0,
+          "task": "\(task)",
+          "tolerance": 0.1,
+          "warmupTime": 0.0
+        }
+      ]
+    """ : "[]"
+    try write("""
+    {
+      "checkpointPath": "\(checkpointRoot.path)",
+      "evaluationID": "eval-\(label)",
+      "expectedQualityKeys": \(expectedQualityKeys),
+      "failureReasons": [\(failures)],
+      "policyPassed": \(passed),
+      "policyScore": \(passed ? 1 : 0),
+      "profileID": "\(task)-v1",
+      "qualitySummary": \(qualitySummary),
+      "scoreDeltaFromTeacher": 0,
+      "schemaVersion": 2,
+      "startedAt": "2026-05-06T00:00:00Z",
+      "task": "\(task)",
+      "teacherPassed": true,
+      "teacherScore": 1
+    }
+    """, to: root
+        .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+        .appendingPathComponent(label, isDirectory: true)
+        .appendingPathComponent("checkpoint-evaluation.json"))
+}
+
+private func writeParentRegression(
+    root: URL,
+    label: String,
+    task: String,
+    checkpointRoot: URL,
+    passed: Bool
+) throws {
+    let quality = ReferenceQuadrotorTaskQualitySummary(
+        task: task,
+        scenarioID: "\(task)-regression-fixture",
+        seed: 1,
+        passed: passed,
+        failureReasons: passed ? [] : ["lift-unsettled"],
+        evaluatorID: "ReferenceQuadrotorTaskQualityEvaluator",
+        targetZ: 1,
+        tolerance: 0.1,
+        warmupTime: 0,
+        requiredHoldTime: 1,
+        achievedHoldTime: passed ? 1 : 0,
+        maxAltitudeErrorAfterWarmup: passed ? 0 : 1,
+        maxVerticalVelocityAfterWarmup: 0
+    )
+    let entry = KuyuRegressionRolloutEntry(
+        suite: 6,
+        track: "longHorizonTask",
+        policyID: "manasMLX-regression",
+        episodeCount: 1,
+        rewardSum: passed ? 1 : -1,
+        rewardAverage: passed ? 1 : -1,
+        doneCount: passed ? 1 : 0,
+        truncatedCount: 0,
+        failureCount: passed ? 0 : 1,
+        cancelledCount: 0,
+        failureReasons: passed ? [] : ["lift-unsettled"],
+        taskPassCount: passed ? 1 : 0,
+        taskFailureCount: passed ? 0 : 1,
+        taskFailureReasons: passed ? [] : ["lift-unsettled"],
+        taskQuality: [quality],
+        workerSummaries: [
+            KuyuRegressionWorkerSummary(
+                workerIndex: 0,
+                snapshotID: checkpointRoot.lastPathComponent,
+                rolloutShardPath: nil,
+                episodeCount: 1,
+                rewardSum: passed ? 1 : -1,
+                rewardAverage: passed ? 1 : -1,
+                throughput: 1,
+                doneCount: passed ? 1 : 0,
+                truncatedCount: 0,
+                failureCount: passed ? 0 : 1,
+                cancelledCount: 0
+            ),
+        ],
+        artifactPath: nil
+    )
+    let gateReport = KuyuRegressionGatePolicy.report(
+        preflightFailure: nil,
+        environmentTasks: [],
+        rolloutSuites: [entry],
+        failOnTruncation: false,
+        minimumRewardAverage: nil,
+        qualityGateTask: task
+    )
+    let summary = KuyuRegressionSummary(
+        artifactRoot: root
+            .appendingPathComponent("checkpoint-regressions", isDirectory: true)
+            .appendingPathComponent(label, isDirectory: true)
+            .path,
+        startedAt: Date(timeIntervalSince1970: 1),
+        controller: "ManasMLX",
+        environmentController: "Teacher Baseline",
+        snapshot: checkpointRoot.path,
+        preflightPassed: true,
+        preflightFailure: nil,
+        environmentReady: true,
+        environmentTasks: [],
+        rolloutPassed: passed,
+        rolloutSuites: [entry],
+        gateReport: gateReport,
+        allPassed: gateReport.accepted
+    )
+    let artifactRoot = root
+        .appendingPathComponent("checkpoint-regressions", isDirectory: true)
+        .appendingPathComponent(label, isDirectory: true)
+    try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    encoder.dateEncodingStrategy = .iso8601
+    try encoder.encode(summary).write(
+        to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
+        options: [.atomic]
+    )
 }
 
 private func writeValidEvolutionArtifacts(evolutionRoot: URL, checkpointRoot: URL) throws {
@@ -305,6 +594,7 @@ private func writeValidEvolutionArtifacts(evolutionRoot: URL, checkpointRoot: UR
             taskPassRate: 1,
             safetyViolationRate: 0,
             holdTimeRatio: 1,
+            altitudeErrorRatio: 0,
             workerThroughput: 1,
             behaviorDescriptor: ["rank": 0]
         ),
@@ -318,6 +608,7 @@ private func writeValidEvolutionArtifacts(evolutionRoot: URL, checkpointRoot: UR
             taskPassRate: 1,
             safetyViolationRate: 0,
             holdTimeRatio: 1,
+            altitudeErrorRatio: 0,
             workerThroughput: 1,
             behaviorDescriptor: ["rank": 1]
         ),

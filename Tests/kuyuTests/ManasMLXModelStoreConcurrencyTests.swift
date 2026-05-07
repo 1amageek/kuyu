@@ -75,6 +75,24 @@ func modelStoreSavesAndLoadsManifestAndTensorFiles() throws {
     .enabled(if: mlxSaveLoadSmokeEnabled),
     .timeLimit(.minutes(1))
 )
+func modelStoreInferenceUsesLoadedCheckpointAuxContract() throws {
+    let store = ManasMLXModelStore()
+    store.initializeModelsForTesting(
+        inputSize: 32,
+        driveCount: 1,
+        auxEnabled: false,
+        reflexInputSize: 8
+    )
+
+    #expect(store.effectiveInferenceAuxEnabledForTesting(requested: true) == false)
+    #expect(store.effectiveInferenceAuxEnabledForTesting(requested: false) == false)
+}
+
+@MainActor
+@Test(
+    .enabled(if: mlxSaveLoadSmokeEnabled),
+    .timeLimit(.minutes(1))
+)
 func trainedCoreCheckpointIncludesReflexSnapshotForRollout() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-trained-core-checkpoint-\(UUID().uuidString)", isDirectory: true)

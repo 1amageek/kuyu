@@ -34,6 +34,7 @@ public struct KuyuRegressionQualityRequirement: Sendable, Codable, Equatable {
     public let minimumTaskPassRate: Double
     public let minimumRewardAverage: Double?
     public let minimumHoldTimeRatio: Double
+    public let maximumAltitudeErrorRatio: Double?
     public let liftThresholdSource: String?
 
     public init(
@@ -44,6 +45,7 @@ public struct KuyuRegressionQualityRequirement: Sendable, Codable, Equatable {
         minimumTaskPassRate: Double,
         minimumRewardAverage: Double?,
         minimumHoldTimeRatio: Double,
+        maximumAltitudeErrorRatio: Double?,
         liftThresholdSource: String?
     ) {
         self.task = task
@@ -53,6 +55,7 @@ public struct KuyuRegressionQualityRequirement: Sendable, Codable, Equatable {
         self.minimumTaskPassRate = minimumTaskPassRate
         self.minimumRewardAverage = minimumRewardAverage
         self.minimumHoldTimeRatio = minimumHoldTimeRatio
+        self.maximumAltitudeErrorRatio = maximumAltitudeErrorRatio
         self.liftThresholdSource = liftThresholdSource
     }
 }
