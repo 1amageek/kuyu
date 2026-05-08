@@ -7,11 +7,24 @@ public struct MetricChartView: View {
     let samples: [MetricSample]
     let lineColor: Color
 
+    public init(title: String, unit: String, samples: [MetricSample], lineColor: Color) {
+        self.title = title
+        self.unit = unit
+        self.samples = samples
+        self.lineColor = lineColor
+    }
+
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(unit)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             Chart(samples) { sample in
                 LineMark(
                     x: .value("Time", sample.time),
@@ -27,19 +40,16 @@ public struct MetricChartView: View {
                 AxisMarks(values: .automatic(desiredCount: 4))
             }
             .chartPlotStyle { plot in
-                plot.background(.quaternary.opacity(0.15))
+                plot.background(.quaternary.opacity(0.12))
             }
-            Text(unit)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .frame(minHeight: KuyuLayout.chartMinHeight)
         }
-        .padding(8)
-        .frame(minHeight: 120)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(.separator, lineWidth: 1)
+        .padding(KuyuSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: KuyuRadius.medium, style: .continuous)
+                .fill(.quaternary.opacity(0.10))
         )
+        .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.medium, style: .continuous))
     }
 }
 

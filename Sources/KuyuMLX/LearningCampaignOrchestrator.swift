@@ -10,6 +10,24 @@ public protocol LearningCampaignEvolutionRunning: Sendable {
     ) async throws -> EvolutionRunArtifactBundle
 }
 
+public extension LearningCampaignEvolutionRunning {
+    func runEvolution(
+        seed: String,
+        parentCheckpointURL: URL,
+        artifactRoot: URL,
+        plan: LearningCampaignPlan,
+        onEvent: (@Sendable (EvolutionRunEvent) -> Void)?
+    ) async throws -> EvolutionRunArtifactBundle {
+        _ = onEvent
+        return try await runEvolution(
+            seed: seed,
+            parentCheckpointURL: parentCheckpointURL,
+            artifactRoot: artifactRoot,
+            plan: plan
+        )
+    }
+}
+
 public protocol LearningCampaignCheckpointRegressionChecking: Sendable {
     func checkCheckpointRegression(
         label: String,
@@ -67,7 +85,10 @@ public struct LearningCampaignOrchestrator: Sendable {
         self.artifactPruner = artifactPruner
     }
 
-    public func run(config: LearningCampaignOrchestratorConfig) async throws -> LearningCampaignSummary {
+    public func run(
+        config: LearningCampaignOrchestratorConfig,
+        context: LearningCampaignRunContext? = nil
+    ) async throws -> LearningCampaignSummary {
         let startedAt = Date()
         var currentParentCheckpointURL = config.initialParentCheckpointURL
         var runs: [LearningCampaignSeedRunSummary] = []
@@ -75,11 +96,17 @@ public struct LearningCampaignOrchestrator: Sendable {
 
         try rejectNonEmptyArtifactRootIfNeeded(config)
         do {
+            try context?.checkCancellation()
             try FileManager.default.createDirectory(at: config.artifactRoot, withIntermediateDirectories: true)
             try write(config.plan, fileName: "learning-campaign-plan.json", root: config.artifactRoot)
+            context?.emit(.artifactWritten(
+                name: "learning-campaign-plan.json",
+                path: config.artifactRoot.appendingPathComponent("learning-campaign-plan.json").path
+            ))
             try writeEnvironment(root: config.artifactRoot)
             try writeResourceSampleIfNeeded(plan: config.plan, root: config.artifactRoot)
             try appendProgress(event: "campaign-started", root: config.artifactRoot)
+            context?.advanceProgress(description: "Campaign started")
 
             let profile = try TaskEvaluationProfile.profile(task: config.plan.task)
             if config.plan.verifyParentTask != false {
@@ -88,29 +115,69 @@ public struct LearningCampaignOrchestrator: Sendable {
                     checkpointURL: currentParentCheckpointURL,
                     profile: profile,
                     root: config.artifactRoot,
-                    requiresPolicyPass: true
+                    requiresPolicyPass: true,
+                    context: context
                 )
                 try await evaluateCheckpointRegression(
                     label: "initial-parent",
                     checkpointURL: currentParentCheckpointURL,
                     root: config.artifactRoot,
-                    plan: config.plan
+                    plan: config.plan,
+                    context: context
                 )
             }
 
             for seed in config.plan.seeds {
+                try context?.checkCancellation()
+                context?.emit(.seedStarted(seed: seed))
                 let evolutionRoot = config.artifactRoot
                     .appendingPathComponent("seeds", isDirectory: true)
                     .appendingPathComponent("seed-\(seed)", isDirectory: true)
                     .appendingPathComponent("evolution", isDirectory: true)
-                let bundle = try await evolutionRunner.runEvolution(
-                    seed: seed,
-                    parentCheckpointURL: currentParentCheckpointURL,
-                    artifactRoot: evolutionRoot,
-                    plan: config.plan
-                )
+                let bundle: EvolutionRunArtifactBundle
+                if let context {
+                    let eventBox = EvolutionEventContinuationBox()
+                    let stream = AsyncStream<EvolutionRunEvent> { streamContinuation in
+                        eventBox.set(streamContinuation)
+                    }
+                    let eventTask = Task { @MainActor in
+                        for await event in stream {
+                            forwardEvolutionEvent(event, seed: seed, context: context)
+                        }
+                    }
+                    do {
+                        bundle = try await evolutionRunner.runEvolution(
+                            seed: seed,
+                            parentCheckpointURL: currentParentCheckpointURL,
+                            artifactRoot: evolutionRoot,
+                            plan: config.plan,
+                            onEvent: { event in
+                                eventBox.yield(event)
+                            }
+                        )
+                        eventBox.finish()
+                        await eventTask.value
+                    } catch {
+                        eventBox.finish()
+                        await eventTask.value
+                        throw error
+                    }
+                } else {
+                    bundle = try await evolutionRunner.runEvolution(
+                        seed: seed,
+                        parentCheckpointURL: currentParentCheckpointURL,
+                        artifactRoot: evolutionRoot,
+                        plan: config.plan
+                    )
+                }
                 let runSummary = makeSeedRunSummary(seed: seed, bundle: bundle)
                 runs.append(runSummary)
+                context?.emit(.seedCompleted(
+                    seed: seed,
+                    accepted: runSummary.accepted,
+                    bestCandidateID: runSummary.bestCandidateID
+                ))
+                context?.advanceProgress(description: "Seed \(seed) completed")
 
                 if bundle.acceptedCheckpoint.accepted,
                    let acceptedCheckpointURL = bundle.acceptedCheckpoint.checkpointURL {
@@ -119,13 +186,15 @@ public struct LearningCampaignOrchestrator: Sendable {
                         checkpointURL: acceptedCheckpointURL,
                         profile: profile,
                         root: config.artifactRoot,
-                        requiresPolicyPass: true
+                        requiresPolicyPass: true,
+                        context: context
                     )
                     try await evaluateCheckpointRegression(
                         label: "seed-\(seed)-accepted",
                         checkpointURL: acceptedCheckpointURL,
                         root: config.artifactRoot,
-                        plan: config.plan
+                        plan: config.plan,
+                        context: context
                     )
                     currentParentCheckpointURL = acceptedCheckpointURL
                 }
@@ -142,6 +211,10 @@ public struct LearningCampaignOrchestrator: Sendable {
                 records: retentionRecords
             )
             try write(retentionSummary, fileName: "artifact-retention.json", root: config.artifactRoot)
+            context?.emit(.artifactWritten(
+                name: "artifact-retention.json",
+                path: config.artifactRoot.appendingPathComponent("artifact-retention.json").path
+            ))
 
             let summary = LearningCampaignSummary(
                 artifactRoot: config.artifactRoot.path,
@@ -152,6 +225,10 @@ public struct LearningCampaignOrchestrator: Sendable {
                 retention: retentionSummary
             )
             try write(summary, fileName: "learning-campaign-summary.json", root: config.artifactRoot)
+            context?.emit(.artifactWritten(
+                name: "learning-campaign-summary.json",
+                path: config.artifactRoot.appendingPathComponent("learning-campaign-summary.json").path
+            ))
             try appendProgress(event: "summary-written", root: config.artifactRoot)
             try writeStatus(status: "succeeded", exitCode: 0, startedAt: startedAt, root: config.artifactRoot)
             try writeFinishedProgress(status: "succeeded", exitCode: 0, root: config.artifactRoot)
@@ -161,9 +238,18 @@ public struct LearningCampaignOrchestrator: Sendable {
                 try writeStatus(status: "failed", exitCode: 1, startedAt: startedAt, root: config.artifactRoot)
                 try writeFinishedProgress(status: "failed", exitCode: 1, root: config.artifactRoot)
                 try regenerateFailedValidationArtifact(root: config.artifactRoot)
+                context?.emit(.failed(reason: "validation-rejected"))
                 throw LearningCampaignOrchestratorError.validationRejected(validation.issues)
             }
+            context?.finishProgress(description: "Campaign completed")
+            context?.emit(.finished(summary: summary))
             return summary
+        } catch is CancellationError {
+            try writeStatus(status: "cancelled", exitCode: 130, startedAt: startedAt, root: config.artifactRoot)
+            try writeFinishedProgress(status: "cancelled", exitCode: 130, root: config.artifactRoot)
+            try regenerateFailedValidationArtifact(root: config.artifactRoot)
+            context?.emit(.cancelled)
+            throw CancellationError()
         } catch let error as LearningCampaignOrchestratorError {
             if case .validationRejected = error {
                 throw error
@@ -171,11 +257,13 @@ public struct LearningCampaignOrchestrator: Sendable {
             try writeStatus(status: "failed", exitCode: 1, startedAt: startedAt, root: config.artifactRoot)
             try writeFinishedProgress(status: "failed", exitCode: 1, root: config.artifactRoot)
             try regenerateFailedValidationArtifact(root: config.artifactRoot)
+            context?.emit(.failed(reason: String(describing: error)))
             throw error
         } catch {
             try writeStatus(status: "failed", exitCode: 1, startedAt: startedAt, root: config.artifactRoot)
             try writeFinishedProgress(status: "failed", exitCode: 1, root: config.artifactRoot)
             try regenerateFailedValidationArtifact(root: config.artifactRoot)
+            context?.emit(.failed(reason: String(describing: error)))
             throw error
         }
     }
@@ -202,8 +290,11 @@ public struct LearningCampaignOrchestrator: Sendable {
         checkpointURL: URL,
         profile: TaskEvaluationProfile,
         root: URL,
-        requiresPolicyPass: Bool
+        requiresPolicyPass: Bool,
+        context: LearningCampaignRunContext?
     ) async throws {
+        try context?.checkCancellation()
+        context?.emit(.parentEvaluationStarted(label: label, checkpointPath: checkpointURL.path))
         let artifactRoot = root
             .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
             .appendingPathComponent(label, isDirectory: true)
@@ -228,15 +319,47 @@ public struct LearningCampaignOrchestrator: Sendable {
                 checkpointPath: checkpointURL.path
             )
         }
+        context?.emit(.parentEvaluationCompleted(label: label, checkpointPath: checkpointURL.path))
+        context?.advanceProgress(description: "\(label) checkpoint evaluated")
+    }
+
+    private func forwardEvolutionEvent(
+        _ event: EvolutionRunEvent,
+        seed: String,
+        context: LearningCampaignRunContext
+    ) {
+        switch event {
+        case .generationStarted(let generationIndex):
+            context.emit(.generationStarted(seed: seed, generationIndex: generationIndex))
+        case .candidateEvaluated(let fitness):
+            context.emit(.candidateEvaluated(
+                seed: seed,
+                generationIndex: fitness.generationIndex,
+                candidateID: fitness.candidateID,
+                fitness: fitness.scalarFitness
+            ))
+        case .generationCompleted(let record):
+            context.emit(.generationCompleted(
+                seed: seed,
+                generationIndex: record.generationIndex,
+                bestCandidateID: record.bestCandidateID
+            ))
+            context.advanceProgress(description: "Seed \(seed) generation \(record.generationIndex) completed")
+        default:
+            break
+        }
     }
 
     private func evaluateCheckpointRegression(
         label: String,
         checkpointURL: URL,
         root: URL,
-        plan: LearningCampaignPlan
+        plan: LearningCampaignPlan,
+        context: LearningCampaignRunContext?
     ) async throws {
         guard let checkpointRegressionChecker else { return }
+        try context?.checkCancellation()
+        context?.emit(.checkpointRegressionStarted(label: label, checkpointPath: checkpointURL.path))
         let artifactRoot = root
             .appendingPathComponent("checkpoint-regressions", isDirectory: true)
             .appendingPathComponent(label, isDirectory: true)
@@ -247,6 +370,12 @@ public struct LearningCampaignOrchestrator: Sendable {
             plan: plan
         )
         try KuyuRegressionArtifactValidator().validate(summary)
+        context?.emit(.checkpointRegressionCompleted(
+            label: label,
+            accepted: summary.allPassed,
+            reasons: summary.gateReport.reasons
+        ))
+        context?.advanceProgress(description: "\(label) regression checked")
         guard summary.allPassed else {
             throw LearningCampaignOrchestratorError.parentCheckpointRegressionRejected(
                 label: label,

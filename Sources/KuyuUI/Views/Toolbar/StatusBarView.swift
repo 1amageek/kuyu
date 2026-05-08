@@ -52,12 +52,12 @@ public struct StatusBarView: View {
 
         case .training:
             Label {
-                Text(trainingModel.isTraining || trainingModel.isLoopRunning ? "Training" : "Ready")
+                Text(trainingStatusText)
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.medium)
             } icon: {
                 Circle()
-                    .fill(trainingModel.isTraining || trainingModel.isLoopRunning ? .blue : .secondary)
+                    .fill(trainingStatusColor)
                     .frame(width: 8, height: 8)
             }
         }
@@ -102,30 +102,46 @@ public struct StatusBarView: View {
 
     @ViewBuilder
     private var trainingMetrics: some View {
-        if trainingModel.isTraining || trainingModel.isLoopRunning {
-            if trainingModel.isLoopRunning {
-                Text("Iter \(trainingModel.loopIteration)")
-                    .monospacedDigit()
-                    .font(.caption)
-            }
+        Text("Phase \(trainingModel.learningCampaignCurrentPhase)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
 
-            if let loss = trainingModel.lastTrainingLoss {
+        Divider().frame(height: 16)
+
+        Text(String(format: "Progress %.0f%%", trainingModel.learningCampaignProgressFraction * 100))
+            .monospacedDigit()
+            .font(.system(.caption, design: .monospaced))
+
+        if let state = trainingModel.learningCampaignState {
+            Divider().frame(height: 16)
+            Text("Accepted \(state.acceptedCount)/\(state.seedCount)")
+                .monospacedDigit()
+                .font(.system(.caption, design: .monospaced))
+
+            if let latest = state.latestGenerations.first {
                 Divider().frame(height: 16)
-                Text(String(format: "Loss: %.4f", loss))
+                Text("Gen \(latest.generationIndex)")
                     .monospacedDigit()
                     .font(.system(.caption, design: .monospaced))
             }
-
-            if !trainingModel.loopStatusMessage.isEmpty {
-                Divider().frame(height: 16)
-                Text(trainingModel.loopStatusMessage)
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-            }
-        } else {
-            Text("No training in progress")
-                .foregroundStyle(.secondary)
-                .font(.caption)
+        } else if let reward = trainingModel.rewardAverageSamples.last?.value {
+            Divider().frame(height: 16)
+            Text(String(format: "Reward %.2f", reward))
+                .monospacedDigit()
+                .font(.system(.caption, design: .monospaced))
         }
+    }
+
+    private var trainingStatusText: String {
+        if trainingModel.isLearningCampaignRunning { return "Campaign" }
+        if trainingModel.isTraining || trainingModel.isLoopRunning { return "Training" }
+        return "Ready"
+    }
+
+    private var trainingStatusColor: Color {
+        if trainingModel.isLearningCampaignRunning { return .green }
+        if trainingModel.isTraining || trainingModel.isLoopRunning { return .blue }
+        return .secondary
     }
 }

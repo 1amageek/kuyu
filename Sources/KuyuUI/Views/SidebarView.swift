@@ -33,7 +33,7 @@ public struct SidebarView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, KuyuSpacing.xs)
             }
 
             Section("Runs") {
@@ -58,7 +58,7 @@ public struct SidebarView: View {
         List(selection: $trainingModel.selectedRunID) {
             Section {
                 ForEach(trainingModel.availableModels) { model in
-                    HStack(spacing: 8) {
+                    HStack(spacing: KuyuSpacing.sm) {
                         Text(model.name)
                             .font(.subheadline)
                             .foregroundStyle(.primary)
@@ -69,7 +69,7 @@ public struct SidebarView: View {
                                 .foregroundStyle(.tint)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, KuyuSpacing.xs)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         trainingModel.selectModel(id: model.id)
@@ -95,7 +95,7 @@ public struct SidebarView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, KuyuSpacing.xs)
             }
 
             Section("Runs") {

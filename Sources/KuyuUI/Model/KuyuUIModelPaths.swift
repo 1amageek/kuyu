@@ -3,6 +3,18 @@ import KuyuPhysics
 import KuyuScenarios
 
 public enum KuyuUIModelPaths {
+    public static func defaultKuyuExecutablePath() -> String {
+        if let bundled = Bundle.main.executableURL,
+           bundled.lastPathComponent == "kuyu",
+           FileManager.default.fileExists(atPath: bundled.path) {
+            return bundled.path
+        }
+        if let source = sourceRootKuyuExecutablePath() {
+            return source
+        }
+        return ""
+    }
+
     public static func defaultDescriptorPath() -> String {
         if let bundled = bundledDescriptorPath() {
             return bundled
@@ -152,6 +164,24 @@ public enum KuyuUIModelPaths {
         }
         let candidate = base.appendingPathComponent("Models/SingleProp/singleprop.model.json")
         if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate.path
+        }
+        return nil
+    }
+
+    public static func sourceRootKuyuExecutablePath() -> String? {
+        let fileURL = URL(fileURLWithPath: #filePath)
+        var base = fileURL.deletingLastPathComponent()
+        for _ in 0..<4 {
+            base = base.deletingLastPathComponent()
+        }
+        let candidates = [
+            base.appendingPathComponent(".build/debug/kuyu"),
+            base.appendingPathComponent(".build/arm64-apple-macosx/debug/kuyu"),
+            base.appendingPathComponent(".build/release/kuyu"),
+            base.appendingPathComponent(".build/arm64-apple-macosx/release/kuyu")
+        ]
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
             return candidate.path
         }
         return nil

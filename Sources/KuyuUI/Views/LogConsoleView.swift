@@ -5,25 +5,23 @@ public struct LogConsoleView: View {
     let onClear: () -> Void
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ScrollView {
-                if entries.isEmpty {
-                    Text("No logs yet")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
-                } else {
-                    Text(entries.map { line(for: $0) }.joined(separator: "\n"))
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(8)
-                }
+        ScrollView {
+            if entries.isEmpty {
+                Text("No logs yet")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(KuyuSpacing.sm)
+            } else {
+                Text(entries.map { line(for: $0) }.joined(separator: "\n"))
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(KuyuSpacing.sm)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 100, maxHeight: 300)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func line(for entry: UILogEntry) -> String {

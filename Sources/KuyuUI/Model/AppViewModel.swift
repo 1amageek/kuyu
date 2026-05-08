@@ -1,4 +1,5 @@
 import Foundation
+import KuyuScenarios
 import Observation
 
 /// Root view model that manages application mode and delegates to mode-specific view models
@@ -22,6 +23,15 @@ public final class AppViewModel {
 
     /// Current application mode
     public var currentMode: Mode = .simulation
+    public var selectedWorkspace: BoundedWorkspace = .dashboard
+    public var selectedTrainingPhase: BoundedTrainingPhase = .strategy
+    public var selectedProjectName: String = "Bounded"
+    public var availableProjectNames: [String] {
+        ["Bounded"]
+    }
+    public var selectedEnvironmentName: String = "QuadLift-v1" {
+        didSet { applySelectedEnvironment() }
+    }
 
     // MARK: - Mode-Specific ViewModels
 
@@ -38,5 +48,17 @@ public final class AppViewModel {
     public init(logStore: UILogStore) {
         self.logStore = logStore
         self.simulationViewModel = SimulationViewModel(logStore: logStore)
+        applySelectedEnvironment()
+    }
+
+    private func applySelectedEnvironment() {
+        switch selectedEnvironmentName {
+        case "SinglePropLift-v1":
+            simulationViewModel.taskMode = .singleLift
+        case "QuadLift-v1":
+            simulationViewModel.taskMode = .lift
+        default:
+            simulationViewModel.taskMode = .attitude
+        }
     }
 }

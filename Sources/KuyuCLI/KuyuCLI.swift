@@ -113,6 +113,10 @@ enum EvolutionWorldModelUsageChoice: String, CaseIterable, ExpressibleByArgument
 }
 
 extension LearningCampaignArtifactRetentionMode: ExpressibleByArgument {}
+extension LearningCampaignTask: ExpressibleByArgument {}
+extension LearningCampaignTier: ExpressibleByArgument {}
+extension LearningCampaignVariation: ExpressibleByArgument {}
+extension EvolutionSearchStrategy: @retroactive ExpressibleByArgument {}
 
 struct Run: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Run a single KUY-ATT-1 suite.")
@@ -4311,7 +4315,6 @@ struct EvolveManas: AsyncParsableCommand {
                 .appendingPathComponent("kuyu-evolve-manas-\(UUID().uuidString)", isDirectory: true)
         }
         let selectedSuites = try parseRegressionSuites(suites)
-        let taskMode = simulationTaskMode(from: task)
         let backend = ManasMLXEvolutionBackend(
             rootDirectory: artifactRoot.appendingPathComponent("candidates", isDirectory: true),
             variationProvider: makeVariationProvider()
@@ -4319,14 +4322,14 @@ struct EvolveManas: AsyncParsableCommand {
         let evaluator: any EvolutionCandidateEvaluating
         switch evaluation {
         case .regression:
-            evaluator = CLIEvolutionRegressionEvaluator(
-                task: taskMode,
-                tier: tier,
+            evaluator = LearningCampaignEvolutionRegressionEvaluator(
+                task: learningCampaignRolloutTask(from: task),
+                tier: learningCampaignTier(from: tier),
                 cutPeriodSteps: cutPeriodSteps,
                 suites: selectedSuites,
                 episodes: episodes,
                 workers: workers,
-                model: model,
+                modelDescriptorPath: model,
                 artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
                 minimumRewardAverage: effectiveMinimumRewardAverage,
                 useQualityGating: !noQualityGate
@@ -4464,7 +4467,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
     )
 
     @Option(help: "Task to optimize: lift or singleLift.")
-    var task: LearningCampaignTaskChoice = .lift
+    var task: LearningCampaignTask = .lift
 
     @Option(name: .customLong("source-checkpoint"), help: "Task-specific source checkpoint directory.")
     var sourceCheckpoint: String
@@ -4500,7 +4503,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
     var episodes: Int = 1
 
     @Option(help: "Determinism tier: tier0, tier1, tier2.")
-    var tier: TierChoice = .tier1
+    var tier: LearningCampaignTier = .tier1
 
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
@@ -4536,10 +4539,10 @@ struct RunLearningCampaign: AsyncParsableCommand {
     var maximumMutationNoiseScale: Double = 0.1
 
     @Option(name: .customLong("search-strategy"), help: "Evolution search strategy.")
-    var searchStrategy: EvolutionSearchStrategyChoice = .qualityDiversity
+    var searchStrategy: EvolutionSearchStrategy = .qualityDiversity
 
     @Option(help: "Candidate variation mode: gaussian or copy.")
-    var variation: EvolutionVariationChoice = .gaussian
+    var variation: LearningCampaignVariation = .gaussian
 
     @Option(name: .customLong("min-reward-average"), help: "Override task default minimum reward average.")
     var minimumRewardAverage: Double?
@@ -4573,206 +4576,59 @@ struct RunLearningCampaign: AsyncParsableCommand {
 
     @MainActor
     mutating func run() async throws {
-        guard population > 0 else {
-            throw ValidationError("--population must be greater than 0.")
-        }
-        guard generations > 0 else {
-            throw ValidationError("--generations must be greater than 0.")
-        }
-        guard eliteCount > 0, eliteCount <= population else {
-            throw ValidationError("--elite-count must be greater than 0 and no larger than --population.")
-        }
-        guard workers > 0 else {
-            throw ValidationError("--workers must be greater than 0.")
-        }
-        guard candidateEvaluationConcurrency > 0, candidateEvaluationConcurrency <= population else {
-            throw ValidationError("--candidate-evaluation-concurrency must be greater than 0 and no larger than --population.")
-        }
-        guard episodes > 0 else {
-            throw ValidationError("--episodes must be greater than 0.")
-        }
-        guard mutationRate.isFinite, mutationRate >= 0 else {
-            throw ValidationError("--mutation-rate must be finite and non-negative.")
-        }
-        guard mutationNoiseScale.isFinite, mutationNoiseScale >= 0 else {
-            throw ValidationError("--mutation-noise-scale must be finite and non-negative.")
-        }
-        guard mutationIncreaseFactor.isFinite, mutationIncreaseFactor >= 1 else {
-            throw ValidationError("--mutation-increase-factor must be finite and at least 1.")
-        }
-        guard mutationDecayFactor.isFinite, mutationDecayFactor >= 0, mutationDecayFactor <= 1 else {
-            throw ValidationError("--mutation-decay-factor must be finite and between 0 and 1.")
-        }
-        guard minimumMutationRate.isFinite, minimumMutationRate >= 0 else {
-            throw ValidationError("--min-mutation-rate must be finite and non-negative.")
-        }
-        guard maximumMutationRate.isFinite, maximumMutationRate >= minimumMutationRate else {
-            throw ValidationError("--max-mutation-rate must be finite and no smaller than --min-mutation-rate.")
-        }
-        guard minimumMutationNoiseScale.isFinite, minimumMutationNoiseScale >= 0 else {
-            throw ValidationError("--min-mutation-noise-scale must be finite and non-negative.")
-        }
-        guard maximumMutationNoiseScale.isFinite,
-              maximumMutationNoiseScale >= minimumMutationNoiseScale else {
-            throw ValidationError("--max-mutation-noise-scale must be finite and no smaller than --min-mutation-noise-scale.")
-        }
-        if let minimumRewardAverage, !minimumRewardAverage.isFinite {
-            throw ValidationError("--min-reward-average must be finite when specified.")
-        }
-        guard minimumIncumbentImprovement.isFinite, minimumIncumbentImprovement >= 0 else {
-            throw ValidationError("--min-incumbent-improvement must be finite and non-negative.")
-        }
-        if let minimumNoveltyScore,
-           (!minimumNoveltyScore.isFinite || minimumNoveltyScore < 0) {
-            throw ValidationError("--min-novelty-score must be finite and non-negative when specified.")
-        }
-        guard resourceSampleSeconds.isFinite, resourceSampleSeconds >= 0 else {
-            throw ValidationError("--resource-sample-seconds must be finite and non-negative.")
-        }
         let trimmedSource = sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSource.isEmpty else {
             throw ValidationError("--source-checkpoint is required.")
         }
         let sourceCheckpointURL = URL(fileURLWithPath: trimmedSource, isDirectory: true)
-        _ = try ManasMLXE2EPreflight().check(
-            descriptorPath: model,
-            sourceCheckpointURL: sourceCheckpointURL,
-            requireSourceCheckpoint: true
-        )
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
-        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
-        let selectedSeeds = try resolveCampaignSeeds(explicitSeeds: seeds, seedCount: seedCount)
+        let selectedSeeds = try seeds.map(parseCampaignSeeds)
         let selectedSuites = try parseRegressionSuites(suites)
-        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
-        if noQualityGate && profile.requiresParentCheckpointEvaluation {
-            throw ValidationError("--no-quality-gate is not allowed for \(profile.task) learning campaigns.")
-        }
-        let determinism = try makeDeterminism(tier: tier)
-        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
-        let gains = try ImuRateDampingCutGains(
-            kp: kp,
-            kd: kd,
-            yawDamping: yawDamping,
-            hoverThrustScale: hoverScale
-        )
-        let availableDiskBytes = try availableDiskBytes(at: artifactRoot)
-        let adaptiveMutationPlan = LearningCampaignAdaptiveMutationPlan(
-            enabled: adaptiveMutation,
-            increaseFactor: mutationIncreaseFactor,
-            decayFactor: mutationDecayFactor,
-            minimumMutationRate: minimumMutationRate,
-            maximumMutationRate: maximumMutationRate,
-            minimumNoiseScale: minimumMutationNoiseScale,
-            maximumNoiseScale: maximumMutationNoiseScale
-        )
-        let retentionPolicy: LearningCampaignArtifactRetentionPolicy = switch artifactRetention {
-        case .full:
-            .full
-        case .compact:
-            .compact
-        }
-        let plan = LearningCampaignPlan(
-            artifactRoot: artifactRoot.path,
-            task: profile.task,
-            suites: selectedSuites.map(String.init),
-            episodes: episodes,
-            workers: workers,
+        let config = LearningCampaignRunConfig(
+            task: task,
+            sourceCheckpoint: sourceCheckpointURL,
+            artifactRoot: artifactRoot,
+            explicitSeeds: selectedSeeds,
+            seedCount: seedCount,
             population: population,
             generations: generations,
             eliteCount: eliteCount,
+            workers: workers,
             candidateEvaluationConcurrency: candidateEvaluationConcurrency,
-            seeds: selectedSeeds,
-            sourceCheckpoint: sourceCheckpointURL.path,
-            modelDescriptor: model.isEmpty ? nil : model,
-            variation: variation.rawValue,
-            searchStrategy: searchStrategy.rawValue,
-            mutationRate: mutationRate,
-            mutationNoiseScale: mutationNoiseScale,
-            adaptiveMutation: adaptiveMutationPlan,
-            bootstrapSuite: selectedSuites.first.map(String.init) ?? "6",
-            bootstrapEpisodes: 0,
-            bootstrapSequence: 0,
-            bootstrapEpochs: 0,
-            bootstrapMaxBatches: 0,
-            bootstrapLearningRate: 0,
-            bootstrapRepairAttempts: 0,
-            verifyParentTask: true,
-            resumeEnabled: false,
-            resourceSampleSeconds: resourceSampleSeconds,
-            artifactRetentionPolicy: retentionPolicy,
-            availableDiskBytes: availableDiskBytes,
-            requiredDiskBytes: 1,
-            plannedCandidateEvaluations: selectedSeeds.count * population * generations,
-            plannedRegressionRollouts: selectedSeeds.count * population * generations * selectedSuites.count,
-            plannedRegressionEpisodes: selectedSeeds.count * population * generations * selectedSuites.count * episodes
-        )
-        let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
-            override: minimumRewardAverage,
-            task: profile.task
-        )
-        let checkpointEvaluator = ManasMLXCheckpointEvaluator(config: ManasMLXCheckpointEvaluatorConfig(
-            descriptorPath: model,
-            determinism: determinism,
-            schedule: schedule,
-            gains: gains,
-            useQualityGating: !noQualityGate
-        ))
-        let evolutionRunner = CLILearningCampaignEvolutionRunner(
-            task: task,
-            tier: tier,
-            cutPeriodSteps: cutPeriodSteps,
             suites: selectedSuites,
             episodes: episodes,
-            workers: workers,
-            model: model,
-            variation: variation,
-            searchStrategy: searchStrategy,
+            tier: tier,
+            cutPeriodSteps: cutPeriodSteps,
+            modelDescriptorPath: model,
             mutationRate: mutationRate,
             mutationNoiseScale: mutationNoiseScale,
-            adaptiveMutation: adaptiveMutationPlan,
-            candidateEvaluationConcurrency: candidateEvaluationConcurrency,
-            eliteCount: eliteCount,
-            minimumRewardAverage: effectiveMinimumRewardAverage,
+            adaptiveMutationEnabled: adaptiveMutation,
+            mutationIncreaseFactor: mutationIncreaseFactor,
+            mutationDecayFactor: mutationDecayFactor,
+            minimumMutationRate: minimumMutationRate,
+            maximumMutationRate: maximumMutationRate,
+            minimumMutationNoiseScale: minimumMutationNoiseScale,
+            maximumMutationNoiseScale: maximumMutationNoiseScale,
+            searchStrategy: searchStrategy,
+            variation: variation,
+            minimumRewardAverage: minimumRewardAverage,
             minimumIncumbentImprovement: minimumIncumbentImprovement,
             minimumNoveltyScore: minimumNoveltyScore,
-            useQualityGating: !noQualityGate
+            resourceSampleSeconds: resourceSampleSeconds,
+            artifactRetention: artifactRetention,
+            kp: kp,
+            kd: kd,
+            yawDamping: yawDamping,
+            hoverScale: hoverScale,
+            qualityGateEnabled: !noQualityGate
         )
-        let checkpointRegressionChecker = CLILearningCampaignCheckpointRegressionChecker(
-            task: task,
-            tier: tier,
-            cutPeriodSteps: cutPeriodSteps,
-            suites: selectedSuites,
-            episodes: episodes,
-            workers: workers,
-            model: model,
-            minimumRewardAverage: effectiveMinimumRewardAverage,
-            useQualityGating: !noQualityGate
-        )
-        let summary = try await LearningCampaignOrchestrator(
-            checkpointEvaluator: checkpointEvaluator,
-            evolutionRunner: evolutionRunner,
-            checkpointRegressionChecker: checkpointRegressionChecker
-        ).run(config: LearningCampaignOrchestratorConfig(
-            plan: plan,
-            artifactRoot: artifactRoot,
-            initialParentCheckpointURL: sourceCheckpointURL
-        ))
+        let handle = try LearningCampaignRunner().start(config: config)
+        for await event in handle.events {
+            printLearningCampaignEvent(event)
+        }
+        let summary = try await handle.wait()
         print("[learning-campaign] artifacts path=\(artifactRoot.path)")
         print("[learning-campaign] finalCheckpoint=\(summary.finalCheckpoint) accepted=\(summary.acceptedCount)/\(summary.seedCount)")
-    }
-
-    private func resolveCampaignSeeds(explicitSeeds rawSeeds: String?, seedCount: Int) throws -> [String] {
-        guard seedCount > 0 else {
-            throw ValidationError("--seed-count must be greater than 0.")
-        }
-        guard let rawSeeds else {
-            return (1...seedCount).map(String.init)
-        }
-        let values = try parseCampaignSeeds(rawSeeds)
-        if seedCount != 1 {
-            throw ValidationError("--seeds and --seed-count cannot both be used.")
-        }
-        return values
     }
 
     private func parseCampaignSeeds(_ raw: String) throws -> [String] {
@@ -4798,320 +4654,38 @@ struct RunLearningCampaign: AsyncParsableCommand {
         return parsedSeeds
     }
 
-    private func availableDiskBytes(at root: URL) throws -> Int64 {
-        let values = try FileManager.default.attributesOfFileSystem(forPath: root.path)
-        return (values[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
-    }
-}
-
-private struct CLILearningCampaignCheckpointRegressionChecker: LearningCampaignCheckpointRegressionChecking {
-    let task: LearningCampaignTaskChoice
-    let tier: TierChoice
-    let cutPeriodSteps: UInt64
-    let suites: [Int]
-    let episodes: Int
-    let workers: Int
-    let model: String
-    let minimumRewardAverage: Double?
-    let useQualityGating: Bool
-
-    @MainActor
-    func checkCheckpointRegression(
-        label: String,
-        checkpointURL: URL,
-        artifactRoot: URL,
-        plan: LearningCampaignPlan
-    ) async throws -> KuyuRegressionSummary {
-        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
-        let summary = try await runKuyuRegression(
-            controller: .manasMLX,
-            snapshotURL: checkpointURL,
-            tier: tier,
-            cutPeriodSteps: cutPeriodSteps,
-            tasks: [simulationTaskMode(from: task.rolloutTask)],
-            suites: suites,
-            episodes: episodes,
-            workers: workers,
-            maxSteps: nil,
-            maxWallTime: nil,
-            model: model,
-            artifactRoot: artifactRoot,
-            kp: 2.0,
-            kd: 0.25,
-            yawDamping: 0.2,
-            hoverScale: 1.0,
-            failOnTruncation: profile.failOnTruncation,
-            minimumRewardAverage: minimumRewardAverage,
-            useQualityGating: useQualityGating
-        )
-        _ = plan
-        return summary
-    }
-}
-
-private struct CLIEvolutionRegressionEvaluator: EvolutionCandidateEvaluating {
-    private let task: SimulationTaskMode
-    private let tier: TierChoice
-    private let cutPeriodSteps: UInt64
-    private let suites: [Int]
-    private let episodes: Int
-    private let workers: Int
-    private let model: String
-    private let artifactRoot: URL
-    private let minimumRewardAverage: Double?
-    private let useQualityGating: Bool
-
-    init(
-        task: SimulationTaskMode,
-        tier: TierChoice,
-        cutPeriodSteps: UInt64,
-        suites: [Int],
-        episodes: Int,
-        workers: Int,
-        model: String,
-        artifactRoot: URL,
-        minimumRewardAverage: Double?,
-        useQualityGating: Bool
-    ) {
-        self.task = task
-        self.tier = tier
-        self.cutPeriodSteps = cutPeriodSteps
-        self.suites = suites
-        self.episodes = episodes
-        self.workers = workers
-        self.model = model
-        self.artifactRoot = artifactRoot
-        self.minimumRewardAverage = minimumRewardAverage
-        self.useQualityGating = useQualityGating
-    }
-
-    func evaluateCandidate(request: EvolutionCandidateEvaluationRequest) async throws -> FitnessSummary {
-        guard let checkpointURL = request.candidate.checkpointURL else {
-            return failedFitness(
-                request: request,
-                reason: "missing-candidate-checkpoint"
-            )
-        }
-        let candidateRoot = artifactRoot
-            .appendingPathComponent("generation-\(request.candidate.generationIndex)", isDirectory: true)
-            .appendingPathComponent(request.candidate.candidateID, isDirectory: true)
-        let summary = try await runKuyuRegression(
-            controller: .manasMLX,
-            snapshotURL: checkpointURL,
-            tier: tier,
-            cutPeriodSteps: cutPeriodSteps,
-            tasks: [task],
-            suites: suites,
-            episodes: episodes,
-            workers: workers,
-            maxSteps: nil,
-            maxWallTime: nil,
-            model: model,
-            artifactRoot: candidateRoot,
-            kp: 2.0,
-            kd: 0.25,
-            yawDamping: 0.2,
-            hoverScale: 1.0,
-            failOnTruncation: false,
-            minimumRewardAverage: minimumRewardAverage,
-            useQualityGating: useQualityGating
-        )
-        return fitness(
-            request: request,
-            regression: summary
-        )
-    }
-
-    private func failedFitness(
-        request: EvolutionCandidateEvaluationRequest,
-        reason: String
-    ) -> FitnessSummary {
-        FitnessSummary(
-            runID: request.config.runID,
-            generationIndex: request.candidate.generationIndex,
-            candidateID: request.candidate.candidateID,
-            taskID: request.config.taskID,
-            scalarFitness: -Double.greatestFiniteMagnitude,
-            rewardAverage: -Double.greatestFiniteMagnitude,
-            taskPassRate: 0,
-            safetyViolationRate: 1,
-            holdTimeRatio: 0,
-            altitudeErrorRatio: nil,
-            workerThroughput: 0,
-            failureReasons: [reason]
-        )
-    }
-
-    private func fitness(
-        request: EvolutionCandidateEvaluationRequest,
-        regression: KuyuRegressionSummary
-    ) -> FitnessSummary {
-        let totalEpisodes = regression.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
-        let totalReward = regression.rolloutSuites.reduce(0.0) { $0 + $1.rewardSum }
-        let totalPasses = regression.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
-        let totalFailures = regression.rolloutSuites.reduce(0) {
-            $0 + $1.failureCount + $1.cancelledCount
-        }
-        let rewardAverage = totalEpisodes > 0 ? totalReward / Double(totalEpisodes) : 0
-        let taskPassRate = totalEpisodes > 0 ? Double(totalPasses) / Double(totalEpisodes) : 0
-        let safetyViolationRate = totalEpisodes > 0 ? Double(totalFailures) / Double(totalEpisodes) : 1
-        let holdTimeRatio = averageHoldTimeRatio(regression.rolloutSuites)
-        let altitudeErrorRatio = maximumAltitudeErrorRatio(regression.rolloutSuites)
-        let throughput = minimumWorkerThroughput(regression.rolloutSuites)
-        let scalarFitness = rewardAverage
-            + taskPassRate * 100
-            + (holdTimeRatio ?? 0) * 10
-            - (altitudeErrorRatio ?? 0) * 10
-            - safetyViolationRate * 100
-        return FitnessSummary(
-            runID: request.config.runID,
-            generationIndex: request.candidate.generationIndex,
-            candidateID: request.candidate.candidateID,
-            taskID: request.config.taskID,
-            scalarFitness: scalarFitness,
-            rewardAverage: rewardAverage,
-            taskPassRate: taskPassRate,
-            safetyViolationRate: safetyViolationRate,
-            holdTimeRatio: holdTimeRatio,
-            altitudeErrorRatio: altitudeErrorRatio,
-            energyPenalty: nil,
-            noveltyScore: nil,
-            teacherDelta: nil,
-            workerThroughput: throughput,
-            failureReasons: regression.gateReport.accepted ? [] : regression.gateReport.reasons
-        )
-    }
-
-    private func averageHoldTimeRatio(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
-        let ratios = entries.flatMap(\.taskQuality).compactMap { quality -> Double? in
-            guard let achieved = quality.achievedHoldTime,
-                  let required = quality.requiredHoldTime,
-                  required > 0 else {
-                return nil
-            }
-            return achieved / required
-        }
-        guard !ratios.isEmpty else {
-            return nil
-        }
-        return ratios.reduce(0, +) / Double(ratios.count)
-    }
-
-    private func maximumAltitudeErrorRatio(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
-        let ratios = entries.flatMap(\.taskQuality).compactMap { quality -> Double? in
-            guard let error = quality.maxAltitudeErrorAfterWarmup,
-                  let tolerance = quality.tolerance,
-                  tolerance > 0 else {
-                return nil
-            }
-            return error / tolerance
-        }
-        return ratios.max()
-    }
-
-    private func minimumWorkerThroughput(_ entries: [KuyuRegressionRolloutEntry]) -> Double? {
-        let throughputs = entries.flatMap(\.workerSummaries).map(\.throughput)
-        return throughputs.min()
-    }
-}
-
-private struct CLILearningCampaignEvolutionRunner: LearningCampaignEvolutionRunning {
-    let task: LearningCampaignTaskChoice
-    let tier: TierChoice
-    let cutPeriodSteps: UInt64
-    let suites: [Int]
-    let episodes: Int
-    let workers: Int
-    let model: String
-    let variation: EvolutionVariationChoice
-    let searchStrategy: EvolutionSearchStrategyChoice
-    let mutationRate: Double
-    let mutationNoiseScale: Double
-    let adaptiveMutation: LearningCampaignAdaptiveMutationPlan
-    let candidateEvaluationConcurrency: Int
-    let eliteCount: Int
-    let minimumRewardAverage: Double?
-    let minimumIncumbentImprovement: Double
-    let minimumNoveltyScore: Double?
-    let useQualityGating: Bool
-
-    @MainActor
-    func runEvolution(
-        seed: String,
-        parentCheckpointURL: URL,
-        artifactRoot: URL,
-        plan: LearningCampaignPlan
-    ) async throws -> EvolutionRunArtifactBundle {
-        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
-        let backend = ManasMLXEvolutionBackend(
-            rootDirectory: artifactRoot.appendingPathComponent("candidates", isDirectory: true),
-            variationProvider: makeVariationProvider()
-        )
-        let evaluator = CLIEvolutionRegressionEvaluator(
-            task: simulationTaskMode(from: task.rolloutTask),
-            tier: tier,
-            cutPeriodSteps: cutPeriodSteps,
-            suites: suites,
-            episodes: episodes,
-            workers: workers,
-            model: model,
-            artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
-            minimumRewardAverage: minimumRewardAverage,
-            useQualityGating: useQualityGating
-        )
-        let orchestrator = EvolutionRunOrchestrator(
-            backend: backend,
-            evaluator: evaluator
-        )
-        let seedValue = UInt64(seed) ?? 1
-        _ = await orchestrator.run(
-            config: EvolutionRunConfig(
-                taskID: profile.task,
-                descriptorID: model.isEmpty ? nil : model,
-                descriptorHash: model.isEmpty ? nil : model,
-                configHash: "\(profile.task)-\(seed)-\(suites)-\(episodes)-\(workers)-\(candidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
-                policyID: "manasMLX",
-                populationSize: plan.population,
-                generationCount: plan.generations,
-                eliteCount: eliteCount,
-                workerCount: workers,
-                candidateEvaluationConcurrency: candidateEvaluationConcurrency,
-                searchStrategy: searchStrategy.trainingStrategy,
-                bootstrapSource: .checkpoint,
-                worldModelUsage: .disabled,
-                antitheticSampling: searchStrategy == .antitheticEvolutionStrategy,
-                commonRandomSeed: seedValue == 0 ? 1 : seedValue,
-                mutationRate: mutationRate,
-                mutationNoiseScale: mutationNoiseScale,
-                adaptiveMutation: adaptiveMutation.evolutionConfig,
-                parentCheckpointID: parentCheckpointURL.lastPathComponent,
-                parentCheckpointURL: parentCheckpointURL
-            ),
-            gatePolicy: EvolutionGatePolicy(
-                eliteCount: eliteCount,
-                minimumTaskPassRate: profile.minimumTaskPassRate,
-                maximumSafetyViolationRate: 0,
-                minimumHoldTimeRatio: profile.minimumHoldTimeRatio,
-                maximumAltitudeErrorRatio: profile.maximumAltitudeErrorRatio,
-                minimumRewardAverage: minimumRewardAverage,
-                minimumImprovementOverIncumbent: minimumIncumbentImprovement,
-                minimumNoveltyScore: minimumNoveltyScore
-            ),
-            artifactDirectory: artifactRoot
-        )
-        return try EvolutionRunArtifactValidator().loadAndValidate(from: artifactRoot)
-    }
-
-    @MainActor
-    private func makeVariationProvider() -> any ManasMLXGenomeVariationProviding {
-        switch variation {
-        case .copy:
-            return ManasMLXFileBackedGenomeVariationProvider()
-        case .gaussian:
-            return ManasMLXGaussianMutationProvider(config: ManasMLXGaussianMutationConfig(
-                noiseScale: 1,
-                crossoverEnabled: true
-            ))
+    private func printLearningCampaignEvent(_ event: LearningCampaignRunEvent) {
+        switch event {
+        case .preflightStarted:
+            print("[learning-campaign] preflight started")
+        case .preflightCompleted:
+            print("[learning-campaign] preflight completed")
+        case .parentEvaluationStarted(let label, let checkpointPath):
+            print("[learning-campaign] checkpoint-evaluation started label=\(label) checkpoint=\(checkpointPath)")
+        case .parentEvaluationCompleted(let label, _):
+            print("[learning-campaign] checkpoint-evaluation completed label=\(label)")
+        case .checkpointRegressionStarted(let label, let checkpointPath):
+            print("[learning-campaign] checkpoint-regression started label=\(label) checkpoint=\(checkpointPath)")
+        case .checkpointRegressionCompleted(let label, let accepted, let reasons):
+            print("[learning-campaign] checkpoint-regression completed label=\(label) accepted=\(accepted) reasons=\(reasons.joined(separator: ","))")
+        case .seedStarted(let seed):
+            print("[learning-campaign] seed started seed=\(seed)")
+        case .generationStarted(let seed, let generationIndex):
+            print("[learning-campaign] generation started seed=\(seed) generation=\(generationIndex)")
+        case .candidateEvaluated(let seed, let generationIndex, let candidateID, let fitness):
+            print("[learning-campaign] candidate evaluated seed=\(seed) generation=\(generationIndex) candidate=\(candidateID) fitness=\(fitness)")
+        case .generationCompleted(let seed, let generationIndex, let bestCandidateID):
+            print("[learning-campaign] generation completed seed=\(seed) generation=\(generationIndex) best=\(bestCandidateID ?? "none")")
+        case .seedCompleted(let seed, let accepted, let bestCandidateID):
+            print("[learning-campaign] seed completed seed=\(seed) accepted=\(accepted) best=\(bestCandidateID ?? "none")")
+        case .artifactWritten(let name, let path):
+            print("[learning-campaign] artifact name=\(name) path=\(path)")
+        case .finished(let summary):
+            print("[learning-campaign] finished accepted=\(summary.acceptedCount)/\(summary.seedCount)")
+        case .failed(let reason):
+            print("[learning-campaign] failed reason=\(reason)")
+        case .cancelled:
+            print("[learning-campaign] cancelled")
         }
     }
 }
@@ -5254,6 +4828,28 @@ private func makeDeterminism(tier: TierChoice) throws -> DeterminismConfig {
         return try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
     case .tier2:
         return try DeterminismConfig(tier: .tier2)
+    }
+}
+
+private func learningCampaignTier(from tier: TierChoice) -> LearningCampaignTier {
+    switch tier {
+    case .tier0:
+        return .tier0
+    case .tier1:
+        return .tier1
+    case .tier2:
+        return .tier2
+    }
+}
+
+private func learningCampaignRolloutTask(from task: RolloutTaskChoice) -> LearningCampaignRolloutTask {
+    switch task {
+    case .attitude:
+        return .attitude
+    case .lift:
+        return .lift
+    case .singleLift:
+        return .singleLift
     }
 }
 

@@ -45,6 +45,7 @@ public final class CommandSystem {
     private let logWriter: KuyAtt1LogWriter
     private let datasetExporter: TrainingDatasetExporter
     private let trainingService: TrainingService
+    private let learningCampaignRunner: LearningCampaignRunner
     private lazy var trainingLoopController = TrainingLoopController(commandExecutor: self)
 
     public init(
@@ -52,13 +53,15 @@ public final class CommandSystem {
         runnerService: SimulationRunnerService? = nil,
         logWriter: KuyAtt1LogWriter = KuyAtt1LogWriter(),
         datasetExporter: TrainingDatasetExporter = TrainingDatasetExporter(),
-        trainingService: TrainingService? = nil
+        trainingService: TrainingService? = nil,
+        learningCampaignRunner: LearningCampaignRunner = LearningCampaignRunner()
     ) {
         self.modelStore = modelStore
         self.runnerService = runnerService ?? SimulationRunnerService(modelStore: modelStore)
         self.logWriter = logWriter
         self.datasetExporter = datasetExporter
         self.trainingService = trainingService ?? TrainingService(modelStore: modelStore)
+        self.learningCampaignRunner = learningCampaignRunner
     }
 
     public func setTelemetry(_ handler: ((WorldStepLog) -> Void)?) {
@@ -96,6 +99,15 @@ public final class CommandSystem {
 
     public func stopTrainingLoop() async {
         await trainingLoopController.stop()
+    }
+
+    public func startLearningCampaign(config: LearningCampaignRunConfig) throws -> LearningCampaignRunHandle {
+        try learningCampaignRunner.start(config: config)
+    }
+
+    public func validateLearningCampaign(config: LearningCampaignRunConfig) throws {
+        _ = try learningCampaignRunner.makeOrchestratorConfig(config: config)
+        try learningCampaignRunner.preflight(config: config)
     }
 
     public func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {

@@ -12,7 +12,7 @@ public struct AttitudeIndicatorView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: KuyuSpacing.sm) {
             GeometryReader { proxy in
                 let size = min(proxy.size.width, proxy.size.height)
                 let frame = CGSize(width: size, height: size)
@@ -61,18 +61,18 @@ public struct AttitudeIndicatorView: View {
             }
             .frame(height: 180)
 
-            HStack(spacing: 12) {
+            HStack(spacing: KuyuSpacing.md) {
                 AttitudeStatValueView(label: "Roll", value: roll * 180.0 / Double.pi, unit: "deg")
                 AttitudeStatValueView(label: "Pitch", value: pitch * 180.0 / Double.pi, unit: "deg")
                 AttitudeStatValueView(label: "Yaw", value: yaw * 180.0 / Double.pi, unit: "deg")
             }
         }
-        .padding(12)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(.separator, lineWidth: 1)
+        .padding(KuyuSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: KuyuRadius.medium, style: .continuous)
+                .fill(.quaternary.opacity(0.10))
         )
+        .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.medium, style: .continuous))
     }
 
     private func clamp(_ value: Double, min: Double, max: Double) -> Double {

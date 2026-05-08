@@ -6,4 +6,18 @@ public struct LearningCampaignValidation: Codable, Sendable, Equatable {
     public let valid: Bool
     public let issueCount: Int
     public let issues: [LearningCampaignValidationIssue]
+
+    public init(
+        timestamp: String,
+        artifactRoot: String,
+        valid: Bool,
+        issueCount: Int,
+        issues: [LearningCampaignValidationIssue]
+    ) {
+        self.timestamp = timestamp
+        self.artifactRoot = artifactRoot
+        self.valid = valid
+        self.issueCount = issueCount
+        self.issues = issues
+    }
 }

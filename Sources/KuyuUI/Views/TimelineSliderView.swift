@@ -5,21 +5,18 @@ public struct TimelineSliderView: View {
     let range: ClosedRange<Double>
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Timeline")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text(String(format: "%.2f s", time))
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: KuyuSpacing.md) {
+            Text("Timeline")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
             Slider(value: $time, in: range)
                 .tint(.accentColor)
+            Text(String(format: "%.2f s", time))
+                .font(.system(.callout, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 64, alignment: .trailing)
         }
-        .padding(12)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

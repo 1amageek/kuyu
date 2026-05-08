@@ -3,7 +3,7 @@ import KuyuCore
 import KuyuPhysics
 import KuyuScenarios
 
-public struct ConfigPanelView: View {
+public struct SimulationConfigurationView: View {
     @Bindable var model: SimulationViewModel
 
     public var body: some View {
@@ -270,6 +270,6 @@ private struct SummaryLine: View {
 }
 
 #Preview {
-    ConfigPanelView(model: KuyuUIPreviewFactory.model())
+    SimulationConfigurationView(model: KuyuUIPreviewFactory.model())
         .frame(width: 280)
 }

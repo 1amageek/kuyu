@@ -1,6 +1,6 @@
 import SwiftUI
 
-public struct TrainingConfigPanelView: View {
+public struct TrainingConfigurationView: View {
     @Bindable var model: SimulationViewModel
 
     public var body: some View {
@@ -139,6 +139,101 @@ public struct TrainingConfigPanelView: View {
                 }
                 .padding(.top, 6)
             }
+
+            GroupBox("Learning Campaign") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        TextField("Source checkpoint", text: $model.learningCampaignSourceCheckpointPath)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Best") {
+                            model.useCurrentBestLearningCheckpoint()
+                        }
+                    }
+                    TextField("Campaign artifact directory", text: $model.learningCampaignArtifactDirectory)
+                        .textFieldStyle(.roundedBorder)
+                    HStack(spacing: 8) {
+                        Button("New Root") {
+                            model.prepareNewLearningCampaignArtifactRoot()
+                        }
+                        TextField("Suites", text: $model.learningCampaignSuites)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Stepper(value: $model.learningCampaignSeedCount, in: 1...20) {
+                        Text("Seeds: \(model.learningCampaignSeedCount)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Stepper(value: $model.learningCampaignGenerations, in: 1...50) {
+                        Text("Generations: \(model.learningCampaignGenerations)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Stepper(value: $model.learningCampaignPopulation, in: 1...32) {
+                        Text("Population: \(model.learningCampaignPopulation)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Stepper(value: $model.learningCampaignWorkers, in: 1...16) {
+                        Text("Workers: \(model.learningCampaignWorkers)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Toggle("Adaptive mutation", isOn: $model.learningCampaignAdaptiveMutation)
+                    Toggle("Compact artifacts", isOn: $model.learningCampaignCompactRetention)
+                    ProgressView(value: model.learningCampaignProgressFraction, total: 1)
+                    HStack(spacing: 8) {
+                        Text("Phase: \(model.learningCampaignCurrentPhase)")
+                        if let event = model.learningCampaignLatestEvent {
+                            Text(event)
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Button(model.isLearningCampaignRunning ? "Running..." : "Run") {
+                            model.startLearningCampaign()
+                        }
+                        .disabled(model.isLearningCampaignRunning)
+                        Button("Stop") {
+                            model.stopLearningCampaign()
+                        }
+                        .disabled(!model.isLearningCampaignRunning)
+                    }
+                    .font(.callout)
+                    HStack(spacing: 8) {
+                        Button("Use Current") {
+                            model.useCurrentLearningCampaignArtifactRoot()
+                        }
+                        Button("Load") {
+                            model.loadLearningCampaignArtifacts()
+                        }
+                        Button(model.learningCampaignMonitorEnabled ? "Stop Watch" : "Watch") {
+                            if model.learningCampaignMonitorEnabled {
+                                model.stopLearningCampaignMonitoring()
+                            } else {
+                                model.startLearningCampaignMonitoring()
+                            }
+                        }
+                    }
+                    .font(.callout)
+                    if let state = model.learningCampaignState {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(state.statusLabel) | \(state.task) | \(state.acceptedCount)/\(state.seedCount) accepted")
+                            if let delta = state.bestDelta {
+                                Text("Best Delta \(String(format: "%.3f", delta))")
+                            }
+                        }
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    } else if let error = model.learningCampaignError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
         .font(.body)
         .foregroundStyle(.primary)
@@ -146,6 +241,6 @@ public struct TrainingConfigPanelView: View {
 }
 
 #Preview {
-    TrainingConfigPanelView(model: KuyuUIPreviewFactory.model())
+    TrainingConfigurationView(model: KuyuUIPreviewFactory.model())
         .frame(width: 280)
 }
