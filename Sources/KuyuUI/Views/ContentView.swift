@@ -9,6 +9,20 @@ public struct ContentView: View {
     }
 
     public var body: some View {
+        Group {
+            if model.currentProject == nil {
+                BoundedWelcomeView(model: model)
+                    .frame(minWidth: 960, minHeight: 640)
+            } else {
+                projectWorkspace
+            }
+        }
+        .onOpenURL { url in
+            model.openURL(url)
+        }
+    }
+
+    private var projectWorkspace: some View {
         NavigationSplitView {
             BoundedSidebarView(model: model)
                 .navigationSplitViewColumnWidth(
@@ -28,7 +42,7 @@ public struct ContentView: View {
                     max: 420
                 )
         }
-        .navigationTitle("Bounded")
+        .navigationTitle(model.currentProject?.package.manifest.name ?? "Bounded")
         .toolbar {
             BoundedToolbarContent(
                 model: model,

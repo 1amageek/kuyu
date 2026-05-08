@@ -185,6 +185,7 @@ private struct BoundedHeaderStatusView: View {
 }
 
 private struct BoundedHeaderToolsMenu: View {
+    @Environment(\.openWindow) private var openWindow
     @Bindable var model: AppViewModel
     @Binding var showInspector: Bool
 
@@ -207,7 +208,7 @@ private struct BoundedHeaderToolsMenu: View {
                 Label(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing")
             }
             Button {
-                model.selectedWorkspace = .report
+                openWindow(id: BoundedWindowID.report.rawValue)
             } label: {
                 Label("Open Report", systemImage: "square.and.arrow.up")
             }

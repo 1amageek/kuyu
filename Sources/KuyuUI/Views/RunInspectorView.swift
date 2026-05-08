@@ -41,10 +41,10 @@ struct RunInspectorView: View {
                     openWindow(id: BoundedWindowID.simulation.rawValue)
                 }
                 Button("Open Analysis") {
-                    model.selectedWorkspace = .analysis
+                    openWindow(id: BoundedWindowID.analysis.rawValue)
                 }
                 Button("Open Report") {
-                    model.selectedWorkspace = .report
+                    openWindow(id: BoundedWindowID.report.rawValue)
                 }
                 Button("Rerun") {
                     simulationModel.startLearningCampaign()

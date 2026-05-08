@@ -42,12 +42,15 @@ public final class SimulationViewModel {
             ])
         }
     }
-    var taskMode: SimulationTaskMode = .attitude {
+    var taskMode: SimulationTaskMode = .lift {
         didSet {
             refreshManualActuatorLayout()
             emitUIAction(level: .info, message: "Task mode changed", action: "setTaskMode", metadata: [
                 "value": taskMode.rawValue
             ])
+            if oldValue != taskMode {
+                invalidateLearningStarterProject(reason: "taskChanged")
+            }
         }
     }
 
@@ -141,28 +144,33 @@ public final class SimulationViewModel {
     var lastPostRegressionGate: PostRegressionGateState?
     var lastConvergenceSummary: ConvergenceSummary?
     var lastCheckpointDecision: CheckpointDecision?
-    var learningCampaignExperimentName: String = "Kuyu Lift Training Plan"
-    var learningCampaignExperimentDescription: String = "Hybrid GA/RL campaign for Manas checkpoint improvement"
-    var learningCampaignTagsText: String = "navigation, hybrid, ppo, ga"
+    var learningCampaignExperimentName: String = "Drone Lift Starter"
+    var learningCampaignExperimentDescription: String = "Ready-to-run hybrid GA/RL starter project for Manas lift control."
+    var learningCampaignTagsText: String = "starter, drone, lift, hybrid"
     var learningStrategySelection: LearningStrategySelection = .hybrid
     var learningCampaignArtifactDirectory: String = ""
     var learningCampaignSourceCheckpointPath: String = ""
     var learningCampaignSuites: String = "6"
     var learningCampaignSeedCount: Int = 1
-    var learningCampaignPopulation: Int = 4
-    var learningCampaignGenerations: Int = 1
-    var learningCampaignEliteCount: Int = 1
+    var learningCampaignPopulation: Int = 8
+    var learningCampaignGenerations: Int = 5
+    var learningCampaignEliteCount: Int = 2
     var learningCampaignWorkers: Int = 1
     var learningCampaignCandidateEvaluationConcurrency: Int = 1
     var learningCampaignEpisodes: Int = 1
     var learningCampaignMutationRate: Double = 0.08
     var learningCampaignMutationNoiseScale: Double = 0.01
     var learningCampaignMinimumIncumbentImprovement: Double = 0
-    var learningCampaignAdaptiveMutation: Bool = false
+    var learningCampaignAdaptiveMutation: Bool = true
     var learningCampaignCompactRetention: Bool = false
-    var learningCampaignPreset: LearningCampaignRunPreset = .standard {
+    var learningCampaignAutoParallelism: Bool = true
+    var learningCampaignMachineCapacity: LearningCampaignMachineCapacity = .current()
+    var learningCampaignAutonomyDomain: AutonomousOperationDomain = .aerialDrone
+    var learningCampaignPreset: LearningCampaignRunPreset = .fiveGeneration {
         didSet { applyLearningCampaignPreset(learningCampaignPreset) }
     }
+    var learningStarterProjectStatus: String = "Preparing starter project"
+    var isLearningStarterProjectReady: Bool = false
     var learningCampaignReadiness: LearningCampaignReadinessState = .idle
     var learningCampaignLaunchEstimate: LearningCampaignLaunchEstimate?
     var learningCampaignTemplateStatus: String?
@@ -198,6 +206,7 @@ public final class SimulationViewModel {
     private let regressionRunStore = RegressionRunStore()
     private let trainingRunCoordinator = TrainingRunCoordinator()
     private let trainingBootstrapCoordinator = TrainingBootstrapCoordinator()
+    private let learningStarterProjectStore: LearningStarterProjectStore
     private let learningCampaignRunStore = LearningCampaignRunStore()
     private let trainingLoopReducer = TrainingLoopStateReducer()
     private let descendingIntentResolver = DescendingIntentResolver()
@@ -216,12 +225,19 @@ public final class SimulationViewModel {
     private var activeModelID: UUID?
     var selectedModelID: UUID?
     private var activeParameters: ReferenceQuadrotorParameters?
+    private var starterProjectPreparationTask: Task<Void, Never>?
     private var isPreviewEnvironment: Bool {
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
-    public init(logStore: UILogStore, commandSystem: CommandSystem? = nil) {
+    public init(
+        logStore: UILogStore,
+        commandSystem: CommandSystem? = nil,
+        learningStarterProjectStore: LearningStarterProjectStore = LearningStarterProjectStore(),
+        prepareStarterProjectOnInit: Bool = false
+    ) {
         self.logStore = logStore
+        self.learningStarterProjectStore = learningStarterProjectStore
         let store = ManasMLXModelStore()
         self.modelStore = store
         self.commandSystem = commandSystem ?? CommandSystem(modelStore: store)
@@ -240,6 +256,12 @@ public final class SimulationViewModel {
         installLogObserverIfNeeded()
 
         loadPersistedModelsOrFallback(defaultStore: store)
+        if prepareStarterProjectOnInit && !isPreviewEnvironment {
+            scheduleStarterLearningProjectPreparation()
+        } else {
+            learningStarterProjectStatus = "Starter project not prepared"
+            isLearningStarterProjectReady = false
+        }
     }
 
     var selectedRun: RunRecord? {
@@ -1438,15 +1460,156 @@ public final class SimulationViewModel {
         }
     }
 
+    func prepareStarterLearningProject() {
+        starterProjectPreparationTask?.cancel()
+        prepareStarterLearningProjectNow(forceNewArtifactRoot: true)
+    }
+
+    private func prepareStarterLearningProjectNow(forceNewArtifactRoot: Bool) {
+        do {
+            let project = try prepareStarterLearningProjectIfNeeded(forceNewArtifactRoot: forceNewArtifactRoot)
+            learningCampaignSourceCheckpointPath = project.sourceCheckpoint.path
+            learningCampaignArtifactDirectory = project.artifactRoot.path
+            learningStarterProjectStatus = "Ready: \(project.projectRoot.lastPathComponent)"
+            isLearningStarterProjectReady = true
+            learningCampaignReadiness = .idle
+            learningCampaignError = nil
+            estimateLearningCampaignCost()
+            emitUIAction(level: .notice, message: "Starter learning project prepared", action: "prepareStarterLearningProject", metadata: [
+                "sourceCheckpoint": project.sourceCheckpoint.path,
+                "artifactRoot": project.artifactRoot.path
+            ])
+        } catch {
+            learningStarterProjectStatus = "\(error)"
+            isLearningStarterProjectReady = false
+            learningCampaignError = "\(error)"
+            learningCampaignReadiness = .blocked(message: "\(error)")
+            emitUIAction(level: .error, message: "Starter learning project preparation failed", action: "prepareStarterLearningProject", metadata: [
+                "error": "\(error)"
+            ])
+        }
+    }
+
+    private func scheduleStarterLearningProjectPreparation() {
+        starterProjectPreparationTask?.cancel()
+        learningStarterProjectStatus = "Preparing starter project"
+        isLearningStarterProjectReady = false
+        starterProjectPreparationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            self.prepareStarterLearningProjectNow(forceNewArtifactRoot: false)
+        }
+    }
+
     func prepareNewLearningCampaignArtifactRoot() {
-        let task = learningCampaignTaskName()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let stamp = formatter.string(from: Date())
-        learningCampaignArtifactDirectory = "/tmp/kuyu-ui-\(task)-campaign-\(stamp)"
-        emitUIAction(level: .info, message: "Learning campaign artifact root prepared", action: "prepareLearningCampaignArtifactRoot", metadata: [
-            "path": learningCampaignArtifactDirectory
+        do {
+            let root = try learningStarterProjectStore.makeNextRunArtifactRoot()
+            learningCampaignArtifactDirectory = root.path
+            emitUIAction(level: .info, message: "Learning campaign artifact root prepared", action: "prepareLearningCampaignArtifactRoot", metadata: [
+                "path": learningCampaignArtifactDirectory
+            ])
+        } catch {
+            learningCampaignError = "\(error)"
+            learningCampaignReadiness = .blocked(message: "\(error)")
+            emitUIAction(level: .warning, message: "Learning campaign artifact root preparation failed", action: "prepareLearningCampaignArtifactRoot", metadata: [
+                "error": "\(error)"
+            ])
+        }
+    }
+
+    func configureForProjectPackage(_ package: KuyuProjectPackage) {
+        applyProjectTemplate(package.selectedTemplate)
+        learningCampaignExperimentName = package.defaultExperiment.name
+        learningCampaignExperimentDescription = package.defaultExperiment.summary
+        learningCampaignTagsText = package.defaultExperiment.tags.joined(separator: ", ")
+        learningCampaignSuites = package.defaultExperiment.curriculum.suiteIDs
+            .map(String.init)
+            .joined(separator: ",")
+        learningCampaignSeedCount = package.defaultExperiment.curriculum.seedCount
+        learningCampaignPopulation = package.defaultExperiment.curriculum.populationSize
+        learningCampaignGenerations = package.defaultExperiment.curriculum.generationLimit
+        learningCampaignEliteCount = package.defaultExperiment.curriculum.eliteCount
+        learningCampaignWorkers = package.defaultExperiment.compute.workerCount
+        learningCampaignCandidateEvaluationConcurrency = package.defaultExperiment.compute.candidateEvaluationConcurrency
+        learningCampaignEpisodes = package.defaultExperiment.curriculum.episodesPerSuite
+        learningCampaignAutonomyDomain = package.defaultExperiment.domain
+
+        let sourceURL = package.rootURL.appendingPathComponent(
+            package.sourceBundleReference.url,
+            isDirectory: true
+        )
+        learningCampaignSourceCheckpointPath = sourceURL.path
+        do {
+            learningCampaignArtifactDirectory = try makeProjectRunArtifactRoot(in: package.rootURL).path
+            learningCampaignError = nil
+            learningCampaignReadiness = .idle
+        } catch {
+            learningCampaignError = "\(error)"
+            learningCampaignReadiness = .blocked(message: "\(error)")
+        }
+
+        if package.selectedTemplate.taskProfileID == nil {
+            isLearningStarterProjectReady = false
+            learningStarterProjectStatus = "Template runtime is not implemented yet"
+        } else if learningStarterProjectStore.checkpointIsComplete(at: sourceURL) {
+            isLearningStarterProjectReady = true
+            learningStarterProjectStatus = "Ready: \(package.rootURL.lastPathComponent)"
+        } else {
+            isLearningStarterProjectReady = false
+            learningStarterProjectStatus = "Starter checkpoint missing"
+        }
+
+        estimateLearningCampaignCost()
+        emitUIAction(level: .notice, message: "Kuyu project opened", action: "openKuyuProject", metadata: [
+            "project": package.rootURL.path,
+            "template": package.selectedTemplate.templateID
         ])
+    }
+
+    func prepareRunnableProjectAssets(for package: KuyuProjectPackage) throws {
+        guard package.selectedTemplate.taskProfileID != nil else {
+            throw LearningCampaignRunError.invalidConfig("Template runtime is not implemented: \(package.selectedTemplate.task)")
+        }
+
+        applyProjectTemplate(package.selectedTemplate)
+        let sourceURL = package.rootURL.appendingPathComponent(
+            package.sourceBundleReference.url,
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: sourceURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: sourceURL.path) {
+            try FileManager.default.removeItem(at: sourceURL)
+        }
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+
+        let descriptorPath = ensureDescriptorForTask(reason: "kuyuProject")
+        let descriptor = currentDescriptor()
+        let observationTaskMode = taskMode
+        try modelStore.initializeDefaultModels(
+            observationMode: .runtimeMode(for: observationTaskMode),
+            driveCount: package.selectedTemplate.action.driveCount,
+            auxEnabled: trainingUseAux,
+            useQualityGating: trainingUseQualityGating,
+            descriptor: descriptor
+        )
+        try modelStore.saveModel(
+            to: sourceURL,
+            name: package.manifest.name,
+            createdAt: Date(),
+            lastTrainedAt: nil
+        )
+        try validateStarterSourceCheckpoint(at: sourceURL, descriptorPath: descriptorPath)
+
+        learningCampaignSourceCheckpointPath = sourceURL.path
+        learningCampaignArtifactDirectory = try makeProjectRunArtifactRoot(in: package.rootURL).path
+        isLearningStarterProjectReady = true
+        learningStarterProjectStatus = "Ready: \(package.rootURL.lastPathComponent)"
+        learningCampaignReadiness = .idle
+        learningCampaignError = nil
+        estimateLearningCampaignCost()
     }
 
     func selectLearningStrategy(_ strategy: LearningStrategySelection) {
@@ -1493,6 +1656,9 @@ public final class SimulationViewModel {
     func estimateLearningCampaignCost() {
         do {
             let suites = try learningCampaignSuiteValues()
+            if learningCampaignAutoParallelism {
+                applyLearningCampaignParallelismRecommendation(suites: suites)
+            }
             learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: suites)
             learningCampaignError = nil
             emitUIAction(level: .info, message: "Learning campaign estimate refreshed", action: "estimateLearningCampaignCost", metadata: [
@@ -1505,6 +1671,23 @@ public final class SimulationViewModel {
             emitUIAction(level: .warning, message: "Learning campaign estimate failed", action: "estimateLearningCampaignCost", metadata: [
                 "error": "\(error)"
             ])
+        }
+    }
+
+    func optimizeLearningCampaignParallelismForMachine() {
+        do {
+            let suites = try learningCampaignSuiteValues()
+            applyLearningCampaignParallelismRecommendation(suites: suites)
+            learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: suites)
+            learningCampaignError = nil
+            emitUIAction(level: .notice, message: "Learning campaign parallelism optimized", action: "optimizeLearningCampaignParallelism", metadata: [
+                "machine": learningCampaignMachineCapacity.summary,
+                "workers": "\(learningCampaignWorkers)",
+                "candidateEvaluationConcurrency": "\(learningCampaignCandidateEvaluationConcurrency)"
+            ])
+        } catch {
+            learningCampaignError = "\(error)"
+            learningCampaignReadiness = .blocked(message: "\(error)")
         }
     }
 
@@ -1865,20 +2048,156 @@ public final class SimulationViewModel {
             artifactRoot: URL(fileURLWithPath: artifactPath.isEmpty ? "/tmp/kuyu-missing-artifact-root" : artifactPath, isDirectory: true)
         )
         let config = preset.apply(to: base)
-        learningCampaignSuites = config.suites.map(String.init).joined(separator: ",")
-        learningCampaignSeedCount = config.seedCount
-        learningCampaignPopulation = config.population
-        learningCampaignGenerations = config.generations
-        learningCampaignEliteCount = config.eliteCount
-        learningCampaignWorkers = config.workers
-        learningCampaignCandidateEvaluationConcurrency = config.candidateEvaluationConcurrency
-        learningCampaignEpisodes = config.episodes
-        learningCampaignAdaptiveMutation = config.adaptiveMutationEnabled
-        learningCampaignMinimumIncumbentImprovement = config.minimumIncumbentImprovement
-        learningCampaignCompactRetention = config.artifactRetention == .compact
+        let tunedConfig = learningCampaignAutoParallelism
+            ? config.optimizedForMachine(learningCampaignMachineCapacity)
+            : config
+        learningCampaignSuites = tunedConfig.suites.map(String.init).joined(separator: ",")
+        learningCampaignSeedCount = tunedConfig.seedCount
+        learningCampaignPopulation = tunedConfig.population
+        learningCampaignGenerations = tunedConfig.generations
+        learningCampaignEliteCount = tunedConfig.eliteCount
+        learningCampaignWorkers = tunedConfig.workers
+        learningCampaignCandidateEvaluationConcurrency = tunedConfig.candidateEvaluationConcurrency
+        learningCampaignEpisodes = tunedConfig.episodes
+        learningCampaignAdaptiveMutation = tunedConfig.adaptiveMutationEnabled
+        learningCampaignMinimumIncumbentImprovement = tunedConfig.minimumIncumbentImprovement
+        learningCampaignCompactRetention = tunedConfig.artifactRetention == .compact
+        learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: tunedConfig.suites)
         learningCampaignReadiness = .idle
         emitUIAction(level: .info, message: "Learning campaign preset applied", action: "setLearningCampaignPreset", metadata: [
             "preset": preset.rawValue
+        ])
+    }
+
+    private func prepareStarterLearningProjectIfNeeded(forceNewArtifactRoot: Bool) throws -> LearningStarterProject {
+        let sourcePath = learningCampaignSourceCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artifactPath = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let descriptorPath = ensureDescriptorForTask(reason: "starterProject")
+        let sourceURL = URL(fileURLWithPath: sourcePath, isDirectory: true)
+        let sourceIsComplete = !sourcePath.isEmpty
+            && learningStarterProjectStore.checkpointIsComplete(at: sourceURL)
+        let sourceIsValid = sourceIsComplete
+            && starterSourceCheckpointIsValid(at: sourceURL, descriptorPath: descriptorPath)
+        let artifactURL = URL(fileURLWithPath: artifactPath, isDirectory: true)
+        let artifactIsReusable = !artifactPath.isEmpty
+            ? try learningStarterProjectStore.artifactRootIsReusable(artifactURL)
+            : false
+
+        if sourceIsValid && !forceNewArtifactRoot && artifactIsReusable {
+            isLearningStarterProjectReady = true
+            learningStarterProjectStatus = "Ready"
+            return LearningStarterProject(
+                projectRoot: learningStarterProjectStore.projectRoot,
+                sourceCheckpoint: URL(fileURLWithPath: sourcePath, isDirectory: true),
+                artifactRoot: artifactURL
+            )
+        }
+
+        let descriptor = currentDescriptor()
+        let observationTaskMode = taskMode
+        let driveCount = starterDriveCount(for: observationTaskMode)
+        let project = try learningStarterProjectStore.prepareStarterProject(
+            regenerateSourceCheckpoint: forceNewArtifactRoot || !sourceIsValid
+        ) { [modelStore, trainingUseAux, trainingUseQualityGating, descriptor, observationTaskMode, driveCount] checkpointURL in
+            try modelStore.initializeDefaultModels(
+                observationMode: .runtimeMode(for: observationTaskMode),
+                driveCount: driveCount,
+                auxEnabled: trainingUseAux,
+                useQualityGating: trainingUseQualityGating,
+                descriptor: descriptor
+            )
+            try modelStore.saveModel(
+                to: checkpointURL,
+                name: "Bounded Drone Lift Starter",
+                createdAt: Date(),
+                lastTrainedAt: nil
+            )
+        }
+        try validateStarterSourceCheckpoint(at: project.sourceCheckpoint, descriptorPath: descriptorPath)
+
+        if forceNewArtifactRoot || !sourceIsValid {
+            learningCampaignSourceCheckpointPath = project.sourceCheckpoint.path
+        }
+        if forceNewArtifactRoot || !artifactIsReusable {
+            learningCampaignArtifactDirectory = project.artifactRoot.path
+        }
+        isLearningStarterProjectReady = true
+        learningStarterProjectStatus = "Ready"
+        return LearningStarterProject(
+            projectRoot: project.projectRoot,
+            sourceCheckpoint: URL(fileURLWithPath: learningCampaignSourceCheckpointPath, isDirectory: true),
+            artifactRoot: URL(fileURLWithPath: learningCampaignArtifactDirectory, isDirectory: true)
+        )
+    }
+
+    private func applyProjectTemplate(_ template: LearningProjectTemplate) {
+        switch template.task {
+        case "singleLift":
+            taskMode = .singleLift
+        case "lift":
+            taskMode = .lift
+        case "attitude":
+            taskMode = .attitude
+        default:
+            break
+        }
+        learningStrategySelection = template.trainingStrategy.kind == .genetic ? .geneticLearning : .hybrid
+    }
+
+    private func makeProjectRunArtifactRoot(in projectRoot: URL) throws -> URL {
+        let runsRoot = projectRoot.appendingPathComponent("runs", isDirectory: true)
+        try FileManager.default.createDirectory(at: runsRoot, withIntermediateDirectories: true)
+        let stamp = max(0, Int(Date().timeIntervalSince1970))
+        var candidate = runsRoot.appendingPathComponent("run-\(stamp)", isDirectory: true)
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = runsRoot.appendingPathComponent("run-\(stamp)-\(suffix)", isDirectory: true)
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func starterSourceCheckpointIsValid(at url: URL, descriptorPath: String) -> Bool {
+        do {
+            try validateStarterSourceCheckpoint(at: url, descriptorPath: descriptorPath)
+            return true
+        } catch {
+            emitUIAction(level: .warning, message: "Starter source checkpoint validation failed", action: "validateStarterSourceCheckpoint", metadata: [
+                "path": url.path,
+                "error": "\(error)"
+            ])
+            return false
+        }
+    }
+
+    private func validateStarterSourceCheckpoint(at url: URL, descriptorPath: String) throws {
+        _ = try ManasMLXE2EPreflight().check(
+            descriptorPath: descriptorPath,
+            sourceCheckpointURL: url,
+            requireSourceCheckpoint: true
+        )
+        if let failure = try ManasMLXCheckpointCompatibility(
+            expectedDriveCount: starterExpectedDriveCount(for: taskMode)
+        ).validate(snapshotURL: url) {
+            throw LearningCampaignRunError.invalidConfig("starter checkpoint incompatible: \(failure.description)")
+        }
+    }
+
+    private func starterDriveCount(for taskMode: SimulationTaskMode) -> Int? {
+        taskMode == .singleLift ? 1 : nil
+    }
+
+    private func starterExpectedDriveCount(for taskMode: SimulationTaskMode) -> Int {
+        taskMode == .singleLift ? 1 : 4
+    }
+
+    private func invalidateLearningStarterProject(reason: String) {
+        guard isLearningStarterProjectReady else { return }
+        isLearningStarterProjectReady = false
+        learningStarterProjectStatus = "Needs validation"
+        learningCampaignReadiness = .idle
+        emitUIAction(level: .info, message: "Starter learning project invalidated", action: "invalidateStarterLearningProject", metadata: [
+            "reason": reason
         ])
     }
 
@@ -1889,11 +2208,8 @@ public final class SimulationViewModel {
             )
         }
 
-        if prepareMissingInputs && learningCampaignSourceCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            useCurrentBestLearningCheckpoint()
-        }
-        if prepareMissingInputs && learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            prepareNewLearningCampaignArtifactRoot()
+        if prepareMissingInputs {
+            _ = try prepareStarterLearningProjectIfNeeded(forceNewArtifactRoot: false)
         }
 
         let sourcePath = learningCampaignSourceCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1902,7 +2218,7 @@ public final class SimulationViewModel {
             throw LearningCampaignRunError.invalidConfig("Source checkpoint and artifact directory are required.")
         }
 
-        return LearningCampaignRunConfig(
+        let config = LearningCampaignRunConfig(
             task: learningCampaignTask(),
             sourceCheckpoint: URL(fileURLWithPath: sourcePath, isDirectory: true),
             artifactRoot: URL(fileURLWithPath: artifactPath, isDirectory: true),
@@ -1928,11 +2244,29 @@ public final class SimulationViewModel {
             kp: kp,
             kd: kd,
             yawDamping: yawDamping,
-            hoverScale: hoverThrustScale
+            hoverScale: hoverThrustScale,
+            autonomyDomain: learningCampaignAutonomyDomain
         )
+        return learningCampaignAutoParallelism
+            ? config.optimizedForMachine(learningCampaignMachineCapacity)
+            : config
     }
 
     private func makeLearningCampaignLaunchEstimate(suites: [Int]) -> LearningCampaignLaunchEstimate {
+        let recommendation = learningCampaignMachineCapacity.recommendation(
+            population: learningCampaignPopulation,
+            suiteCount: suites.count,
+            episodes: learningCampaignEpisodes
+        )
+        let workerCount = learningCampaignAutoParallelism ? recommendation.workerCount : learningCampaignWorkers
+        let candidateConcurrency = learningCampaignAutoParallelism
+            ? recommendation.candidateEvaluationConcurrency
+            : learningCampaignCandidateEvaluationConcurrency
+        let totalParallelSlots = workerCount * candidateConcurrency
+        let utilization = min(
+            1,
+            Double(totalParallelSlots) / Double(learningCampaignMachineCapacity.usableProcessorSlots)
+        )
         let candidateEvaluations = max(1, learningCampaignSeedCount)
             * max(1, learningCampaignPopulation)
             * max(1, learningCampaignGenerations)
@@ -1942,11 +2276,25 @@ public final class SimulationViewModel {
             candidateEvaluations: candidateEvaluations,
             regressionRollouts: regressionRollouts,
             regressionEpisodes: regressionEpisodes,
-            workerCount: learningCampaignWorkers,
-            candidateConcurrency: learningCampaignCandidateEvaluationConcurrency,
+            workerCount: workerCount,
+            candidateConcurrency: candidateConcurrency,
+            machineSummary: learningCampaignMachineCapacity.summary,
+            usableProcessorSlots: learningCampaignMachineCapacity.usableProcessorSlots,
+            totalParallelSlots: totalParallelSlots,
+            utilizationLabel: "\(Int((utilization * 100).rounded()))%",
             retention: learningCampaignCompactRetention ? "compact" : "full",
             estimatedAt: Date()
         )
+    }
+
+    private func applyLearningCampaignParallelismRecommendation(suites: [Int]) {
+        let recommendation = learningCampaignMachineCapacity.recommendation(
+            population: learningCampaignPopulation,
+            suiteCount: suites.count,
+            episodes: learningCampaignEpisodes
+        )
+        learningCampaignWorkers = recommendation.workerCount
+        learningCampaignCandidateEvaluationConcurrency = recommendation.candidateEvaluationConcurrency
     }
 
     private func learningCampaignTagValues() -> [String] {
@@ -2216,6 +2564,7 @@ public final class SimulationViewModel {
         descriptorCache = nil
         descriptorCacheError = nil
         refreshManualActuatorLayout()
+        invalidateLearningStarterProject(reason: "descriptorChanged")
         guard emitLog else { return }
         emitUIAction(level: .info, message: "Model descriptor set", action: "setDescriptorPath", metadata: [
             "source": source,

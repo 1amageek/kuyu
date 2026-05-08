@@ -6,26 +6,23 @@ struct BoundedSidebarView: View {
 
     var body: some View {
         List(selection: $model.selectedWorkspace) {
-            Section("ライブ") {
+            Section("実行") {
                 workspaceRow(.dashboard)
-                workspaceRow(.training)
             }
 
-            Section("結果") {
-                workspaceRow(.analysis)
-                workspaceRow(.report)
+            Section("トレーニング") {
+                workspaceRow(.experimentDesign)
+                workspaceRow(.reinforcementLearning)
+                workspaceRow(.geneticLearning)
+                workspaceRow(.hybridIntegration)
+                workspaceRow(.environment)
             }
 
-            Section("システム") {
-                workspaceRow(.monitor)
-            }
-
-            Section("ウィンドウ") {
-                Button {
-                    openWindow(id: BoundedWindowID.simulation.rawValue)
-                } label: {
-                    Label(BoundedWindowID.simulation.title, systemImage: BoundedWindowID.simulation.systemImage)
-                }
+            Section("開く") {
+                windowButton(.simulation)
+                windowButton(.monitor)
+                windowButton(.analysis)
+                windowButton(.report)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -36,6 +33,14 @@ struct BoundedSidebarView: View {
     private func workspaceRow(_ workspace: BoundedWorkspace) -> some View {
         Label(workspace.title, systemImage: workspace.systemImage)
             .tag(workspace)
+    }
+
+    private func windowButton(_ windowID: BoundedWindowID) -> some View {
+        Button {
+            openWindow(id: windowID.rawValue)
+        } label: {
+            Label(windowID.title, systemImage: windowID.systemImage)
+        }
     }
 
     private var sidebarBottom: some View {
