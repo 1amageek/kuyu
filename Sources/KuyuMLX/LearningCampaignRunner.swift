@@ -23,10 +23,10 @@ public enum LearningCampaignRunError: Error, Sendable, Equatable, LocalizedError
     }
 }
 
-@MainActor
-public final class LearningCampaignRunner {
+public struct LearningCampaignRunner: Sendable {
     public init() {}
 
+    @MainActor
     public func start(config: LearningCampaignRunConfig) throws -> LearningCampaignRunHandle {
         let totalUnitCount = progressTotalUnitCount(config: config)
         let progress = Progress(totalUnitCount: totalUnitCount)
@@ -36,19 +36,19 @@ public final class LearningCampaignRunner {
         let context = LearningCampaignRunContext(handle: handle)
         handle.start { [self] in
             do {
-                context.emit(.preflightStarted)
-                try context.checkCancellation()
+                await context.emit(.preflightStarted)
+                try await context.checkCancellation()
                 let orchestratorConfig = try makeOrchestratorConfig(config: config)
-                try preflight(config: config)
-                context.emit(.preflightCompleted)
-                context.advanceProgress(description: "Preflight completed")
-                let orchestrator = try makeOrchestrator(config: config)
+                try await preflight(config: config)
+                await context.emit(.preflightCompleted)
+                await context.advanceProgress(description: "Preflight completed")
+                let orchestrator = try await makeOrchestrator(config: config)
                 return try await orchestrator.run(config: orchestratorConfig, context: context)
             } catch is CancellationError {
-                context.emit(.cancelled)
+                await context.emit(.cancelled)
                 throw CancellationError()
             } catch {
-                context.emit(.failed(reason: String(describing: error)))
+                await context.emit(.failed(reason: String(describing: error)))
                 throw error
             }
         }
@@ -64,6 +64,7 @@ public final class LearningCampaignRunner {
         let seeds = try resolveSeeds(explicitSeeds: config.explicitSeeds, seedCount: config.seedCount)
         let suites = try validateSuites(config.suites)
         let profile = try TaskEvaluationProfile.profile(task: config.task.rawValue)
+        let autonomousPipeline = try resolveAutonomousPipeline(config: config, profile: profile)
         let availableDiskBytes = try availableDiskBytes(at: artifactRoot)
         let adaptiveMutationPlan = LearningCampaignAdaptiveMutationPlan(
             enabled: config.adaptiveMutationEnabled,
@@ -99,7 +100,7 @@ public final class LearningCampaignRunner {
             bootstrapMaxBatches: 0,
             bootstrapLearningRate: 0,
             bootstrapRepairAttempts: 0,
-            verifyParentTask: true,
+            verifyParentTask: config.requiresInitialParentPass,
             resumeEnabled: false,
             resourceSampleSeconds: config.resourceSampleSeconds,
             artifactRetentionPolicy: retentionPolicy(config.artifactRetention),
@@ -107,7 +108,9 @@ public final class LearningCampaignRunner {
             requiredDiskBytes: 1,
             plannedCandidateEvaluations: seeds.count * config.population * config.generations,
             plannedRegressionRollouts: seeds.count * config.population * config.generations * suites.count,
-            plannedRegressionEpisodes: seeds.count * config.population * config.generations * suites.count * config.episodes
+            plannedRegressionEpisodes: seeds.count * config.population * config.generations * suites.count * config.episodes,
+            autonomousPipeline: autonomousPipeline,
+            reinforcementTrainingArtifactDirectory: config.reinforcementTrainingArtifactDirectory?.path
         )
         return LearningCampaignOrchestratorConfig(
             plan: plan,
@@ -117,6 +120,7 @@ public final class LearningCampaignRunner {
         )
     }
 
+    @MainActor
     public func preflight(config: LearningCampaignRunConfig) throws {
         _ = try ManasMLXE2EPreflight().check(
             descriptorPath: config.modelDescriptorPath,
@@ -125,6 +129,7 @@ public final class LearningCampaignRunner {
         )
     }
 
+    @MainActor
     public func makeOrchestrator(config: LearningCampaignRunConfig) throws -> LearningCampaignOrchestrator {
         let determinism = try config.tier.makeDeterminism()
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: config.cutPeriodSteps)
@@ -281,7 +286,39 @@ public final class LearningCampaignRunner {
         if !config.qualityGateEnabled, profile.requiresParentCheckpointEvaluation {
             throw LearningCampaignRunError.invalidConfig("quality gate cannot be disabled for \(profile.task).")
         }
+        if let autonomousPipelinePlan = config.autonomousPipelinePlan {
+            try validateAutonomousPipeline(autonomousPipelinePlan, expectedDomain: config.autonomyDomain)
+        }
         _ = try validateSuites(config.suites)
+    }
+
+    private func resolveAutonomousPipeline(
+        config: LearningCampaignRunConfig,
+        profile: TaskEvaluationProfile
+    ) throws -> AutonomousTrainingPipelinePlan {
+        let pipeline = config.autonomousPipelinePlan
+            ?? AutonomousTrainingPipelineFactory().defaultPlan(
+                domain: config.autonomyDomain,
+                taskProfileIDs: [profile.profileID]
+            )
+        try validateAutonomousPipeline(pipeline, expectedDomain: config.autonomyDomain)
+        return pipeline
+    }
+
+    private func validateAutonomousPipeline(
+        _ pipeline: AutonomousTrainingPipelinePlan,
+        expectedDomain: AutonomousOperationDomain
+    ) throws {
+        guard pipeline.domain == expectedDomain else {
+            throw LearningCampaignRunError.invalidConfig(
+                "autonomous pipeline domain \(pipeline.domain.rawValue) does not match config domain \(expectedDomain.rawValue)."
+            )
+        }
+        do {
+            try AutonomousTrainingPipelineValidator().validate(pipeline)
+        } catch {
+            throw LearningCampaignRunError.invalidConfig("invalid autonomous training pipeline: \(error)")
+        }
     }
 
     private func rejectNonEmptyArtifactRootIfNeeded(_ config: LearningCampaignRunConfig) throws {
@@ -368,7 +405,6 @@ public struct LearningCampaignCheckpointRegressionChecker: LearningCampaignCheck
     }
 }
 
-@MainActor
 public struct LearningCampaignEvolutionRunner: LearningCampaignEvolutionRunning {
     public let config: LearningCampaignRunConfig
     public let minimumRewardAverage: Double?
@@ -536,7 +572,8 @@ public struct LearningCampaignEvolutionRegressionEvaluator: EvolutionCandidateEv
             hoverScale: 1.0,
             failOnTruncation: false,
             minimumRewardAverage: minimumRewardAverage,
-            useQualityGating: useQualityGating
+            useQualityGating: useQualityGating,
+            checksEnvironmentReadiness: false
         ))
         return fitness(request: request, regression: summary)
     }

@@ -97,11 +97,6 @@ private struct BoundedHeaderControlsView: View {
             resetButton
             stepButton
         }
-        .controlSize(.small)
-        .padding(.horizontal, KuyuSpacing.xs)
-        .padding(.vertical, 3)
-        .background(.quaternary.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
     }
 
     private var runButton: some View {

@@ -8,20 +8,34 @@ import SwiftUI
 /// directly, which does not have that issue.
 struct VSplitView<Content: View>: View {
     private let content: Content
+    private let minTopHeight: CGFloat
+    private let minBottomHeight: CGFloat
 
-    init(@ViewBuilder content: () -> Content) {
+    init(
+        minTopHeight: CGFloat = 200,
+        minBottomHeight: CGFloat = 120,
+        @ViewBuilder content: () -> Content
+    ) {
         self.content = content()
+        self.minTopHeight = minTopHeight
+        self.minBottomHeight = minBottomHeight
     }
 
     var body: some View {
         Group(subviews: content) { subviews in
-            VSplitViewRepresentable(subviews: subviews.map { AnyView($0) })
+            VSplitViewRepresentable(
+                subviews: subviews.map { AnyView($0) },
+                minTopHeight: minTopHeight,
+                minBottomHeight: minBottomHeight
+            )
         }
     }
 }
 
 private struct VSplitViewRepresentable: NSViewRepresentable {
     let subviews: [AnyView]
+    let minTopHeight: CGFloat
+    let minBottomHeight: CGFloat
 
     func makeNSView(context: Context) -> NSSplitView {
         let splitView = NSSplitView()
@@ -46,7 +60,7 @@ private struct VSplitViewRepresentable: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(minTopHeight: minTopHeight, minBottomHeight: minBottomHeight)
     }
 
     private func rebuildSubviews(_ splitView: NSSplitView) {
@@ -69,24 +83,31 @@ private struct VSplitViewRepresentable: NSViewRepresentable {
             }
         }
 
-        if totalOldHeight > 0, oldHeights.count == subviews.count {
-            for (index, height) in oldHeights.enumerated() where index < splitView.arrangedSubviews.count {
-                let view = splitView.arrangedSubviews[index]
-                var frame = view.frame
-                frame.size.height = height
-                view.frame = frame
+        if totalOldHeight > 0, oldHeights.count == subviews.count, oldHeights.count > 1 {
+            splitView.layoutSubtreeIfNeeded()
+            var dividerPosition: CGFloat = 0
+            for dividerIndex in 0..<(oldHeights.count - 1) {
+                dividerPosition += oldHeights[dividerIndex]
+                splitView.setPosition(dividerPosition, ofDividerAt: dividerIndex)
             }
-            splitView.adjustSubviews()
         }
     }
 
     final class Coordinator: NSObject, NSSplitViewDelegate {
+        private let minTopHeight: CGFloat
+        private let minBottomHeight: CGFloat
+
+        init(minTopHeight: CGFloat, minBottomHeight: CGFloat) {
+            self.minTopHeight = minTopHeight
+            self.minBottomHeight = minBottomHeight
+        }
+
         func splitView(
             _ splitView: NSSplitView,
             constrainMinCoordinate proposedMinimumPosition: CGFloat,
             ofSubviewAt dividerIndex: Int
         ) -> CGFloat {
-            return max(proposedMinimumPosition, 200)
+            return max(proposedMinimumPosition, minTopHeight)
         }
 
         func splitView(
@@ -94,7 +115,7 @@ private struct VSplitViewRepresentable: NSViewRepresentable {
             constrainMaxCoordinate proposedMaximumPosition: CGFloat,
             ofSubviewAt dividerIndex: Int
         ) -> CGFloat {
-            return min(proposedMaximumPosition, splitView.bounds.height - 80)
+            return min(proposedMaximumPosition, splitView.bounds.height - minBottomHeight)
         }
 
         func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {

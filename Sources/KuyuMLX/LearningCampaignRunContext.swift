@@ -1,40 +1,38 @@
 import Foundation
 
-@MainActor
-public final class LearningCampaignRunContext {
+public final class LearningCampaignRunContext: Sendable {
     private let handle: LearningCampaignRunHandle
 
     public init(handle: LearningCampaignRunHandle) {
         self.handle = handle
     }
 
-    public var progress: Progress {
-        handle.progress
-    }
-
-    public func emit(_ event: LearningCampaignRunEvent) {
-        handle.emit(event)
-    }
-
-    public func advanceProgress(by units: Int64 = 1, description: String? = nil) {
-        if let description {
-            progress.localizedDescription = description
+    public func emit(_ event: LearningCampaignRunEvent) async {
+        Task { @MainActor [handle] in
+            handle.emit(event)
         }
-        let next = min(progress.completedUnitCount + max(0, units), progress.totalUnitCount)
-        progress.completedUnitCount = next
     }
 
-    public func finishProgress(description: String? = nil) {
-        if let description {
-            progress.localizedDescription = description
+    public func advanceProgress(by units: Int64 = 1, description: String? = nil) async {
+        Task { @MainActor [handle] in
+            if let description {
+                handle.progress.localizedDescription = description
+            }
+            let next = min(handle.progress.completedUnitCount + max(0, units), handle.progress.totalUnitCount)
+            handle.progress.completedUnitCount = next
         }
-        progress.completedUnitCount = progress.totalUnitCount
     }
 
-    public func checkCancellation() throws {
-        if progress.isCancelled || Task.isCancelled {
-            throw CancellationError()
+    public func finishProgress(description: String? = nil) async {
+        Task { @MainActor [handle] in
+            if let description {
+                handle.progress.localizedDescription = description
+            }
+            handle.progress.completedUnitCount = handle.progress.totalUnitCount
         }
+    }
+
+    public func checkCancellation() async throws {
+        try Task.checkCancellation()
     }
 }
-

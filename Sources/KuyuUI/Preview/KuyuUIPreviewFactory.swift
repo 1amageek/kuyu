@@ -61,7 +61,10 @@ public enum KuyuUIPreviewFactory {
     @MainActor
     public static func model() -> SimulationViewModel {
         let store = UILogStore(buffer: UILogBuffer())
-        let model = SimulationViewModel(logStore: store)
+        let model = SimulationViewModel(
+            logStore: store,
+            prepareStarterProjectOnInit: false
+        )
         let output = placeholderOutput()
         model.insertRun(runRecord(output: output))
         model.trainingLossSamples = [

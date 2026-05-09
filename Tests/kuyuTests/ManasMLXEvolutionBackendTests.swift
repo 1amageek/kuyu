@@ -143,6 +143,7 @@ func manasMLXGaussianMutationProducesReloadableCheckpoint() async throws {
         #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("model.json").path))
         #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("core.safetensors").path))
         #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("reflex.safetensors").path))
+        #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("manas-bundle.json").path))
         #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("genome-candidate.json").path))
 
         let candidateStore = ManasMLXModelStore()

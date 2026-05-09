@@ -100,7 +100,7 @@ struct BoundedInspectorView: View {
                 StatRow(
                     label: "Best Delta",
                     value: trainingModel.learningCampaignState?.bestDelta
-                        .map { String(format: "%+.3f", $0) } ?? "--",
+                        .map { String(format: "%+.4f", $0) } ?? "--",
                     compact: true
                 )
                 StatRow(
@@ -162,7 +162,7 @@ struct BoundedInspectorView: View {
 
     private func managementInspector(
         title: String,
-        subtitle _: String,
+        subtitle: String,
         systemImage: String,
         rows: [(String, String)]
     ) -> some View {
@@ -175,7 +175,12 @@ struct BoundedInspectorView: View {
                         }
                     }
                 } label: {
-                    Label(title, systemImage: systemImage)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(title, systemImage: systemImage)
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(KuyuSpacing.md)

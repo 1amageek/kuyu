@@ -1,4 +1,5 @@
 import Foundation
+import KuyuTraining
 
 public struct LearningCampaignPlan: Codable, Sendable, Equatable {
     public let artifactRoot: String
@@ -34,6 +35,8 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
     public let plannedCandidateEvaluations: Int
     public let plannedRegressionRollouts: Int
     public let plannedRegressionEpisodes: Int
+    public let autonomousPipeline: AutonomousTrainingPipelinePlan?
+    public let reinforcementTrainingArtifactDirectory: String?
 
     public init(
         artifactRoot: String,
@@ -68,7 +71,9 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
         requiredDiskBytes: Int64,
         plannedCandidateEvaluations: Int,
         plannedRegressionRollouts: Int,
-        plannedRegressionEpisodes: Int
+        plannedRegressionEpisodes: Int,
+        autonomousPipeline: AutonomousTrainingPipelinePlan? = nil,
+        reinforcementTrainingArtifactDirectory: String? = nil
     ) {
         self.artifactRoot = artifactRoot
         self.task = task
@@ -103,5 +108,7 @@ public struct LearningCampaignPlan: Codable, Sendable, Equatable {
         self.plannedCandidateEvaluations = plannedCandidateEvaluations
         self.plannedRegressionRollouts = plannedRegressionRollouts
         self.plannedRegressionEpisodes = plannedRegressionEpisodes
+        self.autonomousPipeline = autonomousPipeline
+        self.reinforcementTrainingArtifactDirectory = reinforcementTrainingArtifactDirectory
     }
 }

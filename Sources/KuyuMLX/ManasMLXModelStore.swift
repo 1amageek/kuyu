@@ -783,6 +783,33 @@ public final class ManasMLXModelStore {
         return try makeManifestUnlocked(name: name)
     }
 
+    public func initializeDefaultModels(
+        observationMode: ManasMLXObservationMode,
+        driveCount: Int? = nil,
+        auxEnabled: Bool,
+        useQualityGating: Bool,
+        descriptor: RobotDescriptor? = nil
+    ) throws {
+        try beginExclusive()
+        defer { endExclusive() }
+
+        let sizing = try ManasMLXCut.computeSizing(
+            observationMode: observationMode,
+            useQualityGating: useQualityGating
+        )
+        let resolvedDriveCount = driveCount ?? sizing.driveCount
+        _ = prepareCore(
+            inputSize: sizing.trunkSize,
+            driveCount: resolvedDriveCount,
+            auxEnabled: auxEnabled,
+            descriptor: descriptor
+        )
+        _ = prepareReflex(
+            inputSize: sizing.fastTapCount,
+            driveCount: resolvedDriveCount
+        )
+    }
+
     @discardableResult
     public func saveModel(
         to directory: URL,
@@ -849,6 +876,16 @@ public final class ManasMLXModelStore {
             let reflexURL = directory.appendingPathComponent("reflex.safetensors")
             try MLX.save(arrays: reflexArrays, url: reflexURL)
         }
+
+        let bundleManifest = try ManasMLXModelBundleManifestBuilder().build(
+            bundleID: manifest.name,
+            createdAt: manifest.createdAt,
+            manifest: manifest,
+            descriptor: currentDescriptor,
+            checkpointRoot: directory
+        )
+        try ManasModelBundleWriter().write(bundleManifest, to: directory)
+        _ = try ManasModelBundleValidator().loadAndValidate(from: directory)
     }
 
     @discardableResult

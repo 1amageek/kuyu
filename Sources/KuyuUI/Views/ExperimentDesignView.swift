@@ -8,6 +8,7 @@ struct ExperimentDesignView: View {
         VStack(alignment: .leading, spacing: KuyuSpacing.md) {
             GroupBox {
                 VStack(alignment: .leading, spacing: KuyuSpacing.md) {
+                    LabeledContent("Starter", value: model.learningStarterProjectStatus)
                     TextField("Experiment Name", text: $model.learningCampaignExperimentName)
                     TextField("Description", text: $model.learningCampaignExperimentDescription, axis: .vertical)
                         .lineLimit(2...4)
@@ -25,6 +26,11 @@ struct ExperimentDesignView: View {
                     TextField("Source Checkpoint", text: $model.learningCampaignSourceCheckpointPath)
                     TextField("Artifact Root", text: $model.learningCampaignArtifactDirectory)
                     Toggle("Compact Artifact Retention", isOn: $model.learningCampaignCompactRetention)
+                    Button {
+                        model.prepareStarterLearningProject()
+                    } label: {
+                        Label("Reset to Starter Project", systemImage: "arrow.counterclockwise")
+                    }
                 }
                 .textFieldStyle(.roundedBorder)
             } label: {

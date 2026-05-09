@@ -517,9 +517,17 @@ struct TrainingGenerationsView: View {
                 .frame(width: 150)
             StatRow(label: "Accepted", value: "\(state.acceptedCount)/\(state.seedCount)", compact: true)
                 .frame(width: 150)
+            StatRow(label: "Candidates", value: "\(state.candidateEvaluationCount)", compact: true)
+                .frame(width: 140)
+            StatRow(label: "Parallelism", value: state.actualParallelismLabel, compact: true)
+                .frame(width: 160)
             if let delta = state.bestDelta {
                 StatRow(label: "Best Delta", value: String(format: "%+.3f", delta), compact: true)
                     .frame(width: 170)
+            }
+            if let averageDuration = state.averageCandidateEvaluationDurationSeconds {
+                StatRow(label: "Avg Eval", value: String(format: "%.2fs", averageDuration), compact: true)
+                    .frame(width: 130)
             }
             Spacer()
         }
@@ -540,6 +548,8 @@ struct TrainingGenerationsView: View {
 
                 StatusPill(row.accepted ? "accepted" : (row.incumbentImproved ? "improved" : "searching"), tone: row.accepted ? .success : (row.incumbentImproved ? .info : .neutral))
 
+                StatRow(label: "Candidates", value: "\(row.evaluatedCandidateCount)/\(row.candidateCount)", compact: true)
+                    .frame(width: 120)
                 StatRow(label: "Best", value: format(row.bestFitness), compact: true)
                     .frame(width: 120)
                 StatRow(label: "Incumbent", value: format(row.incumbentFitness), compact: true)
@@ -558,12 +568,65 @@ struct TrainingGenerationsView: View {
                 Spacer()
             }
 
+            if let state = model.learningCampaignState {
+                let candidates = Array(state.candidates(
+                    seed: row.seed,
+                    generationIndex: row.generationIndex
+                ).prefix(4))
+                if !candidates.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
+                        HStack(spacing: KuyuSpacing.sm) {
+                            Text("elite")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(row.eliteCandidateIDs.joined(separator: ", "))
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                            Spacer()
+                            Text("max requested concurrency \(state.maxRequestedCandidateConcurrency)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(candidates) { candidate in
+                            candidateRow(candidate)
+                        }
+                    }
+                }
+            }
+
             if !row.rejectionReasons.isEmpty {
                 Text(row.rejectionReasons.joined(separator: ", "))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
             }
+        }
+    }
+
+    private func candidateRow(_ candidate: LearningCampaignCandidateState) -> some View {
+        HStack(spacing: KuyuSpacing.sm) {
+            Text(candidate.candidateID)
+                .font(.system(.caption, design: .monospaced))
+                .frame(width: 72, alignment: .leading)
+            Text(candidate.parentCandidateIDs.isEmpty ? "parent: -" : "parent: \(candidate.parentCandidateIDs.joined(separator: "+"))")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 160, alignment: .leading)
+                .lineLimit(1)
+            Text(candidate.mutationSummary ?? "--")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 150, alignment: .leading)
+                .lineLimit(1)
+            Text(candidate.scalarFitness.map { String(format: "fitness %.3f", $0) } ?? "fitness --")
+                .font(.system(.caption, design: .monospaced))
+                .frame(width: 110, alignment: .trailing)
+            Text(candidate.requestedConcurrency.map { "c\($0)" } ?? "c--")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 36, alignment: .trailing)
+            Spacer()
         }
     }
 
@@ -584,6 +647,19 @@ struct TrainingArtifactsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
+                if let state = model.learningCampaignState, !state.autonomyStages.isEmpty {
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
+                            StatRow(label: "Progress", value: state.autonomyPipelineSummary)
+                            ForEach(state.autonomyStages) { stage in
+                                autonomyStageRow(stage)
+                            }
+                        }
+                    } label: {
+                        Label("Autonomy Pipeline", systemImage: "point.3.connected.trianglepath.dotted")
+                    }
+                }
+
                 GroupBox {
                     VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
                         artifactRow(label: "Configured Root", path: emptyToNil(model.learningCampaignArtifactDirectory))
@@ -608,6 +684,42 @@ struct TrainingArtifactsView: View {
                 }
             }
             .padding(KuyuSpacing.sm)
+        }
+    }
+
+    private func autonomyStageRow(_ stage: LearningCampaignAutonomyStageState) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: KuyuSpacing.sm) {
+            StatusPill(stage.status, tone: autonomyTone(stage.status))
+                .frame(width: 96, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(stage.stageID)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text("\(stage.kind) · gates \(stage.satisfiedGateCount) · evidence \(stage.requiredEvidenceCount)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if !stage.failureReasons.isEmpty {
+                Text(stage.failureReasons.joined(separator: ", "))
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func autonomyTone(_ status: String) -> StatusPill.Tone {
+        switch status {
+        case "completed":
+            return .success
+        case "blocked":
+            return .warning
+        case "pending", "skipped":
+            return .neutral
+        default:
+            return .neutral
         }
     }
 
@@ -784,11 +896,19 @@ struct PostRegressionGateView: View {
                 StatRow(label: "Worst Case", value: worstCaseText(gate))
                 StatRow(label: "Worker Throughput Min", value: format(gate?.minimumWorkerThroughput))
                 StatRow(label: "Primary Reject", value: gate?.primaryRejectReason ?? "--")
+                if let gate, !gate.rejectReasons.isEmpty {
+                    CopyableTextBlockView(
+                        title: "Reject Reasons",
+                        text: gate.rejectReasons.joined(separator: "\n"),
+                        emptyText: "No reject reasons"
+                    )
+                }
                 if let path = gate?.artifactDirectory.path {
                     Text(path)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                        .textSelection(.enabled)
                 }
             }
         } label: {
@@ -867,19 +987,23 @@ struct LearningCampaignView: View {
                         StatRow(label: "Progress", value: String(format: "%.0f%%", model.learningCampaignProgressFraction * 100), compact: true)
                     }
                     if let event = model.learningCampaignLatestEvent {
-                        Text(event)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                        CopyableTextBlockView(
+                            title: "Latest Event",
+                            text: event,
+                            emptyText: "No event"
+                        )
                     }
                 }
                 if let state = model.learningCampaignState {
                     campaignSummary(state)
+                    failureSummary(state)
                     generationTable(state)
                 } else if let error = model.learningCampaignError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    CopyableTextBlockView(
+                        title: "Failure",
+                        text: error,
+                        emptyText: "No failure"
+                    )
                 } else {
                     Text("No campaign loaded")
                         .font(.caption)
@@ -914,6 +1038,25 @@ struct LearningCampaignView: View {
             }
             if let event = state.latestEvent {
                 StatRow(label: "Latest", value: event.event)
+            }
+        }
+    }
+
+    private func failureSummary(_ state: LearningCampaignRunStoreState) -> some View {
+        let reasons = state.failureReasons
+        return VStack(alignment: .leading, spacing: 2) {
+            if let primary = state.primaryFailureReason {
+                Label(primary, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
+            if !reasons.isEmpty || model.learningCampaignError != nil {
+                CopyableTextBlockView(
+                    title: "Failure Diagnostics",
+                    text: ([model.learningCampaignError].compactMap { $0 } + reasons).joined(separator: "\n"),
+                    emptyText: "No failure diagnostics"
+                )
             }
         }
     }

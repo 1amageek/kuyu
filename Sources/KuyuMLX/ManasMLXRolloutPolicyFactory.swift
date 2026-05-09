@@ -2,6 +2,7 @@ import Foundation
 import KuyuCore
 import KuyuScenarios
 import KuyuTraining
+import ManasCore
 import ManasMLXModels
 import MLX
 import MLXNN
@@ -37,6 +38,8 @@ public struct ManasMLXRolloutPolicyFactory: ReferenceQuadrotorPolicyFactory {
         definition: ReferenceQuadrotorScenarioDefinition,
         workerIndex: Int
     ) throws -> any ReferenceQuadrotorEnvironmentPolicy {
+        _ = try ManasModelBundleValidator().loadAndValidate(from: snapshotDirectory)
+
         let manifestURL = snapshotDirectory.appendingPathComponent("model.json")
         let manifestData = try Data(contentsOf: manifestURL)
         let decoder = JSONDecoder()

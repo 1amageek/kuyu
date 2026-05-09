@@ -116,6 +116,7 @@ extension LearningCampaignArtifactRetentionMode: ExpressibleByArgument {}
 extension LearningCampaignTask: ExpressibleByArgument {}
 extension LearningCampaignTier: ExpressibleByArgument {}
 extension LearningCampaignVariation: ExpressibleByArgument {}
+extension AutonomousOperationDomain: @retroactive ExpressibleByArgument {}
 extension EvolutionSearchStrategy: @retroactive ExpressibleByArgument {}
 
 struct Run: AsyncParsableCommand {
@@ -4194,6 +4195,9 @@ struct EvolveManas: AsyncParsableCommand {
     @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
     var candidateEvaluationConcurrency: Int = 1
 
+    @Flag(name: .customLong("auto-parallelism"), help: "Derive workers and candidate evaluation concurrency from this Mac.")
+    var autoParallelism: Bool = false
+
     @Option(help: "Comma-separated M2 suite list: 6,7,8.")
     var suites: String = "6"
 
@@ -4315,6 +4319,22 @@ struct EvolveManas: AsyncParsableCommand {
                 .appendingPathComponent("kuyu-evolve-manas-\(UUID().uuidString)", isDirectory: true)
         }
         let selectedSuites = try parseRegressionSuites(suites)
+        let effectiveWorkers: Int
+        let effectiveCandidateEvaluationConcurrency: Int
+        if autoParallelism {
+            let capacity = LearningCampaignMachineCapacity.current()
+            let recommendation = capacity.recommendation(
+                population: population,
+                suiteCount: selectedSuites.count,
+                episodes: episodes
+            )
+            effectiveWorkers = recommendation.workerCount
+            effectiveCandidateEvaluationConcurrency = recommendation.candidateEvaluationConcurrency
+            print("[evolve] auto-parallelism machine=\(capacity.summary) workers=\(effectiveWorkers) candidateConcurrency=\(effectiveCandidateEvaluationConcurrency) slots=\(recommendation.totalParallelSlots)/\(capacity.usableProcessorSlots)")
+        } else {
+            effectiveWorkers = workers
+            effectiveCandidateEvaluationConcurrency = candidateEvaluationConcurrency
+        }
         let backend = ManasMLXEvolutionBackend(
             rootDirectory: artifactRoot.appendingPathComponent("candidates", isDirectory: true),
             variationProvider: makeVariationProvider()
@@ -4328,7 +4348,7 @@ struct EvolveManas: AsyncParsableCommand {
                 cutPeriodSteps: cutPeriodSteps,
                 suites: selectedSuites,
                 episodes: episodes,
-                workers: workers,
+                workers: effectiveWorkers,
                 modelDescriptorPath: model,
                 artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
                 minimumRewardAverage: effectiveMinimumRewardAverage,
@@ -4346,13 +4366,13 @@ struct EvolveManas: AsyncParsableCommand {
                 taskID: task.rawValue,
                 descriptorID: model.isEmpty ? nil : model,
                 descriptorHash: model.isEmpty ? nil : model,
-                configHash: "\(task.rawValue)-\(suites)-\(episodes)-\(workers)-\(candidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
+                configHash: "\(task.rawValue)-\(suites)-\(episodes)-\(effectiveWorkers)-\(effectiveCandidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
                 policyID: "manasMLX",
                 populationSize: population,
                 generationCount: generations,
                 eliteCount: eliteCount,
-                workerCount: workers,
-                candidateEvaluationConcurrency: candidateEvaluationConcurrency,
+                workerCount: effectiveWorkers,
+                candidateEvaluationConcurrency: effectiveCandidateEvaluationConcurrency,
                 searchStrategy: searchStrategy.trainingStrategy,
                 bootstrapSource: bootstrapSource.trainingSource,
                 worldModelUsage: worldModelUsage.trainingUsage,
@@ -4496,6 +4516,9 @@ struct RunLearningCampaign: AsyncParsableCommand {
     @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
     var candidateEvaluationConcurrency: Int = 1
 
+    @Flag(name: .customLong("auto-parallelism"), help: "Derive workers and candidate evaluation concurrency from this Mac.")
+    var autoParallelism: Bool = false
+
     @Option(help: "Comma-separated M2 suite list: 6,7,8.")
     var suites: String = "6"
 
@@ -4559,6 +4582,12 @@ struct RunLearningCampaign: AsyncParsableCommand {
     @Option(name: .customLong("artifact-retention"), help: "Artifact retention mode: full or compact.")
     var artifactRetention: LearningCampaignArtifactRetentionMode = .full
 
+    @Option(name: .customLong("autonomy-domain"), help: "Autonomy domain: automotive, groundRobot, aerialDrone, or manipulator.")
+    var autonomyDomain: AutonomousOperationDomain = .aerialDrone
+
+    @Option(name: .customLong("reinforcement-artifact"), help: "Optional accepted RL training-run artifact directory to attach as reinforcement stage evidence.")
+    var reinforcementArtifactPath: String?
+
     @Option(name: .customLong("kp"), help: "IMU rate damping proportional gain.")
     var kp: Double = 0.35
 
@@ -4584,7 +4613,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
         let selectedSeeds = try seeds.map(parseCampaignSeeds)
         let selectedSuites = try parseRegressionSuites(suites)
-        let config = LearningCampaignRunConfig(
+        var config = LearningCampaignRunConfig(
             task: task,
             sourceCheckpoint: sourceCheckpointURL,
             artifactRoot: artifactRoot,
@@ -4620,8 +4649,22 @@ struct RunLearningCampaign: AsyncParsableCommand {
             kd: kd,
             yawDamping: yawDamping,
             hoverScale: hoverScale,
-            qualityGateEnabled: !noQualityGate
+            qualityGateEnabled: !noQualityGate,
+            autonomyDomain: autonomyDomain,
+            reinforcementTrainingArtifactDirectory: reinforcementArtifactPath.map {
+                URL(fileURLWithPath: $0, isDirectory: true)
+            }
         )
+        if autoParallelism {
+            let capacity = LearningCampaignMachineCapacity.current()
+            config = config.optimizedForMachine(capacity)
+            let recommendation = capacity.recommendation(
+                population: config.population,
+                suiteCount: config.suites.count,
+                episodes: config.episodes
+            )
+            print("[learning-campaign] auto-parallelism machine=\(capacity.summary) workers=\(recommendation.workerCount) candidateConcurrency=\(recommendation.candidateEvaluationConcurrency) slots=\(recommendation.totalParallelSlots)/\(capacity.usableProcessorSlots)")
+        }
         let handle = try LearningCampaignRunner().start(config: config)
         for await event in handle.events {
             printLearningCampaignEvent(event)

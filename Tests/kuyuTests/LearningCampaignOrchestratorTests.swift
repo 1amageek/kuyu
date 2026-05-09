@@ -76,6 +76,13 @@ import Testing
         #expect(status.exitCode == 1)
         #expect(!validation.valid)
         #expect(validation.issues.contains { $0.code == "parent-task-evaluation-failed" })
+        #expect(!validation.issues.contains { $0.code == "missing-json" && $0.detail == "learning-campaign-summary.json" })
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("learning-campaign-summary.json").path
+        ))
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("learning-campaign-failure-summary.json").path
+        ))
         #expect(FileManager.default.fileExists(
             atPath: root
                 .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
@@ -126,6 +133,50 @@ import Testing
     #expect(FileManager.default.fileExists(
         atPath: root.appendingPathComponent("artifact-retention.json").path
     ))
+}
+
+@MainActor
+@Test func learningCampaignOrchestratorCompletesReinforcementStageFromAcceptedTrainingArtifact() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-campaign-rl-evidence-\(UUID().uuidString)", isDirectory: true)
+    let parent = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("parent-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    let accepted = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("accepted-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    let reinforcementArtifact = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("accepted-rl-artifact-\(UUID().uuidString)", isDirectory: true)
+    try makeCompleteCheckpoint(parent)
+    try makeCompleteCheckpoint(accepted)
+    try writeAcceptedRLTrainingRunArtifact(to: reinforcementArtifact, checkpoint: accepted)
+    let orchestrator = LearningCampaignOrchestrator(
+        checkpointEvaluator: FakeCampaignCheckpointEvaluator(policyPassed: true),
+        evolutionRunner: FakeCampaignEvolutionRunner(acceptedCheckpointURL: accepted),
+        checkpointRegressionChecker: FakeCampaignCheckpointRegressionChecker(allPassed: true)
+    )
+
+    let summary = try await orchestrator.run(config: makeCampaignConfig(
+        root: root,
+        parent: parent,
+        reinforcementArtifact: reinforcementArtifact
+    ))
+
+    let reinforcementRecord = try #require(summary.autonomousPipelineExecution?.stageRecords.first {
+        $0.kind == .reinforcement
+    })
+    #expect(reinforcementRecord.status == .completed)
+    #expect(reinforcementRecord.evidence.contains {
+        $0.kind == .trainingRunArtifact && $0.path == reinforcementArtifact.path
+    })
+    #expect(reinforcementRecord.satisfiedGates.contains(.scenarioRegressionPassed))
+
+    let validation = try decodeJSON(
+        LearningCampaignValidation.self,
+        from: root.appendingPathComponent("learning-campaign-validation.json")
+    )
+    #expect(validation.valid)
 }
 
 @Test func learningCampaignArtifactPrunerCompactsRejectedCandidateArtifacts() throws {
@@ -234,7 +285,12 @@ import Testing
     }
 }
 
-private func makeCampaignConfig(root: URL, parent: URL, population: Int = 2) -> LearningCampaignOrchestratorConfig {
+private func makeCampaignConfig(
+    root: URL,
+    parent: URL,
+    population: Int = 2,
+    reinforcementArtifact: URL? = nil
+) -> LearningCampaignOrchestratorConfig {
     let plan = LearningCampaignPlan(
         artifactRoot: root.path,
         task: "lift",
@@ -268,7 +324,12 @@ private func makeCampaignConfig(root: URL, parent: URL, population: Int = 2) -> 
         requiredDiskBytes: 1,
         plannedCandidateEvaluations: population,
         plannedRegressionRollouts: 1,
-        plannedRegressionEpisodes: 1
+        plannedRegressionEpisodes: 1,
+        autonomousPipeline: AutonomousTrainingPipelineFactory().defaultPlan(
+            domain: .aerialDrone,
+            taskProfileIDs: ["lift-v1"]
+        ),
+        reinforcementTrainingArtifactDirectory: reinforcementArtifact?.path
     )
     return LearningCampaignOrchestratorConfig(
         plan: plan,
@@ -306,6 +367,111 @@ private func makeCompleteCheckpoint(_ url: URL) throws {
     try Data("{}".utf8).write(to: url.appendingPathComponent("model.json"), options: [.atomic])
     try Data("core".utf8).write(to: url.appendingPathComponent("core.safetensors"), options: [.atomic])
     try Data("reflex".utf8).write(to: url.appendingPathComponent("reflex.safetensors"), options: [.atomic])
+    try Data(SelfContainedBundleManifest.fixtureJSON.utf8).write(
+        to: url.appendingPathComponent("manas-bundle.json"),
+        options: [.atomic]
+    )
+}
+
+private enum SelfContainedBundleManifest {
+    static let fixtureJSON = """
+    {
+      "bundleID" : "fixture",
+      "components" : [
+        {
+          "contentType" : "application/json",
+          "path" : "model.json",
+          "required" : true,
+          "role" : "modelConfig"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "core.safetensors",
+          "required" : true,
+          "role" : "coreWeights"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "reflex.safetensors",
+          "required" : true,
+          "role" : "reflexWeights"
+        }
+      ],
+      "createdAt" : "1970-01-01T00:00:00Z",
+      "modelFamily" : "manas",
+      "runtimeContract" : {
+        "configHash" : "config",
+        "descriptorHash" : "descriptor",
+        "driveSemanticsID" : "drive",
+        "observationSchemaID" : "observation"
+      },
+      "schemaVersion" : 1
+    }
+    """
+}
+
+private func writeAcceptedRLTrainingRunArtifact(to artifactRoot: URL, checkpoint: URL) throws {
+    let runID = "accepted-rl-run"
+    let startedAt = Date(timeIntervalSince1970: 1)
+    let completedAt = Date(timeIntervalSince1970: 2)
+    let manifest = LearningRunManifest(
+        runID: runID,
+        mode: .rlRollout,
+        configHash: "rl-config",
+        suiteID: "lift-v1",
+        seedSet: [1],
+        policyID: "manasMLX",
+        parentCheckpointID: "parent",
+        outputCheckpointID: "accepted",
+        workerCount: 1,
+        startedAt: startedAt,
+        completedAt: completedAt,
+        terminalState: .completed
+    )
+    let metrics = [
+        TrainingMetricRecord(
+            runID: runID,
+            iteration: 0,
+            kind: .rewardAverage,
+            value: 1,
+            timestamp: completedAt
+        ),
+        TrainingMetricRecord(
+            runID: runID,
+            iteration: 0,
+            kind: .passRate,
+            value: 1,
+            timestamp: completedAt
+        ),
+    ]
+    let convergence = ConvergenceSummary(
+        runID: runID,
+        accepted: true,
+        reason: "accepted",
+        bestCheckpointID: "accepted",
+        rewardMovingAverage: 1,
+        passRate: 1,
+        failureRate: 0,
+        safetyRegressionDetected: false,
+        plateauDetected: false,
+        overfitRiskDetected: false
+    )
+    let decision = CheckpointDecision(
+        runID: runID,
+        state: .accepted,
+        reason: "accepted",
+        candidateCheckpointID: "accepted",
+        candidateCheckpointURL: checkpoint,
+        publishedCheckpointURL: checkpoint,
+        decidedAt: completedAt
+    )
+    try TrainingArtifactWriter().write(
+        manifest: manifest,
+        metrics: metrics,
+        convergence: convergence,
+        checkpointDecision: decision,
+        to: artifactRoot
+    )
 }
 
 private func writeRetentionEvolutionArtifacts(

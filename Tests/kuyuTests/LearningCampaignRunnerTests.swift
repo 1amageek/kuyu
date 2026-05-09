@@ -29,6 +29,114 @@ import Testing
     #expect(config.searchStrategy == .qualityDiversity)
     #expect(config.variation == .gaussian)
     #expect(config.qualityGateEnabled == true)
+    #expect(config.requiresInitialParentPass == true)
+    #expect(config.autonomyDomain == .aerialDrone)
+    #expect(config.autonomousPipelinePlan == nil)
+}
+
+@MainActor
+@Test func learningCampaignRunnerCanPlanStarterSearchWithoutInitialParentPassGate() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-runner-starter-parent-gate-\(UUID().uuidString)", isDirectory: true)
+    let config = LearningCampaignRunConfig(
+        sourceCheckpoint: URL(fileURLWithPath: "/tmp/source", isDirectory: true),
+        artifactRoot: root,
+        requiresInitialParentPass: false
+    )
+
+    let orchestratorConfig = try LearningCampaignRunner().makeOrchestratorConfig(config: config)
+
+    #expect(orchestratorConfig.plan.verifyParentTask == false)
+}
+
+@MainActor
+@Test func learningCampaignFiveGenerationPresetUsesMachineOptimizedParallelism() throws {
+    let base = LearningCampaignRunConfig(
+        sourceCheckpoint: URL(fileURLWithPath: "/tmp/source", isDirectory: true),
+        artifactRoot: URL(fileURLWithPath: "/tmp/artifacts", isDirectory: true)
+    )
+    let capacity = LearningCampaignMachineCapacity(
+        activeProcessorCount: 14,
+        physicalMemoryBytes: 36 * 1_024 * 1_024 * 1_024
+    )
+    let config = LearningCampaignRunPreset
+        .fiveGeneration
+        .apply(to: base)
+        .optimizedForMachine(capacity)
+
+    #expect(config.population == 8)
+    #expect(config.generations == 5)
+    #expect(config.eliteCount == 2)
+    #expect(config.workers == 1)
+    #expect(config.candidateEvaluationConcurrency == 8)
+    #expect(capacity.recommendation(
+        population: config.population,
+        suiteCount: config.suites.count,
+        episodes: config.episodes
+    ).totalParallelSlots == 8)
+}
+
+@MainActor
+@Test func learningCampaignRunnerEmbedsValidatedAutonomyPipelineInPlan() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-runner-autonomy-plan-\(UUID().uuidString)", isDirectory: true)
+    let config = LearningCampaignRunConfig(
+        sourceCheckpoint: URL(fileURLWithPath: "/tmp/source", isDirectory: true),
+        artifactRoot: root
+    )
+
+    let orchestratorConfig = try LearningCampaignRunner().makeOrchestratorConfig(config: config)
+    let pipeline = try #require(orchestratorConfig.plan.autonomousPipeline)
+
+    #expect(pipeline.domain == .aerialDrone)
+    #expect(pipeline.stages.contains { $0.kind == .imitation })
+    #expect(pipeline.stages.contains { $0.kind == .evolution })
+    #expect(pipeline.stages.contains { $0.kind == .hardwareInTheLoop })
+    #expect(pipeline.terminalGates.contains(.modelBundleValidated))
+    #expect(pipeline.terminalGates.contains(.hardwareBoundaryValidated))
+}
+
+@MainActor
+@Test func learningCampaignRunnerRejectsMismatchedAutonomyPipelineDomain() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-runner-autonomy-domain-\(UUID().uuidString)", isDirectory: true)
+    let pipeline = AutonomousTrainingPipelineFactory().defaultPlan(
+        domain: .automotive,
+        taskProfileIDs: ["lift-v1"]
+    )
+    let config = LearningCampaignRunConfig(
+        sourceCheckpoint: URL(fileURLWithPath: "/tmp/source", isDirectory: true),
+        artifactRoot: root,
+        autonomyDomain: .aerialDrone,
+        autonomousPipelinePlan: pipeline
+    )
+
+    do {
+        _ = try LearningCampaignRunner().makeOrchestratorConfig(config: config)
+        Issue.record("Expected mismatched autonomy domain to be rejected.")
+    } catch LearningCampaignRunError.invalidConfig(let message) {
+        #expect(message.contains("does not match config domain"))
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
+
+@MainActor
+@Test func learningCampaignRunnerCarriesReinforcementArtifactDirectoryIntoPlan() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-runner-rl-artifact-\(UUID().uuidString)", isDirectory: true)
+    let reinforcementArtifact = root
+        .deletingLastPathComponent()
+        .appendingPathComponent("rl-training-run", isDirectory: true)
+    let config = LearningCampaignRunConfig(
+        sourceCheckpoint: URL(fileURLWithPath: "/tmp/source", isDirectory: true),
+        artifactRoot: root,
+        reinforcementTrainingArtifactDirectory: reinforcementArtifact
+    )
+
+    let orchestratorConfig = try LearningCampaignRunner().makeOrchestratorConfig(config: config)
+
+    #expect(orchestratorConfig.plan.reinforcementTrainingArtifactDirectory == reinforcementArtifact.path)
 }
 
 @MainActor

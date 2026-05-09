@@ -63,7 +63,6 @@ public enum LearningCampaignOrchestratorError: Error, Sendable, Equatable {
     case validationRejected([LearningCampaignValidationIssue])
 }
 
-@MainActor
 public struct LearningCampaignOrchestrator: Sendable {
     private let checkpointEvaluator: any CheckpointEvaluating
     private let evolutionRunner: any LearningCampaignEvolutionRunning
@@ -96,17 +95,17 @@ public struct LearningCampaignOrchestrator: Sendable {
 
         try rejectNonEmptyArtifactRootIfNeeded(config)
         do {
-            try context?.checkCancellation()
+            try await context?.checkCancellation()
             try FileManager.default.createDirectory(at: config.artifactRoot, withIntermediateDirectories: true)
             try write(config.plan, fileName: "learning-campaign-plan.json", root: config.artifactRoot)
-            context?.emit(.artifactWritten(
+            await context?.emit(.artifactWritten(
                 name: "learning-campaign-plan.json",
                 path: config.artifactRoot.appendingPathComponent("learning-campaign-plan.json").path
             ))
             try writeEnvironment(root: config.artifactRoot)
             try writeResourceSampleIfNeeded(plan: config.plan, root: config.artifactRoot)
             try appendProgress(event: "campaign-started", root: config.artifactRoot)
-            context?.advanceProgress(description: "Campaign started")
+            await context?.advanceProgress(description: "Campaign started")
 
             let profile = try TaskEvaluationProfile.profile(task: config.plan.task)
             if config.plan.verifyParentTask != false {
@@ -128,8 +127,8 @@ public struct LearningCampaignOrchestrator: Sendable {
             }
 
             for seed in config.plan.seeds {
-                try context?.checkCancellation()
-                context?.emit(.seedStarted(seed: seed))
+                try await context?.checkCancellation()
+                await context?.emit(.seedStarted(seed: seed))
                 let evolutionRoot = config.artifactRoot
                     .appendingPathComponent("seeds", isDirectory: true)
                     .appendingPathComponent("seed-\(seed)", isDirectory: true)
@@ -140,9 +139,9 @@ public struct LearningCampaignOrchestrator: Sendable {
                     let stream = AsyncStream<EvolutionRunEvent> { streamContinuation in
                         eventBox.set(streamContinuation)
                     }
-                    let eventTask = Task { @MainActor in
+                    let eventTask = Task {
                         for await event in stream {
-                            forwardEvolutionEvent(event, seed: seed, context: context)
+                            await forwardEvolutionEvent(event, seed: seed, context: context)
                         }
                     }
                     do {
@@ -172,12 +171,12 @@ public struct LearningCampaignOrchestrator: Sendable {
                 }
                 let runSummary = makeSeedRunSummary(seed: seed, bundle: bundle)
                 runs.append(runSummary)
-                context?.emit(.seedCompleted(
+                await context?.emit(.seedCompleted(
                     seed: seed,
                     accepted: runSummary.accepted,
                     bestCandidateID: runSummary.bestCandidateID
                 ))
-                context?.advanceProgress(description: "Seed \(seed) completed")
+                await context?.advanceProgress(description: "Seed \(seed) completed")
 
                 if bundle.acceptedCheckpoint.accepted,
                    let acceptedCheckpointURL = bundle.acceptedCheckpoint.checkpointURL {
@@ -211,21 +210,27 @@ public struct LearningCampaignOrchestrator: Sendable {
                 records: retentionRecords
             )
             try write(retentionSummary, fileName: "artifact-retention.json", root: config.artifactRoot)
-            context?.emit(.artifactWritten(
+            await context?.emit(.artifactWritten(
                 name: "artifact-retention.json",
                 path: config.artifactRoot.appendingPathComponent("artifact-retention.json").path
             ))
 
+            let pipelineExecution = try makeAutonomousPipelineExecutionReport(
+                plan: config.plan,
+                runs: runs,
+                root: config.artifactRoot
+            )
             let summary = LearningCampaignSummary(
                 artifactRoot: config.artifactRoot.path,
                 seedCount: config.plan.seeds.count,
                 acceptedCount: runs.filter(\.accepted).count,
                 finalCheckpoint: currentParentCheckpointURL.path,
                 runs: runs,
-                retention: retentionSummary
+                retention: retentionSummary,
+                autonomousPipelineExecution: pipelineExecution
             )
             try write(summary, fileName: "learning-campaign-summary.json", root: config.artifactRoot)
-            context?.emit(.artifactWritten(
+            await context?.emit(.artifactWritten(
                 name: "learning-campaign-summary.json",
                 path: config.artifactRoot.appendingPathComponent("learning-campaign-summary.json").path
             ))
@@ -238,32 +243,56 @@ public struct LearningCampaignOrchestrator: Sendable {
                 try writeStatus(status: "failed", exitCode: 1, startedAt: startedAt, root: config.artifactRoot)
                 try writeFinishedProgress(status: "failed", exitCode: 1, root: config.artifactRoot)
                 try regenerateFailedValidationArtifact(root: config.artifactRoot)
-                context?.emit(.failed(reason: "validation-rejected"))
+                await context?.emit(.failed(reason: "validation-rejected"))
                 throw LearningCampaignOrchestratorError.validationRejected(validation.issues)
             }
-            context?.finishProgress(description: "Campaign completed")
-            context?.emit(.finished(summary: summary))
+            await context?.finishProgress(description: "Campaign completed")
+            await context?.emit(.finished(summary: summary))
             return summary
         } catch is CancellationError {
+            try writeFailureArtifactsIfNeeded(
+                plan: config.plan,
+                currentParentCheckpointURL: currentParentCheckpointURL,
+                startedRuns: runs,
+                retentionRecords: retentionRecords,
+                failureReason: "cancelled",
+                root: config.artifactRoot
+            )
             try writeStatus(status: "cancelled", exitCode: 130, startedAt: startedAt, root: config.artifactRoot)
             try writeFinishedProgress(status: "cancelled", exitCode: 130, root: config.artifactRoot)
             try regenerateFailedValidationArtifact(root: config.artifactRoot)
-            context?.emit(.cancelled)
+            await context?.emit(.cancelled)
             throw CancellationError()
         } catch let error as LearningCampaignOrchestratorError {
             if case .validationRejected = error {
                 throw error
             }
+            try writeFailureArtifactsIfNeeded(
+                plan: config.plan,
+                currentParentCheckpointURL: currentParentCheckpointURL,
+                startedRuns: runs,
+                retentionRecords: retentionRecords,
+                failureReason: String(describing: error),
+                root: config.artifactRoot
+            )
             try writeStatus(status: "failed", exitCode: 1, startedAt: startedAt, root: config.artifactRoot)
             try writeFinishedProgress(status: "failed", exitCode: 1, root: config.artifactRoot)
             try regenerateFailedValidationArtifact(root: config.artifactRoot)
-            context?.emit(.failed(reason: String(describing: error)))
+            await context?.emit(.failed(reason: String(describing: error)))
             throw error
         } catch {
+            try writeFailureArtifactsIfNeeded(
+                plan: config.plan,
+                currentParentCheckpointURL: currentParentCheckpointURL,
+                startedRuns: runs,
+                retentionRecords: retentionRecords,
+                failureReason: String(describing: error),
+                root: config.artifactRoot
+            )
             try writeStatus(status: "failed", exitCode: 1, startedAt: startedAt, root: config.artifactRoot)
             try writeFinishedProgress(status: "failed", exitCode: 1, root: config.artifactRoot)
             try regenerateFailedValidationArtifact(root: config.artifactRoot)
-            context?.emit(.failed(reason: String(describing: error)))
+            await context?.emit(.failed(reason: String(describing: error)))
             throw error
         }
     }
@@ -293,8 +322,8 @@ public struct LearningCampaignOrchestrator: Sendable {
         requiresPolicyPass: Bool,
         context: LearningCampaignRunContext?
     ) async throws {
-        try context?.checkCancellation()
-        context?.emit(.parentEvaluationStarted(label: label, checkpointPath: checkpointURL.path))
+        try await context?.checkCancellation()
+        await context?.emit(.parentEvaluationStarted(label: label, checkpointPath: checkpointURL.path))
         let artifactRoot = root
             .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
             .appendingPathComponent(label, isDirectory: true)
@@ -319,32 +348,32 @@ public struct LearningCampaignOrchestrator: Sendable {
                 checkpointPath: checkpointURL.path
             )
         }
-        context?.emit(.parentEvaluationCompleted(label: label, checkpointPath: checkpointURL.path))
-        context?.advanceProgress(description: "\(label) checkpoint evaluated")
+        await context?.emit(.parentEvaluationCompleted(label: label, checkpointPath: checkpointURL.path))
+        await context?.advanceProgress(description: "\(label) checkpoint evaluated")
     }
 
     private func forwardEvolutionEvent(
         _ event: EvolutionRunEvent,
         seed: String,
         context: LearningCampaignRunContext
-    ) {
+    ) async {
         switch event {
         case .generationStarted(let generationIndex):
-            context.emit(.generationStarted(seed: seed, generationIndex: generationIndex))
+            await context.emit(.generationStarted(seed: seed, generationIndex: generationIndex))
         case .candidateEvaluated(let fitness):
-            context.emit(.candidateEvaluated(
+            await context.emit(.candidateEvaluated(
                 seed: seed,
                 generationIndex: fitness.generationIndex,
                 candidateID: fitness.candidateID,
                 fitness: fitness.scalarFitness
             ))
         case .generationCompleted(let record):
-            context.emit(.generationCompleted(
+            await context.emit(.generationCompleted(
                 seed: seed,
                 generationIndex: record.generationIndex,
                 bestCandidateID: record.bestCandidateID
             ))
-            context.advanceProgress(description: "Seed \(seed) generation \(record.generationIndex) completed")
+            await context.advanceProgress(description: "Seed \(seed) generation \(record.generationIndex) completed")
         default:
             break
         }
@@ -358,8 +387,8 @@ public struct LearningCampaignOrchestrator: Sendable {
         context: LearningCampaignRunContext?
     ) async throws {
         guard let checkpointRegressionChecker else { return }
-        try context?.checkCancellation()
-        context?.emit(.checkpointRegressionStarted(label: label, checkpointPath: checkpointURL.path))
+        try await context?.checkCancellation()
+        await context?.emit(.checkpointRegressionStarted(label: label, checkpointPath: checkpointURL.path))
         let artifactRoot = root
             .appendingPathComponent("checkpoint-regressions", isDirectory: true)
             .appendingPathComponent(label, isDirectory: true)
@@ -370,12 +399,12 @@ public struct LearningCampaignOrchestrator: Sendable {
             plan: plan
         )
         try KuyuRegressionArtifactValidator().validate(summary)
-        context?.emit(.checkpointRegressionCompleted(
+        await context?.emit(.checkpointRegressionCompleted(
             label: label,
             accepted: summary.allPassed,
             reasons: summary.gateReport.reasons
         ))
-        context?.advanceProgress(description: "\(label) regression checked")
+        await context?.advanceProgress(description: "\(label) regression checked")
         guard summary.allPassed else {
             throw LearningCampaignOrchestratorError.parentCheckpointRegressionRejected(
                 label: label,
@@ -430,6 +459,111 @@ public struct LearningCampaignOrchestrator: Sendable {
             evaluationTraceCount: bundle.evaluationTraces.count,
             overlappedEvaluation: bundle.evaluationTraces.contains { $0.activeEvaluationCountAtStart > 1 }
         )
+    }
+
+    private func makeAutonomousPipelineExecutionReport(
+        plan: LearningCampaignPlan,
+        runs: [LearningCampaignSeedRunSummary],
+        root: URL
+    ) throws -> AutonomousTrainingPipelineExecutionReport? {
+        guard let pipeline = plan.autonomousPipeline else { return nil }
+        return AutonomousTrainingPipelineExecutionSynthesizer().makeReport(
+            plan: pipeline,
+            completions: try autonomousStageCompletions(
+                pipeline: pipeline,
+                plan: plan,
+                runs: runs,
+                root: root
+            ),
+            blocks: autonomousStageBlocks(pipeline: pipeline, runs: runs, root: root)
+        )
+    }
+
+    private func autonomousStageCompletions(
+        pipeline: AutonomousTrainingPipelinePlan,
+        plan: LearningCampaignPlan,
+        runs: [LearningCampaignSeedRunSummary],
+        root: URL
+    ) throws -> [AutonomousTrainingStageCompletion] {
+        var completions: [AutonomousTrainingStageCompletion] = []
+        if let stage = pipeline.stages.first(where: { $0.kind == .imitation }) {
+            completions.append(AutonomousTrainingStageCompletion(
+                stageID: stage.stageID,
+                satisfiedGates: stage.requiredExitGates,
+                evidence: [
+                    AutonomousTrainingStageEvidence(
+                        kind: .checkpointEvaluation,
+                        path: root
+                            .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+                            .appendingPathComponent("initial-parent", isDirectory: true)
+                            .appendingPathComponent("checkpoint-evaluation.json")
+                            .path,
+                        safetyGate: .modelBundleValidated
+                    ),
+                    AutonomousTrainingStageEvidence(
+                        kind: .checkpointEvaluation,
+                        path: root
+                            .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+                            .appendingPathComponent("initial-parent", isDirectory: true)
+                            .appendingPathComponent("checkpoint-evaluation.json")
+                            .path,
+                        safetyGate: .artifactLineageComplete
+                    )
+                ]
+            ))
+        }
+        if let reinforcementArtifact = plan.reinforcementTrainingArtifactDirectory,
+           let stage = pipeline.stages.first(where: { $0.kind == .reinforcement }) {
+            let artifactDirectory = URL(fileURLWithPath: reinforcementArtifact, isDirectory: true)
+            let bundle = try TrainingRunArtifactValidator().loadAndValidate(from: artifactDirectory)
+            completions.append(try AutonomousTrainingStageCompletionFactory().reinforcementCompletion(
+                stage: stage,
+                bundle: bundle
+            ))
+        }
+        if runs.contains(where: \.accepted),
+           let stage = pipeline.stages.first(where: { $0.kind == .evolution }),
+           let acceptedCheckpointPath = runs.compactMap(\.acceptedCheckpointURL).last {
+            completions.append(AutonomousTrainingStageCompletion(
+                stageID: stage.stageID,
+                satisfiedGates: stage.requiredExitGates,
+                evidence: [
+                    AutonomousTrainingStageEvidence(
+                        kind: .evolutionArtifact,
+                        path: root.appendingPathComponent("seeds", isDirectory: true).path,
+                        safetyGate: .scenarioRegressionPassed
+                    ),
+                    AutonomousTrainingStageEvidence(
+                        kind: .modelBundle,
+                        path: acceptedCheckpointPath,
+                        safetyGate: .modelBundleValidated
+                    )
+                ]
+            ))
+        }
+        return completions
+    }
+
+    private func autonomousStageBlocks(
+        pipeline: AutonomousTrainingPipelinePlan,
+        runs: [LearningCampaignSeedRunSummary],
+        root: URL
+    ) -> [AutonomousTrainingStageBlock] {
+        var blocks: [AutonomousTrainingStageBlock] = []
+        if !runs.contains(where: \.accepted),
+           let stage = pipeline.stages.first(where: { $0.kind == .evolution }) {
+            blocks.append(AutonomousTrainingStageBlock(
+                stageID: stage.stageID,
+                failureReasons: ["no-accepted-evolution-checkpoint"],
+                evidence: [
+                    AutonomousTrainingStageEvidence(
+                        kind: .evolutionArtifact,
+                        path: root.appendingPathComponent("seeds", isDirectory: true).path
+                    )
+                ]
+            ))
+        }
+        return blocks
     }
 
     private func bestFitness(in bundle: EvolutionRunArtifactBundle) -> FitnessSummary? {
@@ -553,6 +687,145 @@ public struct LearningCampaignOrchestrator: Sendable {
         }
     }
 
+    private func writeFailureArtifactsIfNeeded(
+        plan: LearningCampaignPlan,
+        currentParentCheckpointURL: URL,
+        startedRuns: [LearningCampaignSeedRunSummary],
+        retentionRecords: [LearningCampaignArtifactRetentionRecord],
+        failureReason: String,
+        root: URL
+    ) throws {
+        guard FileManager.default.fileExists(atPath: root.path) else { return }
+        let retentionSummary = failureRetentionSummary(
+            plan: plan,
+            retentionRecords: retentionRecords
+        )
+        try write(retentionSummary, fileName: "artifact-retention.json", root: root)
+        let runs = failureRuns(plan: plan, startedRuns: startedRuns)
+        let summary = LearningCampaignSummary(
+            artifactRoot: root.path,
+            seedCount: runs.count,
+            acceptedCount: runs.filter(\.accepted).count,
+            finalCheckpoint: currentParentCheckpointURL.path,
+            runs: runs,
+            retention: retentionSummary,
+            autonomousPipelineExecution: failurePipelineExecution(
+                plan: plan,
+                reason: failureReason,
+                root: root
+            )
+        )
+        try write(summary, fileName: "learning-campaign-summary.json", root: root)
+        try write(
+            LearningCampaignFailureSummary(
+                artifactRoot: root.path,
+                task: plan.task,
+                sourceCheckpoint: plan.sourceCheckpoint,
+                finalCheckpoint: currentParentCheckpointURL.path,
+                reason: failureReason
+            ),
+            fileName: "learning-campaign-failure-summary.json",
+            root: root
+        )
+    }
+
+    private func failureRetentionSummary(
+        plan: LearningCampaignPlan,
+        retentionRecords: [LearningCampaignArtifactRetentionRecord]
+    ) -> LearningCampaignArtifactRetentionSummary {
+        let existingSeeds = Set(retentionRecords.map(\.seed))
+        let missingRecords = plan.seeds
+            .filter { !existingSeeds.contains($0) }
+            .map { seed in
+                LearningCampaignArtifactRetentionRecord(
+                    seed: seed,
+                    mode: plan.artifactRetentionPolicy.mode,
+                    prunedCheckpointCount: 0,
+                    prunedCandidateEvaluationArtifactCount: 0,
+                    prunedByteCount: 0,
+                    preservedCheckpointPaths: []
+                )
+            }
+        return LearningCampaignArtifactRetentionSummary(
+            mode: plan.artifactRetentionPolicy.mode,
+            records: retentionRecords + missingRecords
+        )
+    }
+
+    private func failureRuns(
+        plan: LearningCampaignPlan,
+        startedRuns: [LearningCampaignSeedRunSummary]
+    ) -> [LearningCampaignSeedRunSummary] {
+        var runsBySeed = Dictionary(uniqueKeysWithValues: startedRuns.map { ($0.seed, $0) })
+        for seed in plan.seeds where runsBySeed[seed] == nil {
+            runsBySeed[seed] = LearningCampaignSeedRunSummary(
+                seed: seed,
+                terminalState: "not-started",
+                accepted: false,
+                acceptedCandidateID: nil,
+                acceptedCheckpointURL: nil,
+                incumbentCandidateID: nil,
+                incumbentFitness: nil,
+                bestCandidateID: nil,
+                bestFitness: nil,
+                bestVsIncumbentDelta: nil,
+                bestTaskPassRate: nil,
+                bestHoldTimeRatio: nil,
+                bestAltitudeErrorRatio: nil,
+                bestSafetyViolationRate: nil,
+                bestRewardAverage: nil,
+                gateNearestCandidateID: nil,
+                gateNearestFitness: nil,
+                gateNearestTaskPassRate: nil,
+                gateNearestHoldTimeRatio: nil,
+                gateNearestAltitudeErrorRatio: nil,
+                gateNearestSafetyViolationRate: nil,
+                gateNearestRewardAverage: nil,
+                fitnessCount: 0,
+                reasonCount: 1,
+                evaluationTraceCount: 0,
+                overlappedEvaluation: false
+            )
+        }
+        return plan.seeds.compactMap { runsBySeed[$0] }
+    }
+
+    private func failurePipelineExecution(
+        plan: LearningCampaignPlan,
+        reason: String,
+        root: URL
+    ) -> AutonomousTrainingPipelineExecutionReport? {
+        guard let pipeline = plan.autonomousPipeline else { return nil }
+        let firstStage = pipeline.stages.first?.stageID
+        let initialEvaluationPath = root
+            .appendingPathComponent("checkpoint-evaluations", isDirectory: true)
+            .appendingPathComponent("initial-parent", isDirectory: true)
+            .appendingPathComponent("checkpoint-evaluation.json")
+            .path
+        let evidence = FileManager.default.fileExists(atPath: initialEvaluationPath)
+            ? [
+                AutonomousTrainingStageEvidence(
+                    kind: .checkpointEvaluation,
+                    path: initialEvaluationPath
+                )
+            ]
+            : []
+        let blocks = firstStage.map { stageID in
+            [
+                AutonomousTrainingStageBlock(
+                    stageID: stageID,
+                    failureReasons: [reason],
+                    evidence: evidence
+                )
+            ]
+        } ?? []
+        return AutonomousTrainingPipelineExecutionSynthesizer().makeReport(
+            plan: pipeline,
+            completions: [],
+            blocks: blocks
+        )
+    }
+
     private func writeStatus(
         status: String,
         exitCode: Int,
@@ -572,47 +845,75 @@ public struct LearningCampaignOrchestrator: Sendable {
     private func writeEnvironment(root: URL) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
         let repositoryPath = FileManager.default.currentDirectoryPath
+        let swiftVersion = commandSnapshot("/usr/bin/xcrun", arguments: ["swift", "--version"])
+        let xcodebuildVersion = commandSnapshot("/usr/bin/xcodebuild", arguments: ["-version"])
+        let gitHead = commandSnapshot("/usr/bin/git", arguments: ["rev-parse", "HEAD"])
+        let gitBranch = commandSnapshot("/usr/bin/git", arguments: ["rev-parse", "--abbrev-ref", "HEAD"])
+        let gitStatus = commandSnapshot("/usr/bin/git", arguments: ["status", "--porcelain"])
         let environment = LearningCampaignEnvironmentSnapshot(
             timestamp: ISO8601DateFormatter().string(from: Date()),
             host: ProcessInfo.processInfo.hostName,
             platform: "macOS",
             machine: ProcessInfo.processInfo.machineHardwareName,
-            swiftVersion: commandOutput("/usr/bin/xcrun", arguments: ["swift", "--version"]),
-            xcodebuildVersion: commandOutput("/usr/bin/xcodebuild", arguments: ["-version"]),
+            swiftVersion: swiftVersion.output,
+            xcodebuildVersion: xcodebuildVersion.output,
             destination: processEnvironment["KUYU_XCODE_DESTINATION"] ?? "platform=macOS",
             configuration: processEnvironment["KUYU_XCODE_CONFIGURATION"] ?? "Debug",
             derivedData: processEnvironment["KUYU_XCODE_DERIVED_DATA"] ?? "",
             lockPath: processEnvironment["KUYU_LEARNING_LOCK_PATH"] ?? "",
+            commands: [
+                swiftVersion,
+                xcodebuildVersion,
+                gitHead,
+                gitBranch,
+                gitStatus,
+            ],
             repositories: [
                 LearningCampaignRepositorySnapshot(
                     path: repositoryPath,
-                    head: commandOutput("/usr/bin/git", arguments: ["rev-parse", "HEAD"]),
-                    branch: commandOutput("/usr/bin/git", arguments: ["rev-parse", "--abbrev-ref", "HEAD"]),
-                    dirty: !commandOutput("/usr/bin/git", arguments: ["status", "--porcelain"]).isEmpty
+                    head: gitHead.output,
+                    branch: gitBranch.output,
+                    dirty: !gitStatus.output.isEmpty
                 ),
             ]
         )
         try write(environment, fileName: "learning-campaign-environment.json", root: root)
     }
 
-    private func commandOutput(_ executablePath: String, arguments: [String]) -> String {
+    private func commandSnapshot(_ executablePath: String, arguments: [String]) -> LearningCampaignCommandSnapshot {
         do {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath)
             process.arguments = arguments
             let pipe = Pipe()
+            let errorPipe = Pipe()
             process.standardOutput = pipe
-            process.standardError = Pipe()
+            process.standardError = errorPipe
             try process.run()
             process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                return "unavailable"
-            }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(decoding: data, as: UTF8.self)
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let errorOutput = String(decoding: errorData, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return LearningCampaignCommandSnapshot(
+                executablePath: executablePath,
+                arguments: arguments,
+                status: process.terminationStatus == 0 ? "succeeded" : "failed",
+                terminationStatus: process.terminationStatus,
+                output: output,
+                errorOutput: errorOutput
+            )
         } catch {
-            return "unavailable"
+            return LearningCampaignCommandSnapshot(
+                executablePath: executablePath,
+                arguments: arguments,
+                status: "unavailable",
+                terminationStatus: nil,
+                output: "",
+                errorOutput: String(describing: error)
+            )
         }
     }
 
@@ -647,6 +948,14 @@ private struct LearningCampaignProgressEvent: Codable {
     let exitCode: Int?
 }
 
+private struct LearningCampaignFailureSummary: Codable {
+    let artifactRoot: String
+    let task: String
+    let sourceCheckpoint: String?
+    let finalCheckpoint: String
+    let reason: String
+}
+
 private struct LearningCampaignEnvironmentSnapshot: Encodable {
     let timestamp: String
     let host: String
@@ -658,7 +967,17 @@ private struct LearningCampaignEnvironmentSnapshot: Encodable {
     let configuration: String
     let derivedData: String
     let lockPath: String
+    let commands: [LearningCampaignCommandSnapshot]
     let repositories: [LearningCampaignRepositorySnapshot]
+}
+
+private struct LearningCampaignCommandSnapshot: Encodable {
+    let executablePath: String
+    let arguments: [String]
+    let status: String
+    let terminationStatus: Int32?
+    let output: String
+    let errorOutput: String
 }
 
 private struct LearningCampaignRepositorySnapshot: Encodable {

@@ -1,4 +1,5 @@
 import Foundation
+import ManasCore
 import ManasMLXModels
 import Testing
 @testable import KuyuMLX
@@ -118,6 +119,16 @@ private func makeCheckpointRoot(
     try Data("core".utf8).write(to: root.appendingPathComponent("core.safetensors"), options: [.atomic])
     if writeReflex {
         try Data("reflex".utf8).write(to: root.appendingPathComponent("reflex.safetensors"), options: [.atomic])
+    }
+    if reflexConfig != nil, writeReflex {
+        let bundleManifest = try ManasMLXModelBundleManifestBuilder().build(
+            bundleID: "compatibility-smoke",
+            createdAt: Date(timeIntervalSince1970: 0),
+            manifest: manifest,
+            descriptor: nil,
+            checkpointRoot: root
+        )
+        try ManasModelBundleWriter().write(bundleManifest, to: root)
     }
     return root
 }

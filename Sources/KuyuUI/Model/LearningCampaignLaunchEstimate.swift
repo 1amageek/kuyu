@@ -6,6 +6,10 @@ struct LearningCampaignLaunchEstimate: Sendable, Equatable {
     var regressionEpisodes: Int
     var workerCount: Int
     var candidateConcurrency: Int
+    var machineSummary: String
+    var usableProcessorSlots: Int
+    var totalParallelSlots: Int
+    var utilizationLabel: String
     var retention: String
     var estimatedAt: Date
 
@@ -21,5 +25,9 @@ struct LearningCampaignLaunchEstimate: Sendable, Equatable {
 
     var parallelismLabel: String {
         "\(workerCount) workers / \(candidateConcurrency) candidates"
+    }
+
+    var machineUtilizationLabel: String {
+        "\(totalParallelSlots)/\(usableProcessorSlots) slots (\(utilizationLabel))"
     }
 }

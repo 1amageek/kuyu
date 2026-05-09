@@ -144,7 +144,7 @@ public final class SimulationViewModel {
     var lastPostRegressionGate: PostRegressionGateState?
     var lastConvergenceSummary: ConvergenceSummary?
     var lastCheckpointDecision: CheckpointDecision?
-    var learningCampaignExperimentName: String = "Drone Lift Starter"
+    var learningCampaignExperimentName: String = "Drone Autonomy Starter"
     var learningCampaignExperimentDescription: String = "Ready-to-run hybrid GA/RL starter project for Manas lift control."
     var learningCampaignTagsText: String = "starter, drone, lift, hybrid"
     var learningStrategySelection: LearningStrategySelection = .hybrid
@@ -164,6 +164,7 @@ public final class SimulationViewModel {
     var learningCampaignAdaptiveMutation: Bool = true
     var learningCampaignCompactRetention: Bool = false
     var learningCampaignAutoParallelism: Bool = true
+    var learningCampaignRequiresInitialParentPass: Bool = false
     var learningCampaignMachineCapacity: LearningCampaignMachineCapacity = .current()
     var learningCampaignAutonomyDomain: AutonomousOperationDomain = .aerialDrone
     var learningCampaignPreset: LearningCampaignRunPreset = .fiveGeneration {
@@ -207,6 +208,7 @@ public final class SimulationViewModel {
     private let trainingRunCoordinator = TrainingRunCoordinator()
     private let trainingBootstrapCoordinator = TrainingBootstrapCoordinator()
     private let learningStarterProjectStore: LearningStarterProjectStore
+    private let runnableProjectAssetPreparer: any RunnableProjectAssetPreparing
     private let learningCampaignRunStore = LearningCampaignRunStore()
     private let trainingLoopReducer = TrainingLoopStateReducer()
     private let descendingIntentResolver = DescendingIntentResolver()
@@ -234,12 +236,14 @@ public final class SimulationViewModel {
         logStore: UILogStore,
         commandSystem: CommandSystem? = nil,
         learningStarterProjectStore: LearningStarterProjectStore = LearningStarterProjectStore(),
+        runnableProjectAssetPreparer: (any RunnableProjectAssetPreparing)? = nil,
         prepareStarterProjectOnInit: Bool = false
     ) {
         self.logStore = logStore
         self.learningStarterProjectStore = learningStarterProjectStore
         let store = ManasMLXModelStore()
         self.modelStore = store
+        self.runnableProjectAssetPreparer = runnableProjectAssetPreparer ?? ManasMLXRunnableProjectAssetPreparer(modelStore: store)
         self.commandSystem = commandSystem ?? CommandSystem(modelStore: store)
         self.logger = Logger(label: "kuyu.ui")
         self.logger.logLevel = .info
@@ -1548,7 +1552,7 @@ public final class SimulationViewModel {
             learningCampaignReadiness = .blocked(message: "\(error)")
         }
 
-        if package.selectedTemplate.taskProfileID == nil {
+        if !package.selectedTemplate.isRunnableStarter {
             isLearningStarterProjectReady = false
             learningStarterProjectStatus = "Template runtime is not implemented yet"
         } else if learningStarterProjectStore.checkpointIsComplete(at: sourceURL) {
@@ -1567,7 +1571,7 @@ public final class SimulationViewModel {
     }
 
     func prepareRunnableProjectAssets(for package: KuyuProjectPackage) throws {
-        guard package.selectedTemplate.taskProfileID != nil else {
+        guard package.selectedTemplate.isRunnableStarter else {
             throw LearningCampaignRunError.invalidConfig("Template runtime is not implemented: \(package.selectedTemplate.task)")
         }
 
@@ -1576,32 +1580,19 @@ public final class SimulationViewModel {
             package.sourceBundleReference.url,
             isDirectory: true
         )
-        try FileManager.default.createDirectory(
-            at: sourceURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if FileManager.default.fileExists(atPath: sourceURL.path) {
-            try FileManager.default.removeItem(at: sourceURL)
-        }
-        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
-
         let descriptorPath = ensureDescriptorForTask(reason: "kuyuProject")
-        let descriptor = currentDescriptor()
         let observationTaskMode = taskMode
-        try modelStore.initializeDefaultModels(
-            observationMode: .runtimeMode(for: observationTaskMode),
+        try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
+            checkpointURL: sourceURL,
+            displayName: package.manifest.name,
+            descriptorPath: descriptorPath,
+            descriptor: currentDescriptor(),
+            taskMode: observationTaskMode,
             driveCount: package.selectedTemplate.action.driveCount,
+            expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
             auxEnabled: trainingUseAux,
-            useQualityGating: trainingUseQualityGating,
-            descriptor: descriptor
-        )
-        try modelStore.saveModel(
-            to: sourceURL,
-            name: package.manifest.name,
-            createdAt: Date(),
-            lastTrainedAt: nil
-        )
-        try validateStarterSourceCheckpoint(at: sourceURL, descriptorPath: descriptorPath)
+            qualityGatingEnabled: trainingUseQualityGating
+        ))
 
         learningCampaignSourceCheckpointPath = sourceURL.path
         learningCampaignArtifactDirectory = try makeProjectRunArtifactRoot(in: package.rootURL).path
@@ -2093,25 +2084,22 @@ public final class SimulationViewModel {
             )
         }
 
-        let descriptor = currentDescriptor()
         let observationTaskMode = taskMode
         let driveCount = starterDriveCount(for: observationTaskMode)
         let project = try learningStarterProjectStore.prepareStarterProject(
             regenerateSourceCheckpoint: forceNewArtifactRoot || !sourceIsValid
-        ) { [modelStore, trainingUseAux, trainingUseQualityGating, descriptor, observationTaskMode, driveCount] checkpointURL in
-            try modelStore.initializeDefaultModels(
-                observationMode: .runtimeMode(for: observationTaskMode),
+        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, driveCount] checkpointURL in
+            try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
+                checkpointURL: checkpointURL,
+                displayName: "Bounded Drone Autonomy Starter",
+                descriptorPath: descriptorPath,
+                descriptor: currentDescriptor(),
+                taskMode: observationTaskMode,
                 driveCount: driveCount,
+                expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
                 auxEnabled: trainingUseAux,
-                useQualityGating: trainingUseQualityGating,
-                descriptor: descriptor
-            )
-            try modelStore.saveModel(
-                to: checkpointURL,
-                name: "Bounded Drone Lift Starter",
-                createdAt: Date(),
-                lastTrainedAt: nil
-            )
+                qualityGatingEnabled: trainingUseQualityGating
+            ))
         }
         try validateStarterSourceCheckpoint(at: project.sourceCheckpoint, descriptorPath: descriptorPath)
 
@@ -2131,7 +2119,8 @@ public final class SimulationViewModel {
     }
 
     private func applyProjectTemplate(_ template: LearningProjectTemplate) {
-        switch template.task {
+        let runtimeTask = template.primaryRunnableTrainingStage?.task ?? template.task
+        switch runtimeTask {
         case "singleLift":
             taskMode = .singleLift
         case "lift":
@@ -2245,6 +2234,7 @@ public final class SimulationViewModel {
             kd: kd,
             yawDamping: yawDamping,
             hoverScale: hoverThrustScale,
+            requiresInitialParentPass: learningCampaignRequiresInitialParentPass,
             autonomyDomain: learningCampaignAutonomyDomain
         )
         return learningCampaignAutoParallelism

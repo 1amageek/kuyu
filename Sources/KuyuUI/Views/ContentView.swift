@@ -12,7 +12,7 @@ public struct ContentView: View {
         Group {
             if model.currentProject == nil {
                 BoundedWelcomeView(model: model)
-                    .frame(minWidth: 960, minHeight: 640)
+                    .frame(minWidth: 920, minHeight: 600)
             } else {
                 projectWorkspace
             }

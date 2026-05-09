@@ -4,7 +4,7 @@ import Testing
 @testable import KuyuUI
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func appViewModelCreatesAndOpensDesignOnlyKuyuProject() throws {
+@Test(.timeLimit(.minutes(1))) func appViewModelCreatesAndOpensDesignOnlyKuyuProject() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-project-flow-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -18,6 +18,7 @@ import Testing
         parentDirectory: root,
         template: LearningProjectTemplate.groundRobotPointNavigation
     )
+    await model.waitForProjectCreation()
 
     let projectURL = root
         .appendingPathComponent("GroundRobot", isDirectory: true)
@@ -30,6 +31,78 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("project.json").path))
     #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("experiments/default/experiment.json").path))
     #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("model-bundles/source.bundle-ref.json").path))
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func appViewModelRestoresRecentProjectsForWelcomeWindow() async throws {
+    let suiteName = "team.stamp.Bounded.tests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-project-recent-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        removeTemporaryDirectory(root)
+    }
+
+    let model = AppViewModel(
+        logStore: UILogStore(buffer: UILogBuffer()),
+        recentProjectsDefaults: defaults
+    )
+    model.createProject(
+        name: "RecentRobot",
+        parentDirectory: root,
+        template: LearningProjectTemplate.groundRobotPointNavigation
+    )
+    await model.waitForProjectCreation()
+
+    let projectURL = root
+        .appendingPathComponent("RecentRobot", isDirectory: true)
+        .appendingPathExtension("kuyu")
+        .standardizedFileURL
+
+    let relaunchedModel = AppViewModel(
+        logStore: UILogStore(buffer: UILogBuffer()),
+        recentProjectsDefaults: defaults
+    )
+    #expect(relaunchedModel.recentProjectURLs.first == projectURL)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func appViewModelIgnoresLegacyPathOnlyRecentProjects() async throws {
+    let suiteName = "team.stamp.Bounded.tests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-project-legacy-recent-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        removeTemporaryDirectory(root)
+    }
+
+    let projectURL = root
+        .appendingPathComponent("LegacyRobot", isDirectory: true)
+        .appendingPathExtension("kuyu")
+        .standardizedFileURL
+    let package = try KuyuProjectFactory().makeRunnableStarterProject(
+        rootURL: projectURL,
+        name: "LegacyRobot",
+        template: .groundRobotPointNavigation
+    )
+    try KuyuProjectPackageWriter().write(package)
+    defaults.set([projectURL.path], forKey: "team.stamp.Bounded.recentProjectPaths")
+
+    let model = AppViewModel(
+        logStore: UILogStore(buffer: UILogBuffer()),
+        recentProjectsDefaults: defaults
+    )
+    #expect(model.recentProjectURLs.isEmpty)
 }
 
 @MainActor
@@ -47,7 +120,7 @@ import Testing
     let package = try KuyuProjectFactory().makeRunnableStarterProject(
         rootURL: projectURL,
         name: "Drone",
-        template: .droneLiftStarter
+        template: .droneAutonomyStarter
     )
     try KuyuProjectPackageWriter().write(package)
 

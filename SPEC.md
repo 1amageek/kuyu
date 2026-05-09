@@ -208,8 +208,9 @@ Required semantics:
   internals.
 - Rejected generations MUST include typed candidate-level rejection reasons.
 - Gaussian mutation over ManasMLX checkpoints MUST preserve `model.json`,
-  write `core.safetensors` and optional `reflex.safetensors`, and produce a
-  reloadable candidate checkpoint.
+  write `core.safetensors` and optional `reflex.safetensors`, emit the Manas
+  `manas-bundle.json` model-bundle manifest when serializing a checkpoint, and
+  produce a reloadable candidate checkpoint.
 - Xcode runtime verification is required for MLX save/load smoke coverage
   because SwiftPM command-line execution may not exercise the same Metal
   resource path.

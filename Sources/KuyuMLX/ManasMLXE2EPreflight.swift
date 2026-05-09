@@ -1,5 +1,6 @@
 import Foundation
 import KuyuPhysics
+import ManasCore
 
 public struct ManasMLXE2EPreflightReport: Sendable, Codable, Equatable {
     public let descriptorPath: String?
@@ -105,11 +106,16 @@ public struct ManasMLXE2EPreflight {
     }
 
     private func validateCheckpointFiles(at directory: URL, fileManager: FileManager) throws {
-        for fileName in ["model.json", "core.safetensors"] {
+        for fileName in ["model.json", "core.safetensors", ManasModelBundleManifest.defaultFileName] {
             let url = directory.appendingPathComponent(fileName)
             guard fileManager.fileExists(atPath: url.path) else {
                 throw ManasMLXE2EPreflightError.missingCheckpointFile(url.path)
             }
+        }
+        do {
+            _ = try ManasModelBundleValidator().loadAndValidate(from: directory)
+        } catch {
+            throw ManasMLXE2EPreflightError.checkpointLoadFailed("\(error)")
         }
     }
 }

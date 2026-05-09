@@ -12,9 +12,9 @@ struct RunInspectorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                 metadata
+                runState
                 actions
                 artifacts
-                notes
             }
             .padding(KuyuSpacing.md)
         }
@@ -60,6 +60,22 @@ struct RunInspectorView: View {
         }
     }
 
+    private var runState: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
+                StatRow(label: "Status", value: simulationModel.learningCampaignState?.statusLabel ?? "--", compact: true)
+                StatRow(label: "Validation", value: simulationModel.learningCampaignState?.validationLabel ?? "--", compact: true)
+                StatRow(label: "Accepted", value: acceptedText, compact: true)
+                StatRow(label: "Latest Phase", value: simulationModel.learningCampaignCurrentPhase, compact: true)
+                if let reason = primaryFailureReason {
+                    StatRow(label: "Primary Issue", value: reason, compact: true)
+                }
+            }
+        } label: {
+            Label("Run State", systemImage: "gauge.with.dots.needle.bottom.50percent")
+        }
+    }
+
     private var artifacts: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
@@ -69,16 +85,6 @@ struct RunInspectorView: View {
             }
         } label: {
             Label("Artifacts", systemImage: "shippingbox")
-        }
-    }
-
-    private var notes: some View {
-        GroupBox {
-            Text(simulationModel.learningCampaignLatestEvent ?? "No notes.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } label: {
-            Label("Notes", systemImage: "note.text")
         }
     }
 
@@ -100,5 +106,20 @@ struct RunInspectorView: View {
     private var finalCheckpoint: String {
         guard let path = simulationModel.learningCampaignState?.finalCheckpoint else { return "--" }
         return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private var acceptedText: String {
+        guard let state = simulationModel.learningCampaignState else { return "--" }
+        return "\(state.acceptedCount)/\(state.seedCount)"
+    }
+
+    private var primaryFailureReason: String? {
+        if let stateReason = simulationModel.learningCampaignState?.primaryFailureReason {
+            return stateReason
+        }
+        if let gateReason = simulationModel.lastPostRegressionGate?.primaryRejectReason {
+            return gateReason
+        }
+        return simulationModel.learningCampaignError
     }
 }

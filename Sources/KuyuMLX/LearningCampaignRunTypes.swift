@@ -48,6 +48,7 @@ public enum LearningCampaignVariation: String, CaseIterable, Codable, Sendable, 
 public enum LearningCampaignRunPreset: String, CaseIterable, Codable, Sendable, Equatable {
     case smoke
     case standard
+    case fiveGeneration
     case full
 
     public func apply(to config: LearningCampaignRunConfig) -> LearningCampaignRunConfig {
@@ -70,6 +71,18 @@ public enum LearningCampaignRunPreset: String, CaseIterable, Codable, Sendable, 
             updated.workers = 1
             updated.candidateEvaluationConcurrency = 1
             updated.episodes = 1
+            updated.artifactRetention = .full
+        case .fiveGeneration:
+            updated.suites = [6]
+            updated.seedCount = 1
+            updated.population = 8
+            updated.generations = 5
+            updated.eliteCount = 2
+            updated.workers = 1
+            updated.candidateEvaluationConcurrency = 1
+            updated.episodes = 1
+            updated.adaptiveMutationEnabled = true
+            updated.minimumIncumbentImprovement = 0
             updated.artifactRetention = .full
         case .full:
             updated.suites = [6, 7, 8]
@@ -125,6 +138,10 @@ public struct LearningCampaignRunConfig: Sendable, Codable, Equatable {
     public var hoverScale: Double
     public var qualityGateEnabled: Bool
     public var allowsNonEmptyArtifactRoot: Bool
+    public var requiresInitialParentPass: Bool
+    public var autonomyDomain: AutonomousOperationDomain
+    public var autonomousPipelinePlan: AutonomousTrainingPipelinePlan?
+    public var reinforcementTrainingArtifactDirectory: URL?
 
     public init(
         task: LearningCampaignTask = .lift,
@@ -163,7 +180,11 @@ public struct LearningCampaignRunConfig: Sendable, Codable, Equatable {
         yawDamping: Double = 0.04,
         hoverScale: Double = 1.0,
         qualityGateEnabled: Bool = true,
-        allowsNonEmptyArtifactRoot: Bool = false
+        allowsNonEmptyArtifactRoot: Bool = false,
+        requiresInitialParentPass: Bool = true,
+        autonomyDomain: AutonomousOperationDomain = .aerialDrone,
+        autonomousPipelinePlan: AutonomousTrainingPipelinePlan? = nil,
+        reinforcementTrainingArtifactDirectory: URL? = nil
     ) {
         self.task = task
         self.sourceCheckpoint = sourceCheckpoint
@@ -202,6 +223,10 @@ public struct LearningCampaignRunConfig: Sendable, Codable, Equatable {
         self.hoverScale = hoverScale
         self.qualityGateEnabled = qualityGateEnabled
         self.allowsNonEmptyArtifactRoot = allowsNonEmptyArtifactRoot
+        self.requiresInitialParentPass = requiresInitialParentPass
+        self.autonomyDomain = autonomyDomain
+        self.autonomousPipelinePlan = autonomousPipelinePlan
+        self.reinforcementTrainingArtifactDirectory = reinforcementTrainingArtifactDirectory
     }
 }
 
@@ -240,19 +265,24 @@ public final class LearningCampaignRunHandle {
         self.continuation = localContinuation!
     }
 
-    func start(_ operation: @escaping @MainActor @Sendable () async throws -> LearningCampaignSummary) {
+    func start(_ operation: @escaping @Sendable () async throws -> LearningCampaignSummary) {
         completedResult = nil
-        task = Task { @MainActor in
+        let continuation = self.continuation
+        task = Task {
             do {
                 let summary = try await operation()
-                completedResult = .success(summary)
                 continuation.finish()
-                task = nil
+                Task { @MainActor in
+                    completedResult = .success(summary)
+                    task = nil
+                }
                 return summary
             } catch {
-                completedResult = .failure(error)
                 continuation.finish()
-                task = nil
+                Task { @MainActor in
+                    completedResult = .failure(error)
+                    task = nil
+                }
                 throw error
             }
         }

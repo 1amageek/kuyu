@@ -93,4 +93,45 @@ private func makeCheckpoint(at directory: URL) throws {
     try Data("{}".utf8).write(to: directory.appendingPathComponent("model.json"), options: [.atomic])
     try Data("core".utf8).write(to: directory.appendingPathComponent("core.safetensors"), options: [.atomic])
     try Data("reflex".utf8).write(to: directory.appendingPathComponent("reflex.safetensors"), options: [.atomic])
+    try Data(SelfContainedBundleManifest.fixtureJSON.utf8).write(
+        to: directory.appendingPathComponent("manas-bundle.json"),
+        options: [.atomic]
+    )
+}
+
+private enum SelfContainedBundleManifest {
+    static let fixtureJSON = """
+    {
+      "bundleID" : "fixture",
+      "components" : [
+        {
+          "contentType" : "application/json",
+          "path" : "model.json",
+          "required" : true,
+          "role" : "modelConfig"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "core.safetensors",
+          "required" : true,
+          "role" : "coreWeights"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "reflex.safetensors",
+          "required" : true,
+          "role" : "reflexWeights"
+        }
+      ],
+      "createdAt" : "1970-01-01T00:00:00Z",
+      "modelFamily" : "manas",
+      "runtimeContract" : {
+        "configHash" : "config",
+        "descriptorHash" : "descriptor",
+        "driveSemanticsID" : "drive",
+        "observationSchemaID" : "observation"
+      },
+      "schemaVersion" : 1
+    }
+    """
 }

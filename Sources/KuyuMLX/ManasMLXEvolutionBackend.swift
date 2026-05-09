@@ -1,5 +1,6 @@
 import Foundation
 import KuyuTraining
+import ManasCore
 import MLX
 import MLXRandom
 
@@ -92,12 +93,10 @@ public struct ManasMLXGenomeVariationRequest: Sendable, Equatable {
     }
 }
 
-@MainActor
-public protocol ManasMLXGenomeVariationProviding {
+public protocol ManasMLXGenomeVariationProviding: Sendable {
     func makeCandidate(request: ManasMLXGenomeVariationRequest) async throws -> GenomeCandidate
 }
 
-@MainActor
 public struct ManasMLXFileBackedGenomeVariationProvider: ManasMLXGenomeVariationProviding {
     public init() {}
 
@@ -179,7 +178,6 @@ public struct ManasMLXGaussianMutationConfig: Sendable, Codable, Equatable {
     }
 }
 
-@MainActor
 public struct ManasMLXGaussianMutationProvider: ManasMLXGenomeVariationProviding {
     public enum MutationError: Error, Sendable, Equatable {
         case missingSourceCheckpoint
@@ -217,6 +215,12 @@ public struct ManasMLXGaussianMutationProvider: ManasMLXGenomeVariationProviding
         try writeDescriptor(request: request, sourceCheckpointURL: sourceCheckpointURL)
         let candidateID = "g\(request.generationIndex)-c\(request.candidateIndex)"
         let genomeID = "\(request.config.runID)-\(candidateID)"
+        try writeBundleManifest(
+            request: request,
+            sourceCheckpointURL: sourceCheckpointURL,
+            candidateID: candidateID,
+            genomeID: genomeID
+        )
         return GenomeCandidate(
             runID: request.config.runID,
             generationIndex: request.generationIndex,
@@ -322,6 +326,38 @@ public struct ManasMLXGaussianMutationProvider: ManasMLXGenomeVariationProviding
         try FileManager.default.copyItem(at: modelURL, to: targetURL)
     }
 
+    private func writeBundleManifest(
+        request: ManasMLXGenomeVariationRequest,
+        sourceCheckpointURL: URL,
+        candidateID: String,
+        genomeID: String
+    ) throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifestData = try Data(contentsOf: request.candidateDirectory.appendingPathComponent("model.json"))
+        let modelManifest = try decoder.decode(ManasMLXModelManifest.self, from: manifestData)
+
+        let sourceBundleURL = sourceCheckpointURL.appendingPathComponent(ManasModelBundleManifest.defaultFileName)
+        let sourceBundle: ManasModelBundleManifest?
+        if FileManager.default.fileExists(atPath: sourceBundleURL.path) {
+            sourceBundle = try ManasModelBundleValidator().loadAndValidate(from: sourceCheckpointURL)
+        } else {
+            sourceBundle = nil
+        }
+
+        let bundleManifest = try ManasMLXModelBundleManifestBuilder().build(
+            bundleID: genomeID,
+            createdAt: Date(),
+            parentBundleID: sourceBundle?.bundleID,
+            manifest: modelManifest,
+            descriptor: nil,
+            checkpointRoot: request.candidateDirectory,
+            runtimeContractOverride: sourceBundle?.runtimeContract
+        )
+        try ManasModelBundleWriter().write(bundleManifest, to: request.candidateDirectory)
+        _ = try ManasModelBundleValidator().loadAndValidate(from: request.candidateDirectory)
+    }
+
     private func writeDescriptor(
         request: ManasMLXGenomeVariationRequest,
         sourceCheckpointURL: URL
@@ -367,7 +403,6 @@ public struct ManasMLXGaussianMutationProvider: ManasMLXGenomeVariationProviding
     }
 }
 
-@MainActor
 public struct ManasMLXEvolutionBackend: EvolutionaryTrainingBackend {
     public enum BackendError: Error, Sendable, Equatable {
         case emptyPreviousPopulation

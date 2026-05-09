@@ -24,6 +24,7 @@ public struct KuyuRegressionRunConfig: Sendable, Equatable {
     public let failOnTruncation: Bool
     public let minimumRewardAverage: Double?
     public let useQualityGating: Bool
+    public let checksEnvironmentReadiness: Bool
 
     public init(
         controller: ControllerSelection,
@@ -44,7 +45,8 @@ public struct KuyuRegressionRunConfig: Sendable, Equatable {
         hoverScale: Double,
         failOnTruncation: Bool,
         minimumRewardAverage: Double?,
-        useQualityGating: Bool
+        useQualityGating: Bool,
+        checksEnvironmentReadiness: Bool = true
     ) {
         self.controller = controller
         self.snapshotURL = snapshotURL
@@ -65,6 +67,7 @@ public struct KuyuRegressionRunConfig: Sendable, Equatable {
         self.failOnTruncation = failOnTruncation
         self.minimumRewardAverage = minimumRewardAverage
         self.useQualityGating = useQualityGating
+        self.checksEnvironmentReadiness = checksEnvironmentReadiness
     }
 }
 
@@ -78,7 +81,6 @@ public enum KuyuRegressionRunnerError: Error, Sendable, Equatable {
 public struct KuyuRegressionRunner: Sendable {
     public init() {}
 
-    @MainActor
     public func run(config: KuyuRegressionRunConfig) async throws -> KuyuRegressionSummary {
         try FileManager.default.createDirectory(at: config.artifactRoot, withIntermediateDirectories: true)
         if config.controller == .manasMLX, config.snapshotURL == nil {
@@ -99,7 +101,7 @@ public struct KuyuRegressionRunner: Sendable {
 
         if config.controller == .manasMLX {
             do {
-                _ = try ManasMLXE2EPreflight().check(
+                _ = try await ManasMLXE2EPreflight().check(
                     descriptorPath: config.modelDescriptorPath,
                     sourceCheckpointURL: config.snapshotURL,
                     requireSourceCheckpoint: true
@@ -149,17 +151,22 @@ public struct KuyuRegressionRunner: Sendable {
             hoverThrustScale: config.hoverScale
         )
 
-        let environmentReport = try await KuyuEnvironmentReadinessChecker().check(
-            tasks: [simulationTaskMode(from: config.task)],
-            controller: environmentController,
-            parameters: parameters,
-            schedule: schedule,
-            determinism: determinism,
-            gains: gains,
-            modelDescriptorPath: config.modelDescriptorPath,
-            descriptor: descriptor,
-            artifactRoot: config.artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
-        )
+        let environmentReport: KuyuEnvironmentReadinessReport
+        if config.checksEnvironmentReadiness {
+            environmentReport = try await KuyuEnvironmentReadinessChecker().check(
+                tasks: [simulationTaskMode(from: config.task)],
+                controller: environmentController,
+                parameters: parameters,
+                schedule: schedule,
+                determinism: determinism,
+                gains: gains,
+                modelDescriptorPath: config.modelDescriptorPath,
+                descriptor: descriptor,
+                artifactRoot: config.artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
+            )
+        } else {
+            environmentReport = KuyuEnvironmentReadinessReport(tasks: [])
+        }
 
         if config.controller == .manasMLX,
            let snapshotURL = config.snapshotURL,
@@ -671,4 +678,3 @@ private func simulationTaskMode(from task: LearningCampaignRolloutTask) -> Simul
 private func rolloutDefinitionKey(scenarioID: String, seed: UInt64) -> String {
     "\(scenarioID)#\(seed)"
 }
-

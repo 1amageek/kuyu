@@ -15,25 +15,29 @@ import SwiftUI
 ///     }
 struct CollapsibleSplitView<Main: View, Content: View, Header: View>: View {
     @Binding var isExpanded: Bool
+    var minMainHeight: CGFloat = 200
+    var minSectionHeight: CGFloat = 120
     @ViewBuilder var main: Main
     @ViewBuilder var content: Content
     @ViewBuilder var header: Header
 
     var body: some View {
         if isExpanded {
-            VSplitView {
+            VSplitView(minTopHeight: minMainHeight, minBottomHeight: minSectionHeight) {
                 main
-                footerPanel
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                footerSection
             }
         } else {
             VStack(spacing: 0) {
                 main
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 headerBar
             }
         }
     }
 
-    private var footerPanel: some View {
+    private var footerSection: some View {
         VStack(spacing: 0) {
             headerBar
             Divider()
@@ -73,7 +77,7 @@ struct CollapsibleSplitView<Main: View, Content: View, Header: View>: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isExpanded ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
-        .help(isExpanded ? "Hide Panel" : "Show Panel")
+        .foregroundStyle(isExpanded ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+        .help(isExpanded ? "Hide Section" : "Show Section")
     }
 }

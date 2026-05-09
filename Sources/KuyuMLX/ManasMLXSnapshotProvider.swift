@@ -1,5 +1,6 @@
 import Foundation
 import KuyuTraining
+import ManasCore
 
 public struct ManasMLXSnapshotProvider: SnapshotProviding {
     public enum SnapshotError: Error, Sendable, Equatable, CustomStringConvertible {
@@ -35,7 +36,12 @@ public struct ManasMLXSnapshotProvider: SnapshotProviding {
         policyID: String = "manasMLX",
         descriptorID: String? = nil,
         configHash: String? = nil,
-        requiredFiles: [String] = ["model.json", "core.safetensors", "reflex.safetensors"]
+        requiredFiles: [String] = [
+            "model.json",
+            "core.safetensors",
+            "reflex.safetensors",
+            ManasModelBundleManifest.defaultFileName
+        ]
     ) {
         self.sourceCheckpointURL = sourceCheckpointURL
         self.workerRootURL = workerRootURL
@@ -86,6 +92,7 @@ public struct ManasMLXSnapshotProvider: SnapshotProviding {
                 throw SnapshotError.missingRequiredFile(fileURL)
             }
         }
+        _ = try ManasModelBundleValidator().loadAndValidate(from: source)
     }
 
     private func prepareDestination(_ destination: URL) throws {

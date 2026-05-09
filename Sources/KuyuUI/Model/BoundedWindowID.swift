@@ -1,4 +1,6 @@
 public enum BoundedWindowID: String, CaseIterable, Sendable {
+    case main = "bounded.main"
+    case welcome = "bounded.welcome"
     case simulation = "bounded.simulation"
     case monitor = "bounded.monitor"
     case analysis = "bounded.analysis"
@@ -6,15 +8,19 @@ public enum BoundedWindowID: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .simulation: return "シミュレーション"
-        case .monitor: return "モニター"
-        case .analysis: return "分析"
-        case .report: return "レポート"
+        case .main: return "Bounded"
+        case .welcome: return "Welcome to Bounded"
+        case .simulation: return "Simulation"
+        case .monitor: return "Monitor"
+        case .analysis: return "Analysis"
+        case .report: return "Report"
         }
     }
 
     public var systemImage: String {
         switch self {
+        case .main: return "b.square"
+        case .welcome: return "doc.badge.plus"
         case .simulation: return "play.rectangle"
         case .monitor: return "chart.line.uptrend.xyaxis"
         case .analysis: return "tablecells"

@@ -62,6 +62,7 @@ func modelStoreSavesAndLoadsManifestAndTensorFiles() throws {
     #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("model.json").path))
     #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("core.safetensors").path))
     #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("reflex.safetensors").path))
+    #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("manas-bundle.json").path))
 
     let loadedStore = ManasMLXModelStore()
     let loadedManifest = try loadedStore.loadModel(from: directory)
@@ -86,6 +87,41 @@ func modelStoreInferenceUsesLoadedCheckpointAuxContract() throws {
 
     #expect(store.effectiveInferenceAuxEnabledForTesting(requested: true) == false)
     #expect(store.effectiveInferenceAuxEnabledForTesting(requested: false) == false)
+}
+
+@MainActor
+@Test(
+    .enabled(if: mlxSaveLoadSmokeEnabled),
+    .timeLimit(.minutes(1))
+)
+func modelStoreInitializesSingleDriveStarterCheckpoint() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-single-drive-starter-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            Issue.record("Failed to remove temporary model directory \(directory.path): \(error)")
+        }
+    }
+
+    let store = ManasMLXModelStore()
+    try store.initializeDefaultModels(
+        observationMode: .runtimeMode(for: .singleLift),
+        driveCount: 1,
+        auxEnabled: true,
+        useQualityGating: true,
+        descriptor: nil
+    )
+    let manifest = try store.saveModel(to: directory, name: "single-drive-starter")
+
+    #expect(manifest.coreConfig.driveCount == 1)
+    #expect(manifest.reflexConfig?.driveCount == 1)
+    #expect(try ManasMLXCheckpointCompatibility(expectedDriveCount: 1).validate(snapshotURL: directory) == nil)
+    #expect(
+        try ManasMLXCheckpointCompatibility(expectedDriveCount: 4).validate(snapshotURL: directory)
+            == .incompatibleDriveCount(expected: 4, actual: 1)
+    )
 }
 
 @MainActor
@@ -141,6 +177,7 @@ func trainedCoreCheckpointIncludesReflexSnapshotForRollout() async throws {
     #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("model.json").path))
     #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("core.safetensors").path))
     #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("reflex.safetensors").path))
+    #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("manas-bundle.json").path))
 }
 
 #if Xcode

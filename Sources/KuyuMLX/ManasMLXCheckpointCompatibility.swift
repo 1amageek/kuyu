@@ -1,9 +1,11 @@
 import Foundation
+import ManasCore
 
 public enum ManasMLXCheckpointCompatibilityFailure: Sendable, Equatable, CustomStringConvertible {
     case incompatibleDriveCount(expected: Int, actual: Int)
     case missingReflexConfig
     case missingReflexCheckpoint(URL)
+    case invalidModelBundle(String)
 
     public var description: String {
         switch self {
@@ -13,6 +15,8 @@ public enum ManasMLXCheckpointCompatibilityFailure: Sendable, Equatable, CustomS
             return "missing-reflex-config"
         case .missingReflexCheckpoint:
             return "missing-reflex-checkpoint"
+        case .invalidModelBundle(let reason):
+            return "invalid-model-bundle(\(reason))"
         }
     }
 }
@@ -43,6 +47,11 @@ public struct ManasMLXCheckpointCompatibility: Sendable {
         let reflexURL = snapshotURL.appendingPathComponent("reflex.safetensors")
         guard FileManager.default.fileExists(atPath: reflexURL.path) else {
             return .missingReflexCheckpoint(reflexURL)
+        }
+        do {
+            _ = try ManasModelBundleValidator().loadAndValidate(from: snapshotURL)
+        } catch {
+            return .invalidModelBundle("\(error)")
         }
         return nil
     }

@@ -1,4 +1,5 @@
 import Foundation
+import KuyuTraining
 
 public struct LearningCampaignSummary: Codable, Sendable, Equatable {
     public let artifactRoot: String
@@ -7,6 +8,7 @@ public struct LearningCampaignSummary: Codable, Sendable, Equatable {
     public let finalCheckpoint: String
     public let runs: [LearningCampaignSeedRunSummary]
     public let retention: LearningCampaignArtifactRetentionSummary?
+    public let autonomousPipelineExecution: AutonomousTrainingPipelineExecutionReport?
 
     public init(
         artifactRoot: String,
@@ -14,7 +16,8 @@ public struct LearningCampaignSummary: Codable, Sendable, Equatable {
         acceptedCount: Int,
         finalCheckpoint: String,
         runs: [LearningCampaignSeedRunSummary],
-        retention: LearningCampaignArtifactRetentionSummary? = nil
+        retention: LearningCampaignArtifactRetentionSummary? = nil,
+        autonomousPipelineExecution: AutonomousTrainingPipelineExecutionReport? = nil
     ) {
         self.artifactRoot = artifactRoot
         self.seedCount = seedCount
@@ -22,5 +25,6 @@ public struct LearningCampaignSummary: Codable, Sendable, Equatable {
         self.finalCheckpoint = finalCheckpoint
         self.runs = runs
         self.retention = retention
+        self.autonomousPipelineExecution = autonomousPipelineExecution
     }
 }

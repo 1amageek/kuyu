@@ -1,5 +1,6 @@
 import Foundation
 import KuyuTraining
+import ManasCore
 
 public struct LearningCampaignArtifactValidator: Sendable {
     public enum ValidationError: Error, Sendable, Equatable {
@@ -94,6 +95,9 @@ public struct LearningCampaignArtifactValidator: Sendable {
         validate(progress: progress, allowRunning: allowRunning, issues: &issues)
         validate(resourceSamples: resourceSamples, required: resourceSampleRequired, issues: &issues)
         validate(environment: environment, issues: &issues)
+        validateAutonomousPipeline(plan: plan, issues: &issues)
+        validateAutonomousPipelineExecution(plan: plan, summary: summary, issues: &issues)
+        validateAutonomousPipelineExecutionEvidence(summary: summary, issues: &issues)
         validate(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
         validate(plan: plan, summary: summary, retention: retention, issues: &issues)
         validateParentTaskEvaluations(plan: plan, summary: summary, root: artifactRoot, issues: &issues)
@@ -167,6 +171,128 @@ public struct LearningCampaignArtifactValidator: Sendable {
                 code: "missing-repository-state",
                 detail: "learning-campaign-environment.json"
             ))
+        }
+    }
+
+    private func validateAutonomousPipeline(
+        plan: LearningCampaignPlan?,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard let plan else { return }
+        guard let pipeline = plan.autonomousPipeline else {
+            issues.append(.init(
+                code: "missing-autonomous-pipeline",
+                detail: "learning-campaign-plan.json"
+            ))
+            return
+        }
+        do {
+            try AutonomousTrainingPipelineValidator().validate(pipeline)
+        } catch {
+            issues.append(.init(
+                code: "invalid-autonomous-pipeline",
+                detail: "\(error)"
+            ))
+        }
+    }
+
+    private func validateAutonomousPipelineExecution(
+        plan: LearningCampaignPlan?,
+        summary: LearningCampaignSummary?,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard let pipeline = plan?.autonomousPipeline else { return }
+        guard let summary else { return }
+        guard let execution = summary.autonomousPipelineExecution else {
+            issues.append(.init(
+                code: "missing-autonomous-pipeline-execution",
+                detail: "learning-campaign-summary.json"
+            ))
+            return
+        }
+        do {
+            try AutonomousTrainingPipelineExecutionValidator().validate(execution, plan: pipeline)
+        } catch {
+            issues.append(.init(
+                code: "invalid-autonomous-pipeline-execution",
+                detail: "\(error)"
+            ))
+        }
+    }
+
+    private func validateAutonomousPipelineExecutionEvidence(
+        summary: LearningCampaignSummary?,
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard let execution = summary?.autonomousPipelineExecution else { return }
+        for record in execution.stageRecords where record.status == .completed || record.status == .blocked {
+            var trainingRunBundles: [TrainingRunArtifactBundle] = []
+            var modelBundleEvidencePaths: [String] = []
+            for evidence in record.evidence {
+                guard FileManager.default.fileExists(atPath: evidence.path) else {
+                    issues.append(.init(
+                        code: "missing-autonomous-pipeline-evidence",
+                        detail: "stage=\(record.stageID) path=\(evidence.path)"
+                    ))
+                    continue
+                }
+                if evidence.kind == .trainingRunArtifact {
+                    do {
+                        let bundle = try TrainingRunArtifactValidator().loadAndValidate(
+                            from: URL(fileURLWithPath: evidence.path, isDirectory: true)
+                        )
+                        trainingRunBundles.append(bundle)
+                    } catch {
+                        issues.append(.init(
+                            code: "invalid-autonomous-pipeline-training-run-evidence",
+                            detail: "stage=\(record.stageID) error=\(error)"
+                        ))
+                    }
+                } else if evidence.kind == .modelBundle {
+                    let bundleURL = URL(fileURLWithPath: evidence.path, isDirectory: true)
+                    modelBundleEvidencePaths.append(normalizedCheckpointPath(bundleURL.path) ?? bundleURL.path)
+                    if let reason = checkpointIncompleteReason(bundleURL) {
+                        issues.append(.init(
+                            code: "invalid-autonomous-pipeline-model-bundle-evidence",
+                            detail: "stage=\(record.stageID) path=\(evidence.path) error=\(reason)"
+                        ))
+                    }
+                }
+            }
+            validateTrainingRunModelBundleEvidenceLinks(
+                stageID: record.stageID,
+                trainingRunBundles: trainingRunBundles,
+                modelBundleEvidencePaths: modelBundleEvidencePaths,
+                issues: &issues
+            )
+        }
+    }
+
+    private func validateTrainingRunModelBundleEvidenceLinks(
+        stageID: String,
+        trainingRunBundles: [TrainingRunArtifactBundle],
+        modelBundleEvidencePaths: [String],
+        issues: inout [LearningCampaignValidationIssue]
+    ) {
+        guard !trainingRunBundles.isEmpty else { return }
+        let modelBundlePathSet = Set(modelBundleEvidencePaths)
+        for bundle in trainingRunBundles {
+            guard let checkpointURL = bundle.checkpointDecision.publishedCheckpointURL
+                ?? bundle.checkpointDecision.candidateCheckpointURL else {
+                issues.append(.init(
+                    code: "autonomous-pipeline-training-run-missing-checkpoint",
+                    detail: "stage=\(stageID) run=\(bundle.manifest.runID)"
+                ))
+                continue
+            }
+            let checkpointPath = normalizedCheckpointPath(checkpointURL.path) ?? checkpointURL.path
+            guard modelBundlePathSet.contains(checkpointPath) else {
+                issues.append(.init(
+                    code: "autonomous-pipeline-training-run-model-bundle-mismatch",
+                    detail: "stage=\(stageID) run=\(bundle.manifest.runID) checkpoint=\(checkpointPath)"
+                ))
+                continue
+            }
         }
     }
 
@@ -846,8 +972,26 @@ public struct LearningCampaignArtifactValidator: Sendable {
     }
 
     private func checkpointComplete(_ url: URL) -> Bool {
-        ["model.json", "core.safetensors", "reflex.safetensors"].allSatisfy { fileName in
-            FileManager.default.fileExists(atPath: url.appendingPathComponent(fileName).path)
+        checkpointIncompleteReason(url) == nil
+    }
+
+    private func checkpointIncompleteReason(_ url: URL) -> String? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return "missing-checkpoint-directory(\(url.path))"
+        }
+        for fileName in ["model.json", "core.safetensors", "reflex.safetensors"] {
+            let fileURL = url.appendingPathComponent(fileName, isDirectory: false)
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                return "missing-required-checkpoint-file(\(fileName))"
+            }
+        }
+        do {
+            _ = try ManasModelBundleValidator().loadAndValidate(from: url)
+            return nil
+        } catch {
+            return "invalid-model-bundle(\(error))"
         }
     }
 
