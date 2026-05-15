@@ -58,7 +58,7 @@ struct PopulationSimulationView: View {
     }
 
     private var activeGenerationIndex: Int {
-        if let progressGeneration = state?.progressEvents.last(where: {
+        if let progressGeneration = model.learningCampaignProgressEventsForDisplay.last(where: {
             $0.generationIndex != nil
         })?.generationIndex {
             return progressGeneration
@@ -67,7 +67,7 @@ struct PopulationSimulationView: View {
     }
 
     private var activeSeed: String {
-        if let seed = state?.progressEvents.last(where: {
+        if let seed = model.learningCampaignProgressEventsForDisplay.last(where: {
             $0.generationIndex == activeGenerationIndex && $0.seed != nil
         })?.seed {
             return seed
@@ -177,8 +177,7 @@ struct PopulationSimulationView: View {
     }
 
     private var progressRecordsByCandidateID: [String: LearningCampaignProgressRecord] {
-        guard let state else { return [:] }
-        let records = state.progressEvents.filter { record in
+        let records = model.learningCampaignProgressEventsForDisplay.filter { record in
             record.event == "candidate-evaluated"
             && record.seed == activeSeed
             && record.generationIndex == activeGenerationIndex

@@ -191,6 +191,13 @@ public final class SimulationViewModel {
     var learningCampaignLiveAltitudeErrorSamples: [MetricSample] = []
     var learningCampaignLiveEpisodeSamples: [MetricSample] = []
     var learningCampaignLiveCandidateEvaluationCount: Int = 0
+    var learningCampaignLiveProgressEvents: [LearningCampaignProgressRecord] = []
+    var learningCampaignProgressEventsForDisplay: [LearningCampaignProgressRecord] {
+        let persisted = learningCampaignState?.progressEvents ?? []
+        return (persisted + learningCampaignLiveProgressEvents).sorted { lhs, rhs in
+            lhs.timestamp < rhs.timestamp
+        }
+    }
     var isLearningCampaignRunning = false
     var learningCampaignMonitorEnabled = false
     var learningCampaignState: LearningCampaignRunStoreState?
@@ -2243,6 +2250,7 @@ public final class SimulationViewModel {
         appendLearningCampaignRunLogRecord(
             LearningCampaignRunLogFormatter.entry(from: logEvent, progress: progress)
         )
+        appendLearningCampaignLiveProgressEvent(logEvent)
         learningCampaignCurrentPhase = logEvent.phase
         learningCampaignLatestEvent = logEvent.message
         guard logEvent.phase == "candidate",
@@ -2295,6 +2303,103 @@ public final class SimulationViewModel {
         learningCampaignLiveAltitudeErrorSamples = []
         learningCampaignLiveEpisodeSamples = []
         learningCampaignLiveCandidateEvaluationCount = 0
+        learningCampaignLiveProgressEvents = []
+    }
+
+    private func appendLearningCampaignLiveProgressEvent(_ logEvent: TrainingRunLogEvent) {
+        guard let progressRecord = makeLearningCampaignProgressRecord(from: logEvent) else { return }
+        learningCampaignLiveProgressEvents.append(progressRecord)
+        let maximumEntryCount = 1_000
+        if learningCampaignLiveProgressEvents.count > maximumEntryCount {
+            learningCampaignLiveProgressEvents.removeFirst(learningCampaignLiveProgressEvents.count - maximumEntryCount)
+        }
+    }
+
+    private func makeLearningCampaignProgressRecord(
+        from logEvent: TrainingRunLogEvent
+    ) -> LearningCampaignProgressRecord? {
+        let eventName: String
+        switch logEvent.phase {
+        case "preflight":
+            eventName = logEvent.level == .success ? "preflight-completed" : "preflight-started"
+        case "seed":
+            eventName = logEvent.metadata["accepted"] == nil ? "seed-started" : "seed-completed"
+        case "generation":
+            eventName = logEvent.candidateID == nil ? "generation-started" : "generation-completed"
+        case "candidate":
+            eventName = "candidate-evaluated"
+        case "artifact":
+            eventName = "artifact-written"
+        case "finished":
+            eventName = "campaign-finished"
+        case "failed":
+            eventName = "campaign-failed"
+        case "cancelled":
+            eventName = "campaign-cancelled"
+        default:
+            return nil
+        }
+
+        return LearningCampaignProgressRecord(
+            event: eventName,
+            timestamp: ISO8601DateFormatter().string(from: logEvent.timestamp),
+            status: logEvent.phase == "failed" || logEvent.phase == "cancelled" ? logEvent.phase : nil,
+            exitCode: nil,
+            phase: logEvent.phase,
+            seed: logEvent.seed,
+            generationIndex: logEvent.generationIndex,
+            candidateID: logEvent.candidateID,
+            fitness: Double(logEvent.metadata["fitness"] ?? ""),
+            rewardAverage: Double(logEvent.metadata["reward"] ?? ""),
+            taskPassRate: Double(logEvent.metadata["taskPassRate"] ?? ""),
+            safetyViolationRate: Double(logEvent.metadata["safetyViolationRate"] ?? ""),
+            holdTimeRatio: Double(logEvent.metadata["holdTimeRatio"] ?? ""),
+            altitudeErrorRatio: Double(logEvent.metadata["altitudeErrorRatio"] ?? ""),
+            workerThroughput: Double(logEvent.metadata["workerThroughput"] ?? ""),
+            gpuAcceleration: boolMetadata(logEvent.metadata["gpu"]),
+            tensorWorldBatch: boolMetadata(logEvent.metadata["tensorWorld"]),
+            tensorSummary: tensorSummaryMetadata(logEvent.metadata["summary"]),
+            vectorizedPopulationSize: intMetadata(logEvent.metadata["population"]),
+            vectorizedWorldCount: intMetadata(logEvent.metadata["worlds"]),
+            vectorizedHistoryLength: intMetadata(logEvent.metadata["history"]),
+            vectorizedObservationDimension: intMetadata(logEvent.metadata["obs"]),
+            vectorizedActionDimension: intMetadata(logEvent.metadata["action"]),
+            failureReasons: failureReasonsMetadata(logEvent.metadata["failureReasons"]),
+            bestCandidateID: logEvent.phase == "generation" ? logEvent.candidateID : nil,
+            accepted: boolMetadata(logEvent.metadata["accepted"]),
+            path: logEvent.metadata["path"],
+            message: logEvent.message
+        )
+    }
+
+    private func boolMetadata(_ value: String?) -> Bool? {
+        guard let value else { return nil }
+        switch value.lowercased() {
+        case "true", "1", "yes":
+            return true
+        case "false", "0", "no":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private func tensorSummaryMetadata(_ value: String?) -> Bool? {
+        guard let value else { return nil }
+        return value == "tensor"
+    }
+
+    private func intMetadata(_ value: String?) -> Int? {
+        guard let value else { return nil }
+        return Int(value)
+    }
+
+    private func failureReasonsMetadata(_ value: String?) -> [String] {
+        guard let value else { return [] }
+        return value
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     func appendLearningCampaignLiveMetricSamples(_ fitness: FitnessSummary) {

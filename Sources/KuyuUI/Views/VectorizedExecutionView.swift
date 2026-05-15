@@ -45,7 +45,7 @@ struct VectorizedExecutionView: View {
     }
 
     private var latestLiveRecord: LearningCampaignProgressRecord? {
-        state?.progressEvents.last { record in
+        model.learningCampaignProgressEventsForDisplay.last { record in
             record.event == "candidate-evaluated" &&
             (
                 record.gpuAcceleration != nil ||
@@ -238,8 +238,7 @@ struct VectorizedExecutionView: View {
     }
 
     private var liveThroughputSamples: [VectorizedThroughputSample] {
-        guard let state else { return [] }
-        return state.progressEvents.compactMap { record -> VectorizedThroughputSample? in
+        model.learningCampaignProgressEventsForDisplay.compactMap { record -> VectorizedThroughputSample? in
             guard record.event == "candidate-evaluated",
                   let generationIndex = record.generationIndex,
                   let candidateID = record.candidateID,

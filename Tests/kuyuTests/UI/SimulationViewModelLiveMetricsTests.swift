@@ -42,6 +42,49 @@ import Testing
     #expect(model.learningCampaignLiveTaskPassSamples.map { $0.value } == [0.5, 0.75])
 }
 
+@MainActor
+@Test(.timeLimit(.minutes(1))) func simulationViewModelExposesLiveVectorizedProgressForDashboardViews() {
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.learningCampaignLiveProgressEvents = [
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: "2026-05-16T00:00:00Z",
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "seed-1",
+            generationIndex: 3,
+            candidateID: "g3-c42",
+            fitness: -12.5,
+            rewardAverage: -4.2,
+            taskPassRate: 0.25,
+            safetyViolationRate: 0,
+            holdTimeRatio: 0.1,
+            altitudeErrorRatio: 0.2,
+            workerThroughput: 18.5,
+            gpuAcceleration: true,
+            tensorWorldBatch: true,
+            tensorSummary: true,
+            vectorizedPopulationSize: 100,
+            vectorizedWorldCount: 100,
+            vectorizedHistoryLength: 32,
+            vectorizedObservationDimension: 64,
+            vectorizedActionDimension: 4,
+            failureReasons: [],
+            message: "Candidate evaluated"
+        )
+    ]
+
+    let records = model.learningCampaignProgressEventsForDisplay
+
+    #expect(records.count == 1)
+    #expect(records.first?.candidateID == "g3-c42")
+    #expect(records.first?.gpuAcceleration == true)
+    #expect(records.first?.tensorWorldBatch == true)
+    #expect(records.first?.vectorizedPopulationSize == 100)
+    #expect(records.first?.vectorizedWorldCount == 100)
+}
+
 private func makeFitness(
     generationIndex: Int,
     candidateID: String,
