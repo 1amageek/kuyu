@@ -4,8 +4,7 @@ import Logging
 import KuyuPhysics
 import KuyuScenarios
 
-@MainActor
-public struct SimulationRunnerService {
+public struct SimulationRunnerService: @unchecked Sendable {
     let modelStore: ManasMLXModelStore
     let manualActuatorStore: ManualActuatorStore?
     private var logger: Logger
@@ -22,7 +21,7 @@ public struct SimulationRunnerService {
     public func run(
         request: SimulationRunRequest,
         control: SimulationControl? = nil,
-        telemetry: ((WorldStepLog) -> Void)? = nil
+        telemetry: WorldStepTelemetry? = nil
     ) async throws -> KuyAtt1RunOutput {
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: request.cutPeriodSteps)
         let resolution = try resolveParameters(request: request)
@@ -205,7 +204,7 @@ public struct SimulationRunnerService {
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?,
+        telemetry: WorldStepTelemetry?,
         chainFactory: @escaping () throws -> MotorNerveChain,
         baselineMode: KuyAtt1BaselineMode
     ) async throws -> KuyAtt1RunOutput {
@@ -336,7 +335,7 @@ public struct SimulationRunnerService {
         descriptor: RobotDescriptor?,
         schedule: SimulationSchedule,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?,
+        telemetry: WorldStepTelemetry?,
         store: ManualActuatorStore
     ) async throws -> KuyAtt1RunOutput {
         let runner = ReferenceQuadrotorScenarioRunner<ImuRateDampingDriveCut, ManualMotorNerve>(
@@ -457,7 +456,7 @@ public struct SimulationRunnerService {
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?
+        telemetry: WorldStepTelemetry?
     ) async throws -> KuyAtt1RunOutput {
         let runner = ReferenceQuadrotorScenarioRunner<ImuRateDampingDriveCut, LiftMotorNerve>(
             parameters: parameters,
@@ -521,7 +520,7 @@ public struct SimulationRunnerService {
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?,
+        telemetry: WorldStepTelemetry?,
         chainFactory: @escaping () throws -> MotorNerveChain
     ) async throws -> KuyAtt1RunOutput {
         let runner = ReferenceQuadrotorScenarioRunner<ImuRateDampingDriveCut, MotorNerveChain>(
@@ -585,7 +584,7 @@ public struct SimulationRunnerService {
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?
+        telemetry: WorldStepTelemetry?
     ) async throws -> KuyAtt1RunOutput {
         let runner = ReferenceQuadrotorScenarioRunner<SinglePropHoverCut, FixedSinglePropMotorNerve>(
             parameters: parameters,
@@ -660,7 +659,7 @@ public struct SimulationRunnerService {
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
         control: SimulationControl?,
-        telemetry: ((WorldStepLog) -> Void)?,
+        telemetry: WorldStepTelemetry?,
         chainFactory: @escaping () throws -> MotorNerveChain
     ) async throws -> KuyAtt1RunOutput {
         let runner = ReferenceQuadrotorScenarioRunner<SinglePropHoverCut, MotorNerveChain>(

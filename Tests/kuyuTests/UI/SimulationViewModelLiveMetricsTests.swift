@@ -1,0 +1,64 @@
+import KuyuTraining
+@testable import KuyuUI
+import Testing
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func simulationViewModelLiveMetricsKeepGenerationBestSeries() {
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+
+    model.appendLearningCampaignLiveMetricSamples(makeFitness(
+        generationIndex: 0,
+        candidateID: "g0-c0",
+        scalarFitness: -10,
+        rewardAverage: -20,
+        taskPassRate: 0.25
+    ))
+    model.appendLearningCampaignLiveMetricSamples(makeFitness(
+        generationIndex: 0,
+        candidateID: "g0-c1",
+        scalarFitness: -12,
+        rewardAverage: -30,
+        taskPassRate: 0.1
+    ))
+    model.appendLearningCampaignLiveMetricSamples(makeFitness(
+        generationIndex: 0,
+        candidateID: "g0-c2",
+        scalarFitness: -8,
+        rewardAverage: -18,
+        taskPassRate: 0.5
+    ))
+    model.appendLearningCampaignLiveMetricSamples(makeFitness(
+        generationIndex: 1,
+        candidateID: "g1-c0",
+        scalarFitness: -7,
+        rewardAverage: -16,
+        taskPassRate: 0.75
+    ))
+
+    #expect(model.learningCampaignLiveCandidateEvaluationCount == 4)
+    #expect(model.learningCampaignLiveFitnessSamples.map { $0.time } == [0, 1])
+    #expect(model.learningCampaignLiveFitnessSamples.map { $0.value } == [-8, -7])
+    #expect(model.learningCampaignLiveRewardSamples.map { $0.value } == [-18, -16])
+    #expect(model.learningCampaignLiveTaskPassSamples.map { $0.value } == [0.5, 0.75])
+}
+
+private func makeFitness(
+    generationIndex: Int,
+    candidateID: String,
+    scalarFitness: Double,
+    rewardAverage: Double,
+    taskPassRate: Double
+) -> FitnessSummary {
+    FitnessSummary(
+        runID: "run",
+        generationIndex: generationIndex,
+        candidateID: candidateID,
+        taskID: "lift",
+        scalarFitness: scalarFitness,
+        rewardAverage: rewardAverage,
+        taskPassRate: taskPassRate,
+        safetyViolationRate: 0,
+        holdTimeRatio: taskPassRate,
+        altitudeErrorRatio: 1 - taskPassRate
+    )
+}

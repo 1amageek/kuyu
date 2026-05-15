@@ -1,7 +1,7 @@
 public struct MetricSample: Identifiable, Hashable, Sendable {
     public let id: Double
-    let time: Double
-    let value: Double
+    public let time: Double
+    public let value: Double
 
     public init(time: Double, value: Double) {
         self.time = time

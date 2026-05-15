@@ -9,7 +9,7 @@ struct GeneticLearningConfigView: View {
                 VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                     IntegerStepperView(label: "Population Size", value: $model.learningCampaignPopulation, range: 1...512)
                     IntegerStepperView(label: "Elite Retention", value: $model.learningCampaignEliteCount, range: 1...64)
-                    IntegerStepperView(label: "Generation Limit", value: $model.learningCampaignGenerations, range: 1...10_000)
+                    IntegerStepperView(label: "Safety Generation Budget", value: $model.learningCampaignGenerations, range: 1...10_000)
                     DoubleSliderView(
                         label: "Mutation Rate",
                         value: $model.learningCampaignMutationRate,
@@ -39,7 +39,8 @@ struct GeneticLearningConfigView: View {
                     StatRow(label: "Selection Strategy", value: "quality diversity")
                     StatRow(label: "Variation", value: "gaussian")
                     StatRow(label: "Fitness Function", value: "task quality gate")
-                    StatRow(label: "Early Stopping", value: "acceptance gate")
+                    StatRow(label: "Completion Goal", value: "convergence or quality gate")
+                    StatRow(label: "Safety Budget", value: "\(model.learningCampaignGenerations) generations")
                 }
             } label: {
                 Label("Strategy", systemImage: "list.bullet.rectangle")

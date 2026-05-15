@@ -1025,6 +1025,10 @@ struct LearningCampaignView: View {
         VStack(alignment: .leading, spacing: 2) {
             StatRow(label: "Status", value: state.statusLabel)
             StatRow(label: "Task", value: "\(state.task) | \(state.suiteSummary)")
+            if state.hasTrainingStageIdentity {
+                StatRow(label: "Stage", value: state.trainingStageLabel)
+                StatRow(label: "Stage Kind", value: state.trainingStageKindLabel)
+            }
             StatRow(label: "Accepted", value: "\(state.acceptedCount)/\(state.seedCount)")
             StatRow(label: "Validation", value: state.validationLabel)
             if let delta = state.bestDelta {

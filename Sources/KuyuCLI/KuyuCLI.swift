@@ -5,13 +5,14 @@ import KuyuMLX
 import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
+import ManasCore
 
 @main
 struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self]
     )
 }
 
@@ -112,10 +113,10 @@ enum EvolutionWorldModelUsageChoice: String, CaseIterable, ExpressibleByArgument
     }
 }
 
-extension LearningCampaignArtifactRetentionMode: ExpressibleByArgument {}
-extension LearningCampaignTask: ExpressibleByArgument {}
-extension LearningCampaignTier: ExpressibleByArgument {}
-extension LearningCampaignVariation: ExpressibleByArgument {}
+extension LearningCampaignArtifactRetentionMode: @retroactive ExpressibleByArgument {}
+extension LearningCampaignTask: @retroactive ExpressibleByArgument {}
+extension LearningCampaignTier: @retroactive ExpressibleByArgument {}
+extension LearningCampaignVariation: @retroactive ExpressibleByArgument {}
 extension AutonomousOperationDomain: @retroactive ExpressibleByArgument {}
 extension EvolutionSearchStrategy: @retroactive ExpressibleByArgument {}
 
@@ -868,6 +869,295 @@ struct ProbeManas: AsyncParsableCommand {
         print("[probe] trainingCheckpoint=\(result.comparison.checkpointDecision.rawValue) probeCheckpoint=\(result.probeCheckpointDecision.state.rawValue) reload=\(result.comparison.reloadSucceeded)")
         print("[probe] selectedCheckpoint role=\(result.comparison.selectedCheckpointRole.rawValue) path=\(result.comparison.selectedCheckpointURL?.path ?? "n/a")")
         print("[probe] probeAccepted=\(result.comparison.probeAccepted) reasons=\(result.comparison.probeRejectionReasons.joined(separator: ","))")
+    }
+}
+
+struct ProbeCTBRPolicy: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "probe-ctbr-policy",
+        abstract: "Run a strict GPU probe for the temporal CTBR actor-critic backend."
+    )
+
+    @Option(name: .customLong("batch-size"), help: "Synthetic batch size for the GPU probe.")
+    var batchSize: Int = 32
+
+    @Option(name: .customLong("hidden-size"), help: "Actor-critic hidden size.")
+    var hiddenSize: Int = 128
+
+    @Option(name: .customLong("epochs"), help: "Training epochs for BC and PPO smoke updates.")
+    var epochs: Int = 1
+
+    @Option(help: "Deterministic random seed for synthetic tensor inputs.")
+    var seed: UInt64 = 42
+
+    func run() throws {
+        let report = try ManasMLXTemporalCTBRPolicyProbe().run(
+            batchSize: batchSize,
+            hiddenSize: hiddenSize,
+            epochCount: epochs,
+            seed: seed
+        )
+
+        print("ctbrPolicyProbe=true")
+        print("device=gpu")
+        print("batchSize=\(report.batchSize)")
+        print("historyLength=\(report.historyLength)")
+        print("observationDimension=\(report.observationDimension)")
+        print("privilegedDimension=\(report.privilegedDimension)")
+        print("hiddenSize=\(report.hiddenSize)")
+        print("behaviorCloningActorLoss=\(String(format: "%.6f", report.behaviorCloningActorLoss))")
+        print("behaviorCloningCriticLoss=\(String(format: "%.6f", report.behaviorCloningCriticLoss))")
+        print("ppoActorLoss=\(String(format: "%.6f", report.ppoActorLoss))")
+        print("ppoCriticLoss=\(String(format: "%.6f", report.ppoCriticLoss))")
+    }
+}
+
+struct ProbeCTBRPPOBackend: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "probe-ctbr-ppo-backend",
+        abstract: "Run the strict CTBR rollout dataset loader and MLX PPO backend, then save a trained Manas bundle."
+    )
+
+    enum ProbeError: Error, CustomStringConvertible {
+        case outputAlreadyExists(String)
+        case invalidCandidateCount(Int)
+        case invalidDuration(Double)
+
+        var description: String {
+            switch self {
+            case .outputAlreadyExists(let path):
+                return "output-already-exists: \(path)"
+            case .invalidCandidateCount(let count):
+                return "invalid-candidate-count: \(count)"
+            case .invalidDuration(let duration):
+                return "invalid-duration: \(duration)"
+            }
+        }
+    }
+
+    @Option(name: .customLong("artifact-root"), help: "Destination artifact root. Defaults to a temporary directory.")
+    var artifactRoot: String = ""
+
+    @Option(name: .customLong("candidates"), help: "Number of CTBR candidates to roll out together on the tensor world.")
+    var candidateCount: Int = 8
+
+    @Option(name: .customLong("duration"), help: "Tensor-world rollout duration in seconds.")
+    var duration: Double = 1.0
+
+    @Option(name: .customLong("epochs"), help: "PPO update epochs.")
+    var epochs: Int = 1
+
+    @Option(name: .customLong("hidden-size"), help: "Temporal actor-critic hidden size.")
+    var hiddenSize: Int = 128
+
+    func run() async throws {
+        guard candidateCount > 0 else {
+            throw ProbeError.invalidCandidateCount(candidateCount)
+        }
+        guard duration.isFinite, duration > 0 else {
+            throw ProbeError.invalidDuration(duration)
+        }
+
+        let root = artifactRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("kuyu-ctbr-ppo-backend-\(UUID().uuidString)", isDirectory: true)
+            : URL(fileURLWithPath: artifactRoot).standardizedFileURL
+        if FileManager.default.fileExists(atPath: root.path) {
+            throw ProbeError.outputAlreadyExists(root.path)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let sourceCheckpointURL = root.appendingPathComponent("source.manasbundle", isDirectory: true)
+        let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR()
+        let sourceManifest = try ManasMLXTemporalCTBRCheckpointWriter().write(
+            request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+                checkpointURL: sourceCheckpointURL,
+                name: "CTBR PPO Probe Source",
+                policyContract: policyContract,
+                descriptor: nil,
+                hiddenSize: hiddenSize
+            )
+        )
+
+        let datasetURL = root.appendingPathComponent("tensor-world-rollouts", isDirectory: true)
+        let rolloutReport = try ManasMLXTemporalCTBRRolloutDatasetExporter().export(
+            sourceCheckpointURL: sourceCheckpointURL,
+            outputURL: datasetURL,
+            candidateCount: candidateCount,
+            duration: duration,
+            suite: 6
+        )
+
+        let checkpointRoot = root.appendingPathComponent("checkpoints", isDirectory: true)
+        let backend = await ManasMLXTrainingBackend(
+            runtime: ManasMLXTrainingRuntime(modelStore: ManasMLXModelStore()),
+            saveDirectory: checkpointRoot
+        )
+        let result = try await backend.trainReinforcement(
+            request: ReinforcementTrainingBackendRequest(
+                rolloutDatasetURL: datasetURL,
+                sourceSnapshot: TrainingBackendSnapshot(
+                    snapshotID: "ctbr-ppo-probe-source",
+                    checkpointID: sourceManifest.name,
+                    checkpointURL: sourceCheckpointURL,
+                    descriptorID: nil,
+                    configHash: "ctbr-ppo-probe"
+                ),
+                workerCount: 1,
+                iterations: epochs,
+                learningRate: 3e-4,
+                algorithm: .actorCritic,
+                maxBatches: nil,
+                workerPlan: nil
+            )
+        )
+
+        if let checkpointURL = result.candidateCheckpointURL {
+            _ = try ManasModelBundleValidator().loadAndValidate(from: checkpointURL)
+        }
+
+        print("ctbrPPOBackendProbe=true")
+        print("device=gpu")
+        print("artifactRoot=\(root.path)")
+        print("rolloutDataset=\(datasetURL.path)")
+        print("rolloutEpisodes=\(rolloutReport.episodeCount)")
+        print("rolloutRewardAverage=\(String(format: "%.6f", rolloutReport.rewardAverage))")
+        print("rolloutMinimumStepCount=\(rolloutReport.minimumStepCount)")
+        print("rolloutMaximumStepCount=\(rolloutReport.maximumStepCount)")
+        print("tensorWorldUsed=\(rolloutReport.tensorWorldUsed)")
+        print("candidateCount=\(rolloutReport.candidateCount)")
+        print("sourceCheckpoint=\(sourceCheckpointURL.path)")
+        print("candidateCheckpointID=\(result.candidateCheckpointID ?? "n/a")")
+        print("candidateCheckpoint=\(result.candidateCheckpointURL?.path ?? "n/a")")
+        print("rewardAverage=\(String(format: "%.6f", result.rewardAverage))")
+        print("finalLoss=\(String(format: "%.6f", result.finalLoss ?? .nan))")
+        print("workerCount=\(result.workerMetrics.count)")
+    }
+}
+
+struct ProbeCTBRRollout: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "probe-ctbr-rollout",
+        abstract: "Run a GPU tensor-world rollout probe with temporal CTBR policy bundles."
+    )
+
+    @Option(name: .customLong("candidates"), help: "Number of CTBR policy candidates to roll out together.")
+    var candidateCount: Int = 8
+
+    func run() throws {
+        let report = try ManasMLXTemporalCTBRRolloutProbe().run(candidateCount: candidateCount)
+        print("ctbrRolloutProbe=true")
+        print("device=\(report.device)")
+        print("policyFamily=\(report.policyFamily)")
+        print("actionEncoding=\(report.actionEncoding.rawValue)")
+        print("candidateCount=\(report.candidateCount)")
+        print("episodeCount=\(report.episodeCount)")
+        print("historyLength=\(report.historyLength)")
+        print("observationDimension=\(report.observationDimension)")
+        print("rewardAverage=\(String(format: "%.6f", report.rewardAverage))")
+        print("minimumStepCount=\(report.minimumStepCount)")
+        print("maximumStepCount=\(report.maximumStepCount)")
+        print("tensorWorldUsed=\(report.tensorWorldUsed)")
+    }
+}
+
+struct WriteCTBRCheckpoint: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "write-ctbr-checkpoint",
+        abstract: "Write a strict temporal CTBR Manas bundle for reference quadrotor training."
+    )
+
+    enum CommandError: Error, CustomStringConvertible {
+        case missingOutput
+        case outputParentMissing(String)
+        case outputParentIsFile(String)
+        case invalidHiddenSize(Int)
+        case outputMustBeManasBundle(String)
+        case outputAlreadyExists(String)
+
+        var description: String {
+            switch self {
+            case .missingOutput:
+                return "missing-output"
+            case .outputParentMissing(let path):
+                return "output-parent-missing: \(path)"
+            case .outputParentIsFile(let path):
+                return "output-parent-is-file: \(path)"
+            case .invalidHiddenSize(let hiddenSize):
+                return "invalid-hidden-size: \(hiddenSize)"
+            case .outputMustBeManasBundle(let path):
+                return "output-must-be-manasbundle: \(path)"
+            case .outputAlreadyExists(let path):
+                return "output-already-exists: \(path)"
+            }
+        }
+    }
+
+    @Option(name: .customLong("output"), help: "Destination .manasbundle directory.")
+    var output: String = ""
+
+    @Option(name: .customLong("name"), help: "Bundle display name.")
+    var name: String = "Reference Quadrotor Temporal CTBR"
+
+    @Option(name: .customLong("model"), help: "Optional RobotDescriptor path used to bind descriptor hash/profile metadata.")
+    var model: String = ""
+
+    @Option(name: .customLong("hidden-size"), help: "Temporal actor-critic hidden size.")
+    var hiddenSize: Int = 256
+
+    func run() throws {
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOutput.isEmpty else {
+            throw CommandError.missingOutput
+        }
+        guard hiddenSize > 0 else {
+            throw CommandError.invalidHiddenSize(hiddenSize)
+        }
+
+        let outputURL = URL(fileURLWithPath: trimmedOutput).standardizedFileURL
+        guard outputURL.pathExtension == "manasbundle" else {
+            throw CommandError.outputMustBeManasBundle(outputURL.path)
+        }
+        guard !FileManager.default.fileExists(atPath: outputURL.path) else {
+            throw CommandError.outputAlreadyExists(outputURL.path)
+        }
+        let parentURL = outputURL.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: parentURL.path, isDirectory: &isDirectory) else {
+            throw CommandError.outputParentMissing(parentURL.path)
+        }
+        guard isDirectory.boolValue else {
+            throw CommandError.outputParentIsFile(parentURL.path)
+        }
+
+        let descriptor = try loadDescriptor(modelPath: model)
+        let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR()
+        let manifest = try ManasMLXTemporalCTBRCheckpointWriter().write(
+            request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+                checkpointURL: outputURL,
+                name: name,
+                policyContract: policyContract,
+                descriptor: descriptor,
+                hiddenSize: hiddenSize
+            )
+        )
+        _ = try ManasMLXE2EPreflight().check(
+            descriptorPath: model,
+            sourceCheckpointURL: outputURL,
+            requireSourceCheckpoint: true
+        )
+
+        print("ctbrCheckpointWritten=true")
+        print("path=\(outputURL.path)")
+        print("modelFamily=\(ManasMLXTemporalCTBRCheckpointManifest.modelFamily)")
+        print("schemaVersion=\(manifest.schemaVersion)")
+        print("historyLength=\(manifest.config.batchSpec.historyLength)")
+        print("observationDimension=\(manifest.config.batchSpec.observationDimension)")
+        print("privilegedDimension=\(manifest.config.batchSpec.privilegedDimension)")
+        print("actionDimension=\(manifest.config.batchSpec.actionDimension)")
+        print("hiddenSize=\(manifest.config.hiddenSize)")
+        print("descriptorBound=\(descriptor != nil)")
     }
 }
 
@@ -4181,22 +4471,25 @@ struct EvolveManas: AsyncParsableCommand {
     var snapshot: String
 
     @Option(help: "Population size per generation.")
-    var population: Int = 4
+    var population: Int = 100
 
-    @Option(help: "Number of generations.")
-    var generations: Int = 1
+    @Option(help: "Maximum generation budget. Normal completion should come from convergence or gate acceptance.")
+    var generations: Int = 1_000
 
     @Option(name: .customLong("elite-count"), help: "Number of candidates selected as parents.")
-    var eliteCount: Int = 1
+    var eliteCount: Int = 10
 
     @Option(help: "Worker count for rollout regression.")
     var workers: Int = 1
 
     @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
-    var candidateEvaluationConcurrency: Int = 1
+    var candidateEvaluationConcurrency: Int = 100
 
-    @Flag(name: .customLong("auto-parallelism"), help: "Derive workers and candidate evaluation concurrency from this Mac.")
-    var autoParallelism: Bool = false
+    @Flag(name: .customLong("no-auto-parallelism"), help: "Disable machine-optimized population and evaluation concurrency.")
+    var noAutoParallelism: Bool = false
+
+    @Flag(name: .customLong("allow-cpu-world-fallback"), help: "Allow unsupported scenarios to use CPU isolated-world rollout. Default requires MLX tensor world support.")
+    var allowCPUWorldFallback: Bool = false
 
     @Option(help: "Comma-separated M2 suite list: 6,7,8.")
     var suites: String = "6"
@@ -4217,10 +4510,10 @@ struct EvolveManas: AsyncParsableCommand {
     var artifactRootPath: String?
 
     @Option(name: .customLong("mutation-rate"), help: "Mutation rate passed to the ManasMLX variation provider.")
-    var mutationRate: Double = 0.08
+    var mutationRate: Double = 0.14
 
     @Option(name: .customLong("mutation-noise-scale"), help: "Gaussian mutation noise scale.")
-    var mutationNoiseScale: Double = 0.01
+    var mutationNoiseScale: Double = 0.025
 
     @Option(name: .customLong("search-strategy"), help: "Evolution search strategy: genetic, antitheticEvolutionStrategy, or qualityDiversity.")
     var searchStrategy: EvolutionSearchStrategyChoice = .genetic
@@ -4237,8 +4530,8 @@ struct EvolveManas: AsyncParsableCommand {
     @Flag(name: .customLong("antithetic-sampling"), help: "Use paired positive/negative perturbations with common random seeds.")
     var antitheticSampling: Bool = false
 
-    @Flag(name: .customLong("adaptive-mutation"), help: "Adapt mutation rate and noise scale based on generation gate results.")
-    var adaptiveMutation: Bool = false
+    @Flag(name: .customLong("adaptive-mutation"), inversion: .prefixedNo, help: "Adapt mutation rate and noise scale based on generation gate results.")
+    var adaptiveMutation: Bool = true
 
     @Option(help: "Candidate variation mode: gaussian or copy.")
     var variation: EvolutionVariationChoice = .gaussian
@@ -4319,19 +4612,25 @@ struct EvolveManas: AsyncParsableCommand {
                 .appendingPathComponent("kuyu-evolve-manas-\(UUID().uuidString)", isDirectory: true)
         }
         let selectedSuites = try parseRegressionSuites(suites)
+        let effectivePopulation: Int
+        let effectiveEliteCount: Int
         let effectiveWorkers: Int
         let effectiveCandidateEvaluationConcurrency: Int
-        if autoParallelism {
+        if !noAutoParallelism {
             let capacity = LearningCampaignMachineCapacity.current()
+            effectivePopulation = capacity.recommendedPopulation(current: population)
+            effectiveEliteCount = min(eliteCount, effectivePopulation)
             let recommendation = capacity.recommendation(
-                population: population,
+                population: effectivePopulation,
                 suiteCount: selectedSuites.count,
                 episodes: episodes
             )
             effectiveWorkers = recommendation.workerCount
             effectiveCandidateEvaluationConcurrency = recommendation.candidateEvaluationConcurrency
-            print("[evolve] auto-parallelism machine=\(capacity.summary) workers=\(effectiveWorkers) candidateConcurrency=\(effectiveCandidateEvaluationConcurrency) slots=\(recommendation.totalParallelSlots)/\(capacity.usableProcessorSlots)")
+            print("[evolve] auto-parallelism machine=\(capacity.summary) population=\(effectivePopulation) workers=\(effectiveWorkers) candidateConcurrency=\(effectiveCandidateEvaluationConcurrency) acceleratedSlots=\(recommendation.totalParallelSlots)/\(capacity.acceleratedParallelSlotBudget)")
         } else {
+            effectivePopulation = population
+            effectiveEliteCount = eliteCount
             effectiveWorkers = workers
             effectiveCandidateEvaluationConcurrency = candidateEvaluationConcurrency
         }
@@ -4368,9 +4667,9 @@ struct EvolveManas: AsyncParsableCommand {
                 descriptorHash: model.isEmpty ? nil : model,
                 configHash: "\(task.rawValue)-\(suites)-\(episodes)-\(effectiveWorkers)-\(effectiveCandidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
                 policyID: "manasMLX",
-                populationSize: population,
+                populationSize: effectivePopulation,
                 generationCount: generations,
-                eliteCount: eliteCount,
+                eliteCount: effectiveEliteCount,
                 workerCount: effectiveWorkers,
                 candidateEvaluationConcurrency: effectiveCandidateEvaluationConcurrency,
                 searchStrategy: searchStrategy.trainingStrategy,
@@ -4381,11 +4680,14 @@ struct EvolveManas: AsyncParsableCommand {
                 mutationRate: mutationRate,
                 mutationNoiseScale: mutationNoiseScale,
                 adaptiveMutation: EvolutionAdaptiveMutationConfig(enabled: adaptiveMutation),
+                worldExecutionRequirement: allowCPUWorldFallback
+                    ? .allowIsolatedWorldFallback
+                    : .acceleratorSharedWorld,
                 parentCheckpointID: snapshotURL.lastPathComponent,
                 parentCheckpointURL: snapshotURL
             ),
             gatePolicy: EvolutionGatePolicy(
-                eliteCount: eliteCount,
+                eliteCount: effectiveEliteCount,
                 minimumTaskPassRate: evolutionProfile.minimumTaskPassRate,
                 maximumSafetyViolationRate: 0,
                 minimumHoldTimeRatio: evolutionProfile.minimumHoldTimeRatio,
@@ -4490,7 +4792,10 @@ struct RunLearningCampaign: AsyncParsableCommand {
     var task: LearningCampaignTask = .lift
 
     @Option(name: .customLong("source-checkpoint"), help: "Task-specific source checkpoint directory.")
-    var sourceCheckpoint: String
+    var sourceCheckpoint: String?
+
+    @Option(name: .customLong("continue-from-artifact-root"), help: "Previous learning campaign artifact root to continue from.")
+    var continueFromArtifactRoot: String?
 
     @Option(name: .customLong("artifact-root"), help: "Directory where campaign artifacts are written.")
     var artifactRootPath: String
@@ -4502,22 +4807,25 @@ struct RunLearningCampaign: AsyncParsableCommand {
     var seedCount: Int = 1
 
     @Option(help: "Population size per seed.")
-    var population: Int = 4
+    var population: Int = 100
 
-    @Option(help: "Generation count per seed.")
-    var generations: Int = 1
+    @Option(help: "Maximum generation budget per seed. Normal completion is convergence or plateau early stopping.")
+    var generations: Int = 1_000
 
     @Option(name: .customLong("elite-count"), help: "Number of candidates selected as parents.")
-    var eliteCount: Int = 1
+    var eliteCount: Int = 10
 
     @Option(help: "Worker count for rollout regression.")
     var workers: Int = 1
 
     @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
-    var candidateEvaluationConcurrency: Int = 1
+    var candidateEvaluationConcurrency: Int = 100
 
-    @Flag(name: .customLong("auto-parallelism"), help: "Derive workers and candidate evaluation concurrency from this Mac.")
-    var autoParallelism: Bool = false
+    @Flag(name: .customLong("no-auto-parallelism"), help: "Disable machine-optimized population and evaluation concurrency.")
+    var noAutoParallelism: Bool = false
+
+    @Flag(name: .customLong("allow-cpu-world-fallback"), help: "Allow unsupported scenarios to use CPU isolated-world rollout. Default requires MLX tensor world support.")
+    var allowCPUWorldFallback: Bool = false
 
     @Option(help: "Comma-separated M2 suite list: 6,7,8.")
     var suites: String = "6"
@@ -4535,31 +4843,31 @@ struct RunLearningCampaign: AsyncParsableCommand {
     var model: String = ""
 
     @Option(name: .customLong("mutation-rate"), help: "Mutation rate passed to the ManasMLX variation provider.")
-    var mutationRate: Double = 0.08
+    var mutationRate: Double = 0.14
 
     @Option(name: .customLong("mutation-noise-scale"), help: "Gaussian mutation noise scale.")
-    var mutationNoiseScale: Double = 0.01
+    var mutationNoiseScale: Double = 0.025
 
-    @Flag(name: .customLong("adaptive-mutation"), help: "Adapt mutation rate and noise scale after each generation gate result.")
-    var adaptiveMutation: Bool = false
+    @Flag(name: .customLong("adaptive-mutation"), inversion: .prefixedNo, help: "Adapt mutation rate and noise scale after each generation gate result.")
+    var adaptiveMutation: Bool = true
 
     @Option(name: .customLong("mutation-increase-factor"), help: "Adaptive mutation multiplier after a rejected generation.")
-    var mutationIncreaseFactor: Double = 1.25
+    var mutationIncreaseFactor: Double = 1.35
 
     @Option(name: .customLong("mutation-decay-factor"), help: "Adaptive mutation multiplier after an accepted generation.")
-    var mutationDecayFactor: Double = 0.9
+    var mutationDecayFactor: Double = 0.95
 
     @Option(name: .customLong("min-mutation-rate"), help: "Lower bound for adaptive mutation rate.")
     var minimumMutationRate: Double = 0
 
     @Option(name: .customLong("max-mutation-rate"), help: "Upper bound for adaptive mutation rate.")
-    var maximumMutationRate: Double = 0.5
+    var maximumMutationRate: Double = 0.8
 
     @Option(name: .customLong("min-mutation-noise-scale"), help: "Lower bound for adaptive mutation noise scale.")
     var minimumMutationNoiseScale: Double = 0
 
     @Option(name: .customLong("max-mutation-noise-scale"), help: "Upper bound for adaptive mutation noise scale.")
-    var maximumMutationNoiseScale: Double = 0.1
+    var maximumMutationNoiseScale: Double = 0.25
 
     @Option(name: .customLong("search-strategy"), help: "Evolution search strategy.")
     var searchStrategy: EvolutionSearchStrategy = .qualityDiversity
@@ -4569,6 +4877,21 @@ struct RunLearningCampaign: AsyncParsableCommand {
 
     @Option(name: .customLong("min-reward-average"), help: "Override task default minimum reward average.")
     var minimumRewardAverage: Double?
+
+    @Flag(name: .customLong("no-reinforcement-warmup"), help: "Disable the temporal CTBR PPO warmup before genetic evolution.")
+    var noReinforcementWarmup: Bool = false
+
+    @Option(name: .customLong("reinforcement-warmup-duration"), help: "Seconds of tensor-world rollout per candidate for PPO warmup.")
+    var reinforcementWarmupDuration: Double = 2
+
+    @Option(name: .customLong("reinforcement-warmup-iterations"), help: "PPO iterations for the temporal CTBR warmup.")
+    var reinforcementWarmupIterations: Int = 1
+
+    @Option(name: .customLong("reinforcement-warmup-learning-rate"), help: "Learning rate for temporal CTBR PPO warmup.")
+    var reinforcementWarmupLearningRate: Double = 3e-4
+
+    @Option(name: .customLong("reinforcement-warmup-max-batches"), help: "Optional maximum number of rollout batches used by PPO warmup.")
+    var reinforcementWarmupMaxBatches: Int?
 
     @Option(name: .customLong("min-incumbent-improvement"), help: "Minimum strict scalar-fitness improvement over the incumbent checkpoint.")
     var minimumIncumbentImprovement: Double = 0
@@ -4580,13 +4903,16 @@ struct RunLearningCampaign: AsyncParsableCommand {
     var resourceSampleSeconds: Double = 30
 
     @Option(name: .customLong("artifact-retention"), help: "Artifact retention mode: full or compact.")
-    var artifactRetention: LearningCampaignArtifactRetentionMode = .full
+    var artifactRetention: LearningCampaignArtifactRetentionMode = .compact
 
     @Option(name: .customLong("autonomy-domain"), help: "Autonomy domain: automotive, groundRobot, aerialDrone, or manipulator.")
     var autonomyDomain: AutonomousOperationDomain = .aerialDrone
 
     @Option(name: .customLong("reinforcement-artifact"), help: "Optional accepted RL training-run artifact directory to attach as reinforcement stage evidence.")
     var reinforcementArtifactPath: String?
+
+    @Flag(name: .customLong("skip-initial-parent-pass"), help: "Run starter evolution even when the source checkpoint does not yet pass the task gate.")
+    var skipInitialParentPass: Bool = false
 
     @Option(name: .customLong("kp"), help: "IMU rate damping proportional gain.")
     var kp: Double = 0.35
@@ -4605,73 +4931,156 @@ struct RunLearningCampaign: AsyncParsableCommand {
 
     @MainActor
     mutating func run() async throws {
-        let trimmedSource = sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedSource.isEmpty else {
-            throw ValidationError("--source-checkpoint is required.")
+        let trimmedSource = sourceCheckpoint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedContinuationRoot = continueFromArtifactRoot?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !(trimmedSource.isEmpty == false && trimmedContinuationRoot.isEmpty == false) else {
+            throw ValidationError("--source-checkpoint and --continue-from-artifact-root cannot both be set.")
         }
-        let sourceCheckpointURL = URL(fileURLWithPath: trimmedSource, isDirectory: true)
+        let sourceCheckpointURL: URL
+        if trimmedContinuationRoot.isEmpty == false {
+            let previousArtifactRoot = URL(fileURLWithPath: trimmedContinuationRoot, isDirectory: true)
+            sourceCheckpointURL = previousArtifactRoot
+            print("[learning-campaign] continuation requested previousArtifactRoot=\(previousArtifactRoot.path)")
+        } else {
+            guard !trimmedSource.isEmpty else {
+                throw ValidationError("--source-checkpoint or --continue-from-artifact-root is required.")
+            }
+            sourceCheckpointURL = URL(fileURLWithPath: trimmedSource, isDirectory: true)
+        }
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
         let selectedSeeds = try seeds.map(parseCampaignSeeds)
         let selectedSuites = try parseRegressionSuites(suites)
-        var config = LearningCampaignRunConfig(
-            task: task,
-            sourceCheckpoint: sourceCheckpointURL,
-            artifactRoot: artifactRoot,
-            explicitSeeds: selectedSeeds,
-            seedCount: seedCount,
-            population: population,
-            generations: generations,
-            eliteCount: eliteCount,
-            workers: workers,
-            candidateEvaluationConcurrency: candidateEvaluationConcurrency,
-            suites: selectedSuites,
-            episodes: episodes,
-            tier: tier,
-            cutPeriodSteps: cutPeriodSteps,
-            modelDescriptorPath: model,
-            mutationRate: mutationRate,
-            mutationNoiseScale: mutationNoiseScale,
-            adaptiveMutationEnabled: adaptiveMutation,
-            mutationIncreaseFactor: mutationIncreaseFactor,
-            mutationDecayFactor: mutationDecayFactor,
-            minimumMutationRate: minimumMutationRate,
-            maximumMutationRate: maximumMutationRate,
-            minimumMutationNoiseScale: minimumMutationNoiseScale,
-            maximumMutationNoiseScale: maximumMutationNoiseScale,
-            searchStrategy: searchStrategy,
-            variation: variation,
-            minimumRewardAverage: minimumRewardAverage,
-            minimumIncumbentImprovement: minimumIncumbentImprovement,
-            minimumNoveltyScore: minimumNoveltyScore,
-            resourceSampleSeconds: resourceSampleSeconds,
-            artifactRetention: artifactRetention,
-            kp: kp,
-            kd: kd,
-            yawDamping: yawDamping,
-            hoverScale: hoverScale,
-            qualityGateEnabled: !noQualityGate,
-            autonomyDomain: autonomyDomain,
-            reinforcementTrainingArtifactDirectory: reinforcementArtifactPath.map {
-                URL(fileURLWithPath: $0, isDirectory: true)
-            }
-        )
-        if autoParallelism {
+        var resolvedPopulation = population
+        var resolvedEliteCount = eliteCount
+        var resolvedWorkers = workers
+        var resolvedCandidateEvaluationConcurrency = candidateEvaluationConcurrency
+        if !noAutoParallelism {
             let capacity = LearningCampaignMachineCapacity.current()
-            config = config.optimizedForMachine(capacity)
+            resolvedPopulation = capacity.recommendedPopulation(current: resolvedPopulation)
             let recommendation = capacity.recommendation(
-                population: config.population,
-                suiteCount: config.suites.count,
-                episodes: config.episodes
+                population: resolvedPopulation,
+                suiteCount: selectedSuites.count,
+                episodes: episodes
             )
-            print("[learning-campaign] auto-parallelism machine=\(capacity.summary) workers=\(recommendation.workerCount) candidateConcurrency=\(recommendation.candidateEvaluationConcurrency) slots=\(recommendation.totalParallelSlots)/\(capacity.usableProcessorSlots)")
+            resolvedEliteCount = min(max(1, resolvedEliteCount), resolvedPopulation)
+            resolvedWorkers = recommendation.workerCount
+            resolvedCandidateEvaluationConcurrency = recommendation.candidateEvaluationConcurrency
+            print("[learning-campaign] auto-parallelism machine=\(capacity.summary) population=\(resolvedPopulation) workers=\(recommendation.workerCount) candidateConcurrency=\(recommendation.candidateEvaluationConcurrency) acceleratedSlots=\(recommendation.totalParallelSlots)/\(capacity.acceleratedParallelSlotBudget)")
         }
-        let handle = try LearningCampaignRunner().start(config: config)
+        let executor = ManasMLXTrainingRunExecutor()
+        let configuration = TrainingRunConfiguration(
+            trainingStageID: "evolution-search",
+            trainingStageDisplayName: "Evolution Search",
+            trainingStageKind: .evolution,
+            scenarioSelection: TrainingScenarioSelection(
+                suiteIDs: selectedSuites,
+                episodesPerSuite: episodes,
+                tier: TrainingDeterminismTier(cliTier: tier),
+                cutPeriodSteps: cutPeriodSteps,
+                explicitSeeds: selectedSeeds
+            ),
+            resources: TrainingResourcePlan(
+                workerCount: resolvedWorkers,
+                candidateEvaluationConcurrency: resolvedCandidateEvaluationConcurrency,
+                resourceSampleSeconds: resourceSampleSeconds,
+                worldExecutionRequirement: allowCPUWorldFallback
+                    ? .allowIsolatedWorldFallback
+                    : .acceleratorSharedWorld
+            ),
+            evolution: TrainingEvolutionSettings(
+                eliteCount: resolvedEliteCount,
+                searchStrategy: searchStrategy,
+                variation: TrainingVariationKind(cliVariation: variation),
+                mutation: TrainingMutationSchedule(
+                    rate: mutationRate,
+                    noiseScale: mutationNoiseScale,
+                    adaptiveEnabled: adaptiveMutation,
+                    increaseFactor: mutationIncreaseFactor,
+                    decayFactor: mutationDecayFactor,
+                    minimumRate: minimumMutationRate,
+                    maximumRate: maximumMutationRate,
+                    minimumNoiseScale: minimumMutationNoiseScale,
+                    maximumNoiseScale: maximumMutationNoiseScale
+                ),
+                minimumIncumbentImprovement: minimumIncumbentImprovement,
+                minimumNoveltyScore: minimumNoveltyScore
+            ),
+            qualityGate: TrainingQualityGateSettings(
+                enabled: !noQualityGate,
+                minimumRewardAverage: minimumRewardAverage
+            ),
+            reinforcement: TrainingReinforcementSettings(
+                warmupEnabled: !noReinforcementWarmup,
+                requiresTemporalCTBR: true,
+                rolloutDuration: reinforcementWarmupDuration,
+                iterations: reinforcementWarmupIterations,
+                learningRate: reinforcementWarmupLearningRate,
+                maxBatches: reinforcementWarmupMaxBatches
+            ),
+            control: TrainingControlSettings(
+                modelDescriptorPath: model,
+                kp: kp,
+                kd: kd,
+                yawDamping: yawDamping,
+                hoverScale: hoverScale
+            ),
+            artifacts: TrainingArtifactPolicy(
+                retention: TrainingArtifactRetentionKind(cliRetention: artifactRetention),
+                requiresInitialParentPass: !skipInitialParentPass,
+                reinforcementTrainingArtifactDirectory: reinforcementArtifactPath.map {
+                    URL(fileURLWithPath: $0, isDirectory: true)
+                }
+            ),
+            autonomyDomain: autonomyDomain
+        )
+        let trainingRequest = TrainingRunRequest(
+            runID: TrainingRunID(artifactRoot.lastPathComponent),
+            artifactRoot: artifactRoot,
+            taskProfileID: task.profileID,
+            policyContract: task.policyContract,
+            sourceBundle: ModelBundleReference(
+                bundleID: sourceCheckpointURL.lastPathComponent,
+                kind: .source,
+                url: sourceCheckpointURL
+            ),
+            seedCount: seedCount,
+            populationSize: resolvedPopulation,
+            generationLimit: generations,
+            configuration: configuration
+        )
+        let handle: any TrainingRunHandle
+        if trimmedContinuationRoot.isEmpty == false {
+            handle = try await executor.resume(TrainingResumeRequest(
+                runID: trainingRequest.runID,
+                source: .artifactRoot(URL(fileURLWithPath: trimmedContinuationRoot, isDirectory: true)),
+                destinationArtifactRoot: artifactRoot,
+                taskProfileID: trainingRequest.taskProfileID,
+                policyContract: trainingRequest.policyContract,
+                seedCount: trainingRequest.seedCount,
+                populationSize: trainingRequest.populationSize,
+                generationLimit: trainingRequest.generationLimit,
+                configuration: configuration
+            ))
+        } else {
+            handle = try await executor.start(trainingRequest)
+        }
+        var didComplete = false
+        var didAcceptCheckpoint = false
+        var terminalReason: String?
         for await event in handle.events {
-            printLearningCampaignEvent(event)
+            if let terminal = printTrainingRunEvent(event) {
+                didComplete = true
+                didAcceptCheckpoint = terminal.accepted
+                terminalReason = terminal.reason
+            }
         }
-        let summary = try await handle.wait()
         print("[learning-campaign] artifacts path=\(artifactRoot.path)")
-        print("[learning-campaign] finalCheckpoint=\(summary.finalCheckpoint) accepted=\(summary.acceptedCount)/\(summary.seedCount)")
+        guard didComplete else {
+            throw ValidationError("learning campaign ended before publishing a terminal TrainingRunEvent.")
+        }
+        guard didAcceptCheckpoint else {
+            throw ValidationError("learning campaign rejected: \(terminalReason ?? "checkpoint-not-accepted")")
+        }
     }
 
     private func parseCampaignSeeds(_ raw: String) throws -> [String] {
@@ -4697,38 +5106,45 @@ struct RunLearningCampaign: AsyncParsableCommand {
         return parsedSeeds
     }
 
-    private func printLearningCampaignEvent(_ event: LearningCampaignRunEvent) {
+    private func printTrainingRunEvent(_ event: TrainingRunEvent) -> (accepted: Bool, reason: String?)? {
         switch event {
-        case .preflightStarted:
-            print("[learning-campaign] preflight started")
-        case .preflightCompleted:
-            print("[learning-campaign] preflight completed")
-        case .parentEvaluationStarted(let label, let checkpointPath):
-            print("[learning-campaign] checkpoint-evaluation started label=\(label) checkpoint=\(checkpointPath)")
-        case .parentEvaluationCompleted(let label, _):
-            print("[learning-campaign] checkpoint-evaluation completed label=\(label)")
-        case .checkpointRegressionStarted(let label, let checkpointPath):
-            print("[learning-campaign] checkpoint-regression started label=\(label) checkpoint=\(checkpointPath)")
-        case .checkpointRegressionCompleted(let label, let accepted, let reasons):
-            print("[learning-campaign] checkpoint-regression completed label=\(label) accepted=\(accepted) reasons=\(reasons.joined(separator: ","))")
-        case .seedStarted(let seed):
-            print("[learning-campaign] seed started seed=\(seed)")
-        case .generationStarted(let seed, let generationIndex):
-            print("[learning-campaign] generation started seed=\(seed) generation=\(generationIndex)")
-        case .candidateEvaluated(let seed, let generationIndex, let candidateID, let fitness):
-            print("[learning-campaign] candidate evaluated seed=\(seed) generation=\(generationIndex) candidate=\(candidateID) fitness=\(fitness)")
-        case .generationCompleted(let seed, let generationIndex, let bestCandidateID):
-            print("[learning-campaign] generation completed seed=\(seed) generation=\(generationIndex) best=\(bestCandidateID ?? "none")")
-        case .seedCompleted(let seed, let accepted, let bestCandidateID):
-            print("[learning-campaign] seed completed seed=\(seed) accepted=\(accepted) best=\(bestCandidateID ?? "none")")
-        case .artifactWritten(let name, let path):
-            print("[learning-campaign] artifact name=\(name) path=\(path)")
-        case .finished(let summary):
-            print("[learning-campaign] finished accepted=\(summary.acceptedCount)/\(summary.seedCount)")
-        case .failed(let reason):
-            print("[learning-campaign] failed reason=\(reason)")
-        case .cancelled:
-            print("[learning-campaign] cancelled")
+        case .log(let log):
+            let seed = log.seed.map { " seed=\($0)" } ?? ""
+            let generation = log.generationIndex.map { " generation=\($0)" } ?? ""
+            let candidate = log.candidateID.map { " candidate=\($0)" } ?? ""
+            let progress = log.progressFraction.map { String(format: " progress=%.1f%%", $0 * 100) } ?? ""
+            let metadata = log.metadata
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: " ")
+            let suffix = metadata.isEmpty ? "" : " \(metadata)"
+            print("[learning-campaign] \(log.level.rawValue) phase=\(log.phase)\(seed)\(generation)\(candidate)\(progress) message=\"\(log.message)\"\(suffix)")
+            return nil
+        case .started(let manifest):
+            print("[learning-campaign] started runID=\(manifest.runID)")
+            return nil
+        case .iterationStarted(let iteration):
+            print("[learning-campaign] iteration started iteration=\(iteration)")
+            return nil
+        case .suiteCompleted(let iteration, _, let score):
+            print("[learning-campaign] suite completed iteration=\(iteration) score=\(score)")
+            return nil
+        case .datasetExported(let iteration, let directory, let count):
+            print("[learning-campaign] dataset exported iteration=\(iteration) count=\(count) directory=\(directory)")
+            return nil
+        case .trainingCompleted(let iteration, let result):
+            print("[learning-campaign] training completed iteration=\(iteration) loss=\(result.finalLoss)")
+            return nil
+        case .reinforcementTrainingCompleted(let iteration, let result):
+            print("[learning-campaign] reinforcement completed iteration=\(iteration) reward=\(result.rewardAverage)")
+            return nil
+        case .convergenceUpdated(let summary):
+            print("[learning-campaign] convergence accepted=\(summary.accepted) reason=\(summary.reason)")
+            return nil
+        case .completed(let result):
+            let accepted = result.checkpointDecision.state == .accepted
+            print("[learning-campaign] completed terminalState=\(result.manifest.terminalState.rawValue) checkpointDecision=\(result.checkpointDecision.state.rawValue) reason=\(result.checkpointDecision.reason)")
+            return (accepted, result.checkpointDecision.reason)
         }
     }
 }
@@ -4764,6 +5180,65 @@ private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating 
             ],
             failureReasons: []
         )
+    }
+}
+
+private extension LearningCampaignTask {
+    var profileID: String {
+        switch self {
+        case .lift:
+            return "lift-v1"
+        case .singleLift:
+            return "singleLift-v1"
+        }
+    }
+
+    var policyContract: LearningProjectPolicyContract {
+        switch self {
+        case .lift:
+            return .referenceQuadrotorTemporalCTBR()
+        case .singleLift:
+            return .simpleFeedForward(
+                observationDimension: 8,
+                actionDimension: 1,
+                actionEncoding: .directMotor
+            )
+        }
+    }
+}
+
+private extension TrainingDeterminismTier {
+    init(cliTier: LearningCampaignTier) {
+        switch cliTier {
+        case .tier0:
+            self = .tier0
+        case .tier1:
+            self = .tier1
+        case .tier2:
+            self = .tier2
+        }
+    }
+}
+
+private extension TrainingVariationKind {
+    init(cliVariation: LearningCampaignVariation) {
+        switch cliVariation {
+        case .copy:
+            self = .copy
+        case .gaussian:
+            self = .gaussian
+        }
+    }
+}
+
+private extension TrainingArtifactRetentionKind {
+    init(cliRetention: LearningCampaignArtifactRetentionMode) {
+        switch cliRetention {
+        case .compact:
+            self = .compact
+        case .full:
+            self = .full
+        }
     }
 }
 

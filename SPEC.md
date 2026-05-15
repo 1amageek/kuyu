@@ -31,6 +31,51 @@ The top-level Kuyu application may bridge to Manas/MLX for execution and
 training smoke tests, but those bridges do not make Manas model internals a
 Kuyu core responsibility.
 
+## API-First Application Boundary (Normative)
+Kuyu APIs are the source of truth for training execution, scenario rollout,
+learning campaign orchestration, checkpoint evaluation, checkpoint selection,
+artifact writing, artifact validation, regression gates, readiness checks, and
+continuation/resume selection. KuyuUI/Bounded and KuyuCLI are adapters over the
+same in-process Kuyu APIs; they are not independent execution engines.
+
+The package and target ownership skeleton is fixed in
+`../KUYU_PACKAGE_ARCHITECTURE.md`. This Kuyu spec defines behavior; the package
+architecture document defines where that behavior may live.
+
+Required layering:
+
+```mermaid
+flowchart LR
+  A["kuyu-training typed contracts"] --> B["kuyu-mlx Manas/MLX backend"]
+  B --> C["kuyu-app KuyuCLI adapter"]
+  B --> D["kuyu-app KuyuUI adapter"]
+  D --> E["Bounded document shell"]
+  B --> F["Artifact validators"]
+  G["Shell launchers"] --> C
+```
+
+- `KuyuTraining` owns portable task profiles, rollout contracts, evaluation
+  artifacts, project package contracts, and validation schemas.
+- The `kuyu-mlx` package owns Manas/MLX bridge execution, campaign runners,
+  checkpoint evaluators, regression gates, continuation resolution, and artifact
+  publication.
+- The `kuyu-app` package owns `KuyuCLI` and `KuyuUI` adapters. They map
+  command-line or UI intent into Kuyu API configuration, subscribe to Kuyu
+  events, and report or render Kuyu artifacts. They MUST NOT implement separate
+  checkpoint acceptance, readiness, continuation, or artifact validity logic.
+- Bounded is a macOS document shell over `KuyuUI`. It MUST NOT own learning
+  execution or success/failure decisions.
+- Shell scripts are launch/build wrappers only. They may select an Xcode-built
+  binary and set environment values, but MUST NOT be the authority for learning
+  success, checkpoint acceptance, or final artifact validity.
+- Any capability exposed in the UI for training, evaluation, continuation, or
+  checkpoint publication MUST be backed by the same Kuyu API path used by CLI.
+  UI-only behavior must be explicitly limited to display, inspection, or debug
+  controls.
+- UI presentation state may cache progress and derived summaries, but the final
+  state is the typed Kuyu artifact set validated by the corresponding Kuyu
+  validator.
+
 ## Design Alignment
 Kuyu preserves physical dynamics and morphology effects because the body/plant
 is treated as a **computational resource** in Manas. Fidelity of the plant
@@ -247,10 +292,13 @@ World → System order is fixed and versioned in `WORLD_SPEC.md`.
 - Rendering must never write to physics or sensor state.
 
 ### CommandSystem (required for KuyuUI)
-- KuyuUI issues run/train/export commands through CommandSystem only.
+- KuyuUI issues simulation run/export commands through CommandSystem only.
+- KuyuUI issues learning, checkpoint evaluation, continuation, and validation
+  commands through typed Kuyu runtime APIs only. UI and shell code must not own
+  readiness, resume, acceptance, or regression policy.
 - Commands enqueue into EventSystem / scheduler, never mutate physics directly.
-- Training loop orchestration may live in a controller, but run/export/train
-  execution must cross the CommandSystem boundary.
+- Training loop orchestration may live in a controller, but execution must cross
+  the Kuyu API boundary defined above.
 - User-visible KuyuUI operations MUST log `kuyu.ui` with `action`, `task`,
   `modelDescriptor`, and relevant controller/model identifiers. Descriptor
   load/preflight errors MUST include `reason` and `error`.

@@ -233,9 +233,9 @@ private struct RecommendedPresetView: View {
     var body: some View {
         GroupBox {
             HStack(spacing: KuyuSpacing.md) {
-                presetButton("バランス", preset: .standard, description: "安定した学習と検証のバランス")
-                presetButton("5世代確認", preset: .fiveGeneration, description: "8候補を5世代、Mac最適並列で確認")
-                presetButton("探索重視", preset: .full, description: "suite と seed を広げて確認")
+                presetButton("収束重視", preset: .convergence, description: "品質到達または停滞まで継続")
+                presetButton("バランス", preset: .standard, description: "軽めの収束探索と検証")
+                presetButton("探索重視", preset: .full, description: "suite と seed を広げて収束まで探索")
                 presetButton("検証のみ", preset: .smoke, description: "小さく回して問題を早期発見")
             }
             .padding(.vertical, KuyuSpacing.xs)

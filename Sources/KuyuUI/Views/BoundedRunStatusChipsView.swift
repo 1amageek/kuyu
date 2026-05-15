@@ -6,7 +6,7 @@ struct BoundedRunStatusChipsView: View {
     var body: some View {
         HStack(spacing: KuyuSpacing.sm) {
             StatusPill(statusLabel, tone: statusTone)
-            chip("世代", generationValue)
+            chip("世代/上限", generationValue)
             chip("エピソード", episodeValue)
             chip("平均報酬", rewardValue)
             chip("最良適応度", fitnessValue)

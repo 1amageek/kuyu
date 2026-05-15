@@ -12,8 +12,10 @@ public struct RunnableProjectAssetPreparationRequest {
     public let taskMode: SimulationTaskMode
     public let driveCount: Int?
     public let expectedDriveCount: Int
+    public let expectedObservationChannelCount: Int
     public let auxEnabled: Bool
     public let qualityGatingEnabled: Bool
+    public let policyContract: LearningProjectPolicyContract
 
     public init(
         checkpointURL: URL,
@@ -23,8 +25,10 @@ public struct RunnableProjectAssetPreparationRequest {
         taskMode: SimulationTaskMode,
         driveCount: Int?,
         expectedDriveCount: Int,
+        expectedObservationChannelCount: Int,
         auxEnabled: Bool,
-        qualityGatingEnabled: Bool
+        qualityGatingEnabled: Bool,
+        policyContract: LearningProjectPolicyContract
     ) {
         self.checkpointURL = checkpointURL
         self.displayName = displayName
@@ -33,8 +37,10 @@ public struct RunnableProjectAssetPreparationRequest {
         self.taskMode = taskMode
         self.driveCount = driveCount
         self.expectedDriveCount = expectedDriveCount
+        self.expectedObservationChannelCount = expectedObservationChannelCount
         self.auxEnabled = auxEnabled
         self.qualityGatingEnabled = qualityGatingEnabled
+        self.policyContract = policyContract
     }
 }
 
@@ -62,19 +68,30 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
         }
         try fileManager.createDirectory(at: request.checkpointURL, withIntermediateDirectories: true)
 
-        try modelStore.initializeDefaultModels(
-            observationMode: .runtimeMode(for: request.taskMode),
-            driveCount: request.driveCount,
-            auxEnabled: request.auxEnabled,
-            useQualityGating: request.qualityGatingEnabled,
-            descriptor: request.descriptor
-        )
-        try modelStore.saveModel(
-            to: request.checkpointURL,
-            name: request.displayName,
-            createdAt: Date(),
-            lastTrainedAt: nil
-        )
+        if request.policyContract.actionEncoding == .ctbr {
+            _ = try ManasMLXTemporalCTBRCheckpointWriter().write(request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+                checkpointURL: request.checkpointURL,
+                name: request.displayName,
+                policyContract: request.policyContract,
+                descriptor: request.descriptor,
+                createdAt: Date(),
+                lastTrainedAt: nil
+            ))
+        } else {
+            try modelStore.initializeDefaultModels(
+                observationMode: .runtimeMode(for: request.taskMode),
+                driveCount: request.driveCount,
+                auxEnabled: request.auxEnabled,
+                useQualityGating: request.qualityGatingEnabled,
+                descriptor: request.descriptor
+            )
+            try modelStore.saveModel(
+                to: request.checkpointURL,
+                name: request.displayName,
+                createdAt: Date(),
+                lastTrainedAt: nil
+            )
+        }
         try validateCheckpoint(request: request)
     }
 
@@ -84,10 +101,13 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
             sourceCheckpointURL: request.checkpointURL,
             requireSourceCheckpoint: true
         )
-        if let failure = try ManasMLXCheckpointCompatibility(
-            expectedDriveCount: request.expectedDriveCount
-        ).validate(snapshotURL: request.checkpointURL) {
-            throw LearningCampaignRunError.invalidConfig("starter checkpoint incompatible: \(failure.description)")
+        if request.policyContract.actionEncoding != .ctbr {
+            if let failure = try ManasMLXCheckpointCompatibility(
+                expectedDriveCount: request.expectedDriveCount,
+                expectedCoreInputSize: request.expectedObservationChannelCount * 4
+            ).validate(snapshotURL: request.checkpointURL) {
+                throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: \(failure.description)")
+            }
         }
     }
 }

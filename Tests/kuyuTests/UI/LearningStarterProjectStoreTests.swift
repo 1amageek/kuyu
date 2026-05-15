@@ -1,4 +1,5 @@
 import Foundation
+import KuyuTraining
 import KuyuUI
 import Testing
 
@@ -10,7 +11,11 @@ import Testing
         now: { Date(timeIntervalSince1970: 1_778_400_000) }
     )
 
-    let project = try store.prepareStarterProject { checkpoint in
+    let project = try store.prepareStarterProject(policyContract: .simpleFeedForward(
+        observationDimension: 8,
+        actionDimension: 1,
+        actionEncoding: .directMotor
+    )) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
         for fileName in ["model.json", "core.safetensors", "reflex.safetensors", "manas-bundle.json"] {
             let url = checkpoint.appendingPathComponent(fileName)
@@ -34,7 +39,11 @@ import Testing
     )
 
     #expect(throws: LearningStarterProjectStoreError.self) {
-        _ = try store.prepareStarterProject { checkpoint in
+        _ = try store.prepareStarterProject(policyContract: .simpleFeedForward(
+            observationDimension: 8,
+            actionDimension: 1,
+            actionEncoding: .directMotor
+        )) { checkpoint in
             try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
             let url = checkpoint.appendingPathComponent("model.json")
             try Data("{}".utf8).write(to: url, options: .atomic)
@@ -66,7 +75,13 @@ import Testing
         now: { Date(timeIntervalSince1970: 1_778_400_000) }
     )
 
-    _ = try store.prepareStarterProject { checkpoint in
+    let directMotorPolicy = LearningProjectPolicyContract.simpleFeedForward(
+        observationDimension: 8,
+        actionDimension: 1,
+        actionEncoding: .directMotor
+    )
+
+    _ = try store.prepareStarterProject(policyContract: directMotorPolicy) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
         for fileName in ["model.json", "core.safetensors", "reflex.safetensors", "manas-bundle.json"] {
             let url = checkpoint.appendingPathComponent(fileName)
@@ -74,7 +89,10 @@ import Testing
         }
     }
 
-    let project = try store.prepareStarterProject(regenerateSourceCheckpoint: true) { checkpoint in
+    let project = try store.prepareStarterProject(
+        regenerateSourceCheckpoint: true,
+        policyContract: directMotorPolicy
+    ) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
         for fileName in ["model.json", "core.safetensors", "reflex.safetensors", "manas-bundle.json"] {
             let url = checkpoint.appendingPathComponent(fileName)

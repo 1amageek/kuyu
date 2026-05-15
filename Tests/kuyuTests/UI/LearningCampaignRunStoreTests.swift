@@ -134,6 +134,86 @@ import Testing
     #expect(state.latestGenerations.first?.bestFitness == 50)
 }
 
+@Test func learningCampaignRunStoreDerivesLiveProgressFromProgressEvents() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-campaign-live-progress-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    try writeJSON(makeFiveGenerationPlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
+    try writeLine(
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: "2026-05-07T00:00:02Z",
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "1",
+            generationIndex: 0,
+            candidateID: "g0-c0",
+            fitness: -10,
+            rewardAverage: -10,
+            taskPassRate: 0,
+            safetyViolationRate: 1,
+            holdTimeRatio: 0.2,
+            altitudeErrorRatio: 0.8,
+            workerThroughput: 2,
+            failureReasons: ["lift-unsettled"]
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+    try writeLine(
+        LearningCampaignProgressRecord(
+            event: "generation-completed",
+            timestamp: "2026-05-07T00:00:03Z",
+            status: nil,
+            exitCode: nil,
+            phase: "generation",
+            seed: "1",
+            generationIndex: 0,
+            bestCandidateID: "g0-c0"
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+    try writeLine(
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: "2026-05-07T00:00:04Z",
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "1",
+            generationIndex: 1,
+            candidateID: "g1-c0",
+            fitness: -8,
+            rewardAverage: -8,
+            taskPassRate: 0.25,
+            safetyViolationRate: 0.5,
+            holdTimeRatio: 0.4,
+            altitudeErrorRatio: 0.6,
+            workerThroughput: 3
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.completedGenerationCount == 1)
+    #expect(state.plannedGenerationCount == 5)
+    #expect(state.liveCandidateEvaluationCount == 2)
+    #expect(state.plannedCandidateEvaluationCount == 40)
+    #expect(state.campaignProgressFraction == 0.05)
+    #expect(state.bestFitness == -8)
+    #expect(state.bestFitnessDeltaFromInitial == 2)
+    #expect(state.bestTaskPassRate == 0.25)
+    #expect(state.bestHoldTimeRatio == 0.4)
+    #expect(state.bestAltitudeErrorRatio == 0.6)
+    #expect(state.liveBestFitnessSamples.map(\.value) == [-10, -8])
+    #expect(state.liveRewardAverageSamples.map(\.value) == [-10, -8])
+    #expect(state.liveTaskPassRateSamples.map(\.value) == [0, 0.25])
+    #expect(state.liveHoldTimeRatioSamples.map(\.value) == [0.2, 0.4])
+    #expect(state.liveAltitudeErrorRatioSamples.map(\.value) == [0.8, 0.6])
+}
+
 @Test func learningCampaignRunStoreAggregatesFailureDiagnostics() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-ui-campaign-failure-\(UUID().uuidString)", isDirectory: true)
@@ -214,6 +294,102 @@ import Testing
     #expect(state.failureReasons.contains("exitCode: 1"))
     #expect(state.diagnosticText.contains("failureReasons:"))
     #expect(state.diagnosticText.contains("accepted-checkpoint-missing"))
+}
+
+@Test func learningCampaignRunStoreExplainsCancelledPartialEvolutionAsCancellation() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-campaign-cancelled-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    try writeJSON(makeFiveGenerationPlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
+    try writeJSON(
+        LearningCampaignStatus(
+            status: "cancelled",
+            exitCode: 130,
+            startedAt: "2026-05-07T00:00:00Z",
+            finishedAt: "2026-05-07T00:02:00Z"
+        ),
+        to: root.appendingPathComponent("campaign-status.json")
+    )
+    try writeJSON(
+        LearningCampaignSummary(
+            artifactRoot: root.path,
+            seedCount: 1,
+            acceptedCount: 0,
+            finalCheckpoint: "",
+            runs: [
+                LearningCampaignSeedRunSummary(
+                    seed: "seed-1",
+                    terminalState: "cancelled",
+                    accepted: false,
+                    acceptedCandidateID: nil,
+                    acceptedCheckpointURL: nil,
+                    incumbentCandidateID: nil,
+                    incumbentFitness: nil,
+                    bestCandidateID: "g6-c23",
+                    bestFitness: -289.763,
+                    bestVsIncumbentDelta: nil,
+                    bestTaskPassRate: 0,
+                    bestHoldTimeRatio: 0,
+                    bestAltitudeErrorRatio: 7.37,
+                    bestSafetyViolationRate: 0,
+                    bestRewardAverage: -116.034,
+                    gateNearestCandidateID: "g6-c23",
+                    gateNearestFitness: -289.763,
+                    gateNearestTaskPassRate: 0,
+                    gateNearestHoldTimeRatio: 0,
+                    gateNearestAltitudeErrorRatio: 7.37,
+                    gateNearestSafetyViolationRate: 0,
+                    gateNearestRewardAverage: -116.034,
+                    fitnessCount: 168,
+                    reasonCount: 168,
+                    evaluationTraceCount: 168,
+                    overlappedEvaluation: true
+                )
+            ]
+        ),
+        to: root.appendingPathComponent("learning-campaign-summary.json")
+    )
+    try """
+    {
+      "artifactRoot": "\(root.path)",
+      "issueCount": 1,
+      "issues": [
+        {
+          "code": "invalid-seed-evolution-artifact",
+          "detail": "seed=1 error=missingCandidateFitness(\\\"g7-c0\\\")"
+        }
+      ],
+      "timestamp": "2026-05-07T00:02:01Z",
+      "valid": false
+    }
+    """.write(
+        to: root.appendingPathComponent("learning-campaign-validation.json"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try writeLine(
+        LearningCampaignProgressRecord(
+            event: "campaign-finished",
+            timestamp: "2026-05-07T00:02:02Z",
+            status: "cancelled",
+            exitCode: 130
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.diagnosis.severity == .warning)
+    #expect(state.primaryFailureReason == "Campaign was cancelled before completion.")
+    #expect(state.failureReasons.contains("status: cancelled"))
+    #expect(state.failureReasons.contains("exitCode: 130"))
+    #expect(state.failureReasons.contains("No checkpoint was accepted by the gate."))
+    #expect(state.failureReasons.contains {
+        $0.contains("validation-note:validation:invalid-seed-evolution-artifact") &&
+            $0.contains("missingCandidateFitness")
+    })
+    #expect(state.primaryFailureReason?.contains("missingCandidateFitness") == false)
 }
 
 @Test func learningCampaignRunStoreLoadsRawEvolutionArtifactsForFiveGenerationPreview() throws {

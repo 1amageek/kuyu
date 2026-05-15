@@ -1,18 +1,20 @@
-# kuyu
+# kuyu-app
 
-Application layer for the Kuyu simulation environment. Integrates Kuyu sub-packages and Manas controllers into a unified UI, CLI, and MLX training bridge.
+Application adapter layer for the Kuyu simulation and training environment.
+It provides the CLI and SwiftUI adapters used by Bounded, while Manas/MLX
+backend execution lives in the sibling `kuyu-mlx` package.
 
 ## Overview
 
-Kuyu is a simulation environment for training and evaluating [Manas](https://github.com/1amageek/manas) controllers. This package is the top-level application that composes all sub-packages into a working system.
+Kuyu is a simulation environment for training and evaluating [Manas](https://github.com/1amageek/manas) controllers. This package composes the UI and CLI adapters over the shared Kuyu runtime APIs.
 
 ### Modules
 
 | Module | Description |
 |--------|-------------|
-| **KuyuMLX** | Manas-MLX bridge on top of physics scenario runners |
-| **KuyuUI** | SwiftUI-based GUI for simulation, training, and visualization |
-| **KuyuCLI** | Command-line interface for headless simulation and training |
+| **KuyuMLX** | Imported from `kuyu-mlx`; Manas-MLX bridge, learning campaign runner, checkpoint evaluator, and regression gate implementation |
+| **KuyuUI** | SwiftUI-based GUI that operates Kuyu APIs and renders typed events/artifacts |
+| **KuyuCLI** | Command-line adapter that maps arguments into the same Kuyu APIs used by the UI |
 
 ### Runtime Basis
 
@@ -28,6 +30,33 @@ Kuyu owns the training-world boundary: physics execution, scenarios, reward,
 rollout, dataset export, visual inspection, and CLI/UI orchestration. Manas
 control protocol internals, Manas model internals, and concrete RL optimizers
 remain outside Kuyu.
+
+### API-First UI/CLI Boundary
+
+Kuyu is the base runtime. Bounded/KuyuUI and KuyuCLI must operate Kuyu through
+typed in-process APIs instead of reimplementing training or checkpoint logic in
+the application layer.
+
+```mermaid
+flowchart LR
+  A["Kuyu API source of truth"] --> B["CLI adapter"]
+  A --> C["Bounded / KuyuUI adapter"]
+  A --> D["Artifact validators"]
+  E["Xcode launcher scripts"] --> B
+```
+
+| Layer | Owns | Must not own |
+|-------|------|--------------|
+| **KuyuTraining** | Task profiles, rollout contracts, evaluation artifacts, project package contracts | Manas model internals |
+| **KuyuMLX** | Campaign execution, checkpoint evaluation, regression gates, continuation selection | UI layout or independent app state |
+| **KuyuCLI** | Argument parsing, event printing, exit-code mapping | Acceptance gates or artifact validity decisions |
+| **KuyuUI / Bounded** | User interaction, visualization, artifact browsing, progress display | Training success logic, checkpoint acceptance, readiness checks |
+| **Shell scripts** | Xcode build/launch convenience and environment wiring | Learning success/failure decisions |
+
+If a training, evaluation, continuation, or checkpoint publication feature is
+visible in Bounded, the same behavior must be reachable through the Kuyu API and
+CLI adapter. UI-only features are limited to visualization, inspection, and
+debug presentation.
 
 ### CLI Usage
 
@@ -60,15 +89,10 @@ swift run -c release kuyu loop --iterations 1 --epochs 1 --lr 0.001 --save-model
 # Preferred MLX/Metal E2E path: build/test with Xcode, then run the Xcode-built kuyu binary
 ./scripts/check-xcode-e2e.sh /tmp/kuyu-xcode-e2e
 
-# Low-cost readiness gate before spending resources on a learning campaign
-./scripts/check-learning-readiness.sh /tmp/kuyu-learning-readiness
-
-# Learning campaign path: multiple seeds, multiple generations, persistent checkpoints
-KUYU_LEARNING_SOURCE_CHECKPOINT=/tmp/kuyu-task-source-checkpoint \
-KUYU_LEARNING_SEED_COUNT=3 \
-KUYU_LEARNING_POPULATION=4 \
-KUYU_LEARNING_GENERATIONS=5 \
-./scripts/run-xcode-learning-campaign.sh /tmp/kuyu-learning-campaign
+# Learning campaign path: use the typed Swift API through the Xcode-built app or CLI.
+# Shell campaign launchers were removed so readiness, resume, and acceptance stay in Kuyu runtime code.
+xcodebuild build -scheme kuyu-app-Package -destination 'platform=macOS'
+kuyu run-learning-campaign --artifact-root /tmp/kuyu-learning-campaign
 
 # Validate a completed campaign before using its final checkpoint
 ./scripts/validate-learning-campaign-artifacts.sh /tmp/kuyu-learning-campaign
@@ -124,9 +148,7 @@ xcodebuild test -scheme kuyu-world-model -destination 'platform=macOS' -maximum-
 
 `check-xcode-e2e.sh` runs `xcodebuild test`, executes teacher regression, creates a ManasMLX checkpoint, evaluates that checkpoint as the incumbent, and runs a small evolution gate. It validates the produced artifacts, including `accepted-checkpoint.json` and `evaluation-trace.jsonl`.
 
-`check-learning-readiness.sh` is the low-cost gate to run before an expensive campaign. It verifies free disk space, builds the Xcode product, checks teacher regression, validates a provided source checkpoint or creates a task-specific bootstrap checkpoint, runs strict checkpoint evaluation, then runs the same ManasMLX regression gate used by evolution before writing `learning-readiness-summary.json`. When it creates a bootstrap checkpoint, the bootstrap uses task coverage large enough for the strict checkpoint evaluator rather than a one-batch smoke dataset, with conservative supervised defaults (`lr=0.0001`, `epochs=3`, `max-batches=32`) to avoid over-driving lift policies. `singleLift` bootstrap also fixes the MLX seed and applies a typed `calibrate-manas-checkpoint` bias adjustment before strict task verification, because small raw drive-head bias errors accumulate into altitude error. For `lift` and `singleLift`, source policy pass and ready checkpoint regression pass are required by default; a checkpoint that only passes base evaluation but fails M2 regression is not considered ready. It does not run multi-generation evolution.
-
-`run-xcode-learning-campaign.sh` is now a launcher, not the campaign brain. It refuses to reuse a non-empty artifact root, takes a single-flight campaign lock, checks disk capacity, builds the Xcode product, and invokes the Xcode-built `kuyu run-learning-campaign` binary. A task-specific source checkpoint is required through `KUYU_LEARNING_SOURCE_CHECKPOINT`; ambiguous shell bootstrap is intentionally removed. The Swift orchestrator writes `learning-campaign-plan.json`, records host/repository state in `learning-campaign-environment.json`, appends progress to `progress.jsonl`, samples host load/disk signals into `resource-samples.jsonl`, writes final status to `campaign-status.json`, runs evolution across `KUYU_LEARNING_SEEDS`, writes `learning-campaign-summary.json`, and validates the result into `learning-campaign-validation.json`. Initial parent checkpoint evaluation and initial parent regression are both recorded, and either failure stops the campaign before evolution. Accepted checkpoints also must pass strict checkpoint evaluation and regression before becoming the final parent. resume is intentionally disabled in the launcher until Swift owns resume compatibility checks end to end. If a seed rejects all candidates, the campaign keeps the previous parent checkpoint and still records best fitness, task pass rate, hold-time ratio, and incumbent delta from the rejected evolution artifacts.
+Learning readiness, resume selection, artifact validation, and checkpoint acceptance must live in typed Swift runtime APIs. Shell campaign wrappers were removed because they duplicated policy and made UI/CLI behavior diverge. Use the Xcode-built app or CLI so MLX/Metal resources and the same runtime contracts are active.
 
 `kuyu validate-learning-campaign` is the Swift post-run artifact gate. It checks plan/status/progress/environment/resource samples, verifies every seed has complete evolution artifacts, checks fitness counts against population/generations, and rejects an incomplete final checkpoint before it is used as a future source checkpoint. `validate-learning-campaign-artifacts.sh` is a compatibility wrapper around that Swift command.
 
@@ -149,20 +171,17 @@ M2 introduces a world-model adapter behind the environment/rollout boundary:
 ## Architecture
 
 ```
-kuyu (this package)
-  |
-  +-- KuyuMLX
-  |     depends: KuyuCore, KuyuPhysics, KuyuScenarios,
-  |              KuyuTraining,
-  |              ManasCore, ManasMLXModels, ManasMLXRuntime, ManasMLXTraining
+kuyu-app (this package)
   |
   +-- KuyuUI
   |     depends: KuyuCore, KuyuPhysics, KuyuScenarios,
-  |              KuyuTraining, KuyuMLX, swift-log, swift-configuration
+  |              KuyuTraining, KuyuMLX from kuyu-mlx,
+  |              swift-log, swift-configuration
   |
   +-- KuyuCLI
         depends: KuyuCore, KuyuPhysics, KuyuScenarios,
-                 KuyuTraining, KuyuMLX, swift-argument-parser
+                 KuyuTraining, KuyuMLX from kuyu-mlx,
+                 swift-argument-parser
 ```
 
 ## Full Dependency Graph
@@ -176,7 +195,9 @@ KuyuScenarios
   |
 KuyuTraining
   |
-kuyu (this package) + manas
+kuyu-mlx + manas
+  |
+kuyu-app (this package)
 ```
 
 ## Requirements
@@ -191,6 +212,7 @@ kuyu (this package) + manas
 - [kuyu-physics](https://github.com/1amageek/kuyu-physics) — Physics engines and analytical models
 - [kuyu-scenarios](https://github.com/1amageek/kuyu-scenarios) — Evaluation scenarios and logging
 - [kuyu-training](https://github.com/1amageek/kuyu-training) — Training data collection and pipeline
+- [kuyu-mlx](https://github.com/1amageek/kuyu-mlx) — Manas/MLX backend implementation for Kuyu training contracts
 - [manas](https://github.com/1amageek/manas) — CNS-style robotic control system
 
 ## License

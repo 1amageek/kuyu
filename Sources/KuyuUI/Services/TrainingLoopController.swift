@@ -74,7 +74,7 @@ public final class TrainingLoopController {
         self.commandExecutor = commandExecutor
     }
 
-    public func setTelemetry(_ handler: ((WorldStepLog) -> Void)?) {
+    public func setTelemetry(_ handler: WorldStepTelemetry?) {
         _ = handler
     }
 

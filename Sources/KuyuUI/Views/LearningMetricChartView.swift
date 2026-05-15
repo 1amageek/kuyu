@@ -8,13 +8,32 @@ struct LearningMetricChartView: View {
     let samples: [MetricSample]
     let tint: Color
     let trailingValue: Double?
+    let xAxisLabel: String
+
+    init(
+        title: String,
+        subtitle: String,
+        unit: String,
+        samples: [MetricSample],
+        tint: Color,
+        trailingValue: Double?,
+        xAxisLabel: String = "episode"
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.unit = unit
+        self.samples = samples
+        self.tint = tint
+        self.trailingValue = trailingValue
+        self.xAxisLabel = xAxisLabel
+    }
 
     var body: some View {
         GroupBox {
             if samples.isEmpty {
                 placeholder
             } else {
-                Chart(samples) { sample in
+                Chart(Array(samples.enumerated()), id: \.offset) { _, sample in
                     LineMark(
                         x: .value("Step", sample.time),
                         y: .value(unit, sample.value)
@@ -34,7 +53,7 @@ struct LearningMetricChartView: View {
                         )
                     )
                 }
-                .chartXAxisLabel("episode")
+                .chartXAxisLabel(xAxisLabel)
                 .chartYAxisLabel(unit)
                 .chartLegend(.hidden)
                 .frame(minHeight: 250)

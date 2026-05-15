@@ -12,10 +12,10 @@ import Testing
 
 @Test func liftRuntimeUsesExtendedObservationMode() throws {
     let mode = ManasMLXObservationMode.runtimeMode(for: .lift)
-    #expect(mode == .passThrough(channelCount: 8))
-    #expect(mode.accepts(channelIndex: 6))
-    #expect(mode.accepts(channelIndex: 7))
-    #expect(!mode.accepts(channelIndex: 8))
+    #expect(mode == .passThrough(channelCount: 64))
+    #expect(mode.accepts(channelIndex: 0))
+    #expect(mode.accepts(channelIndex: 63))
+    #expect(!mode.accepts(channelIndex: 64))
 }
 
 @Test func singleDriveDatasetsKeepAltitudeObservationChannels() throws {
@@ -31,6 +31,7 @@ import Testing
 @Test func checkpointInputSizeRestoresObservationMode() throws {
     #expect(ManasMLXObservationMode.checkpointMode(coreInputSize: 24) == .imu6)
     #expect(ManasMLXObservationMode.checkpointMode(coreInputSize: 32) == .passThrough(channelCount: 8))
+    #expect(ManasMLXObservationMode.checkpointMode(coreInputSize: 256) == .passThrough(channelCount: 64))
 }
 
 @Test func extendedObservationModeProducesLargerTrunkSize() throws {

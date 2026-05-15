@@ -8,7 +8,7 @@ struct CurrentRunSummaryView: View {
             Grid(alignment: .leading, horizontalSpacing: KuyuSpacing.lg, verticalSpacing: KuyuSpacing.sm) {
                 GridRow {
                     summaryItem("Status", status)
-                    summaryItem("Generation", generation)
+                    summaryItem("Generation / Budget", generation)
                     summaryItem("Episode", episode)
                     summaryItem("Reward", reward)
                     summaryItem("Fitness", fitness)

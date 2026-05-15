@@ -52,6 +52,13 @@ struct LaunchValidationView: View {
                     .disabled(model.isLearningCampaignRunning)
 
                     Button {
+                        model.continueLearningCampaignFromLastCheckpoint()
+                    } label: {
+                        Label("Continue From Checkpoint", systemImage: "forward.end.fill")
+                    }
+                    .disabled(!model.canContinueLearningCampaign)
+
+                    Button {
                         model.validateLearningCampaignLaunch()
                     } label: {
                         Label("Dry Run Validation", systemImage: "checkmark.seal")

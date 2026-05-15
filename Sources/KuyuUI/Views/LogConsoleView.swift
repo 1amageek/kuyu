@@ -2,26 +2,22 @@ import SwiftUI
 
 public struct LogConsoleView: View {
     let entries: [UILogEntry]
+    var filterText: String = ""
     let onClear: () -> Void
 
     public var body: some View {
-        ScrollView {
-            if entries.isEmpty {
-                Text("No logs yet")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(KuyuSpacing.sm)
-            } else {
-                Text(entries.map { line(for: $0) }.joined(separator: "\n"))
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(KuyuSpacing.sm)
-            }
-        }
+        MonospacedLogOutputView(
+            lines: logLines,
+            emptyMessage: "No logs yet",
+            filterText: filterText
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var logLines: [MonospacedLogLine] {
+        entries.map { entry in
+            MonospacedLogLine(id: entry.id.uuidString, text: line(for: entry))
+        }
     }
 
     private func line(for entry: UILogEntry) -> String {

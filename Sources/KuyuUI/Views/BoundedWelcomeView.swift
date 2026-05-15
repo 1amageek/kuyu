@@ -243,40 +243,24 @@ struct BoundedWelcomeView: View {
                 subtitle: "Set the project name and location for the .kuyu package."
             )
 
-            HStack(alignment: .top, spacing: 24) {
-                if let template = selectedTemplate {
-                    TemplateSummaryView(
-                        template: template,
-                        iconName: iconName(for: template),
-                        domainTitle: domainTitle(template.domain)
-                    )
-                    .frame(width: 320)
-                }
-
-                Form {
-                    Section {
-                        TextField("Project Name", text: $projectName)
-                        HStack {
-                            TextField("Location", text: parentDirectoryPathBinding)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Button("Choose…") {
-                                chooseParentDirectory()
-                            }
-                        }
-                        if let projectLocationError {
-                            Label(projectLocationError, systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
+            ScrollView {
+                HStack(alignment: .top, spacing: 24) {
+                    if let template = selectedTemplate {
+                        TemplateSummaryView(
+                            template: template,
+                            iconName: iconName(for: template),
+                            domainTitle: domainTitle(template.domain)
+                        )
+                        .frame(width: 320)
                     }
+
+                    projectOptionsView
                 }
-                .formStyle(.grouped)
-                .scrollContentBackground(.hidden)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 32)
+                .padding(.top, 24)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 24)
             .frame(maxHeight: .infinity, alignment: .top)
 
             actionBar(
@@ -292,6 +276,60 @@ struct BoundedWelcomeView: View {
                 }
             )
         }
+    }
+
+    private var projectOptionsView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            projectOptionRow(title: "Project Name") {
+                TextField("Project Name", text: $projectName)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            Divider()
+
+            projectOptionRow(title: "Location") {
+                HStack(spacing: 12) {
+                    TextField("Location", text: parentDirectoryPathBinding)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose…") {
+                        chooseParentDirectory()
+                    }
+                    .controlSize(.regular)
+                }
+            }
+
+            if let projectLocationError {
+                Divider()
+                Label(projectLocationError, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func projectOptionRow<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 120, alignment: .leading)
+            content()
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.vertical, 10)
     }
 
     // MARK: - Shared Components
@@ -639,16 +677,27 @@ private struct TemplateCard: View {
     }
 
     private var runnabilityBadge: some View {
-        let isRunnable = template.isRunnableStarter
-        return Text(isRunnable ? "Ready Now" : "Design Only")
+        let level = template.executionLevel
+        return Text(level.displayName)
             .font(.caption2.weight(.medium))
-            .foregroundStyle(isRunnable ? Color.green : Color.orange)
+            .foregroundStyle(badgeColor(level))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(
                 Capsule()
-                    .fill((isRunnable ? Color.green : Color.orange).opacity(0.12))
+                    .fill(badgeColor(level).opacity(0.12))
             )
+    }
+
+    private func badgeColor(_ level: LearningProjectTemplateExecutionLevel) -> Color {
+        switch level {
+        case .runnableStarter:
+            return .green
+        case .requiresExistingModel:
+            return .blue
+        case .designOnly:
+            return .orange
+        }
     }
 
     private var cardBackground: some View {
@@ -681,7 +730,7 @@ private struct TemplateCard: View {
 
     private var stageSummary: String {
         let runnableCount = template.curriculum.trainingStages.filter { $0.taskProfileID != nil }.count
-        return "\(template.curriculum.trainingStages.count)-stage curriculum · \(runnableCount) ready now"
+        return "\(template.curriculum.trainingStages.count)-stage curriculum · \(runnableCount) executable"
     }
 }
 
@@ -720,14 +769,11 @@ private struct TemplateSummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 summaryRow("Curriculum", template.task)
                 summaryRow("Stages", "\(template.curriculum.trainingStages.count)")
-                summaryRow("Ready Now", "\(template.curriculum.trainingStages.filter { $0.taskProfileID != nil }.count)")
+                summaryRow("Executable", "\(template.curriculum.trainingStages.filter { $0.taskProfileID != nil }.count)")
                 summaryRow("Observation", "\(template.observation.channelCount) channels")
                 summaryRow("Action", "\(template.action.driveCount ?? template.action.actuatorCount ?? 0) drives")
                 summaryRow("Strategy", template.trainingStrategy.kind.rawValue)
-                summaryRow(
-                    "Status",
-                    template.isRunnableStarter ? "Starter project" : "Design only"
-                )
+                summaryRow("Status", template.executionLevel.displayName)
             }
 
             Divider()
@@ -744,7 +790,7 @@ private struct TemplateSummaryView: View {
                             Text(stage.displayName)
                                 .font(.caption)
                                 .foregroundStyle(.primary)
-                            Text("\(stage.executionMode.rawValue) · \(stageStatusText(stage))")
+                            Text("\(stage.kind.rawValue) · \(stage.executionMode.rawValue) · \(stageStatusText(stage))")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -779,7 +825,7 @@ private struct TemplateSummaryView: View {
     }
 
     private func stageStatusText(_ stage: LearningProjectTrainingStage) -> String {
-        stage.taskProfileID == nil ? "planned contract" : "ready now"
+        stage.taskProfileID == nil ? "planned contract" : "executable"
     }
 }
 

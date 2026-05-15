@@ -38,14 +38,14 @@ public final class CommandSystem {
     private var queue: [QueuedCommand] = []
     private var isProcessing = false
     private var activeControl: SimulationControl?
-    private var telemetry: ((WorldStepLog) -> Void)?
+    private var telemetry: WorldStepTelemetry?
 
     private let modelStore: ManasMLXModelStore
     private var runnerService: SimulationRunnerService
     private let logWriter: KuyAtt1LogWriter
     private let datasetExporter: TrainingDatasetExporter
     private let trainingService: TrainingService
-    private let learningCampaignRunner: LearningCampaignRunner
+    private let trainingRunExecutor: ManasMLXTrainingRunExecutor
     private lazy var trainingLoopController = TrainingLoopController(commandExecutor: self)
 
     public init(
@@ -54,17 +54,17 @@ public final class CommandSystem {
         logWriter: KuyAtt1LogWriter = KuyAtt1LogWriter(),
         datasetExporter: TrainingDatasetExporter = TrainingDatasetExporter(),
         trainingService: TrainingService? = nil,
-        learningCampaignRunner: LearningCampaignRunner = LearningCampaignRunner()
+        trainingRunExecutor: ManasMLXTrainingRunExecutor = ManasMLXTrainingRunExecutor()
     ) {
         self.modelStore = modelStore
         self.runnerService = runnerService ?? SimulationRunnerService(modelStore: modelStore)
         self.logWriter = logWriter
         self.datasetExporter = datasetExporter
         self.trainingService = trainingService ?? TrainingService(modelStore: modelStore)
-        self.learningCampaignRunner = learningCampaignRunner
+        self.trainingRunExecutor = trainingRunExecutor
     }
 
-    public func setTelemetry(_ handler: ((WorldStepLog) -> Void)?) {
+    public func setTelemetry(_ handler: WorldStepTelemetry?) {
         telemetry = handler
         trainingLoopController.setTelemetry(handler)
     }
@@ -101,13 +101,22 @@ public final class CommandSystem {
         await trainingLoopController.stop()
     }
 
-    public func startLearningCampaign(config: LearningCampaignRunConfig) throws -> LearningCampaignRunHandle {
-        try learningCampaignRunner.start(config: config)
+    public func startTrainingRun(request: TrainingRunRequest) async throws -> any TrainingRunHandle {
+        try await trainingRunExecutor.start(request)
     }
 
-    public func validateLearningCampaign(config: LearningCampaignRunConfig) throws {
-        _ = try learningCampaignRunner.makeOrchestratorConfig(config: config)
-        try learningCampaignRunner.preflight(config: config)
+    public func resumeTrainingRun(request: TrainingResumeRequest) async throws -> any TrainingRunHandle {
+        try await trainingRunExecutor.resume(request)
+    }
+
+    public func learningCampaignContinuationSelection(
+        from artifactRoot: URL
+    ) throws -> LearningCampaignContinuationSelection {
+        try trainingRunExecutor.continuationSelection(from: artifactRoot)
+    }
+
+    public func validateLearningCampaign(request: TrainingRunRequest) throws {
+        try trainingRunExecutor.validate(request)
     }
 
     public func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {
@@ -199,9 +208,10 @@ public final class CommandSystem {
     private func runSuite(
         request: SimulationRunRequest,
         control: SimulationControl,
-        telemetry: ((WorldStepLog) -> Void)?
+        telemetry: WorldStepTelemetry?
     ) async throws -> KuyAtt1RunOutput {
-        try await runnerService.run(request: request, control: control, telemetry: telemetry)
+        let runnerService = self.runnerService
+        return try await runnerService.run(request: request, control: control, telemetry: telemetry)
     }
 
     @discardableResult

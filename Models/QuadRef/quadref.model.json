@@ -132,48 +132,48 @@
     ],
     "drive": [
       {
-        "id": "drive0",
+        "id": "collective_thrust",
         "index": 0,
-        "name": "Drive 0",
-        "units": "unitless",
+        "name": "Collective Thrust",
+        "units": "normalized",
         "range": [
           0,
           1
         ],
-        "group": "drive"
+        "group": "body-rate-control"
       },
       {
-        "id": "drive1",
+        "id": "roll_rate",
         "index": 1,
-        "name": "Drive 1",
-        "units": "unitless",
+        "name": "Roll Rate",
+        "units": "normalized",
         "range": [
-          0,
+          -1,
           1
         ],
-        "group": "drive"
+        "group": "body-rate-control"
       },
       {
-        "id": "drive2",
+        "id": "pitch_rate",
         "index": 2,
-        "name": "Drive 2",
-        "units": "unitless",
+        "name": "Pitch Rate",
+        "units": "normalized",
         "range": [
-          0,
+          -1,
           1
         ],
-        "group": "drive"
+        "group": "body-rate-control"
       },
       {
-        "id": "drive3",
+        "id": "yaw_rate",
         "index": 3,
-        "name": "Drive 3",
-        "units": "unitless",
+        "name": "Yaw Rate",
+        "units": "normalized",
         "range": [
-          0,
+          -1,
           1
         ],
-        "group": "drive"
+        "group": "body-rate-control"
       }
     ],
     "reflex": [
@@ -301,10 +301,10 @@
   ],
   "control": {
     "driveChannels": [
-      "drive0",
-      "drive1",
-      "drive2",
-      "drive3"
+      "collective_thrust",
+      "roll_rate",
+      "pitch_rate",
+      "yaw_rate"
     ],
     "reflexChannels": [
       "reflex0",
@@ -329,10 +329,10 @@
         "id": "stage-0",
         "type": "mixer",
         "inputs": [
-          "drive0",
-          "drive1",
-          "drive2",
-          "drive3"
+          "collective_thrust",
+          "roll_rate",
+          "pitch_rate",
+          "yaw_rate"
         ],
         "outputs": [
           "motor1",

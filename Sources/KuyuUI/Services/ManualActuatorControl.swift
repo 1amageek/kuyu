@@ -77,6 +77,9 @@ public final class ManualActuatorStore {
     }
 }
 
+// ManualActuatorStore protects all mutable state with an NSLock and exposes snapshots only.
+extension ManualActuatorStore: @unchecked Sendable {}
+
 public struct ManualMotorNerve: MotorNerveEndpoint {
     private let store: ManualActuatorStore
     private let channelMaxima: [Double]

@@ -9,7 +9,7 @@ struct LearningHyperparameterSettingsView: View {
                 VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                     IntegerStepperView(label: "Seed Count", value: $model.learningCampaignSeedCount, range: 1...64)
                     IntegerStepperView(label: "Population", value: $model.learningCampaignPopulation, range: 1...512)
-                    IntegerStepperView(label: "Generations", value: $model.learningCampaignGenerations, range: 1...10_000)
+                    IntegerStepperView(label: "Safety Generation Budget", value: $model.learningCampaignGenerations, range: 1...10_000)
                     IntegerStepperView(label: "Elite Count", value: $model.learningCampaignEliteCount, range: 1...64)
                     IntegerStepperView(label: "Workers", value: $model.learningCampaignWorkers, range: 1...64)
                     IntegerStepperView(

@@ -135,7 +135,7 @@ struct BoundedInspectorView: View {
                 StatRow(label: "Preset", value: trainingModel.learningCampaignPreset.rawValue, compact: true)
                 StatRow(label: "Suites", value: trainingModel.learningCampaignSuites, compact: true)
                 StatRow(label: "Population", value: "\(trainingModel.learningCampaignPopulation)", compact: true)
-                StatRow(label: "Generations", value: "\(trainingModel.learningCampaignGenerations)", compact: true)
+                StatRow(label: "Safety Budget", value: "\(trainingModel.learningCampaignGenerations)", compact: true)
             }
         } label: {
             Label("Training Inspector", systemImage: "sidebar.trailing")

@@ -49,6 +49,10 @@ struct RunInspectorView: View {
                 Button("Rerun") {
                     simulationModel.startLearningCampaign()
                 }
+                Button("Continue From Checkpoint") {
+                    simulationModel.continueLearningCampaignFromLastCheckpoint()
+                }
+                .disabled(!simulationModel.canContinueLearningCampaign)
                 Button(role: .destructive) {
                     simulationModel.clearRuns()
                 } label: {
@@ -66,6 +70,10 @@ struct RunInspectorView: View {
                 StatRow(label: "Status", value: simulationModel.learningCampaignState?.statusLabel ?? "--", compact: true)
                 StatRow(label: "Validation", value: simulationModel.learningCampaignState?.validationLabel ?? "--", compact: true)
                 StatRow(label: "Accepted", value: acceptedText, compact: true)
+                if let state = simulationModel.learningCampaignState, state.hasTrainingStageIdentity {
+                    StatRow(label: "Stage", value: state.trainingStageLabel, compact: true)
+                    StatRow(label: "Stage Kind", value: state.trainingStageKindLabel, compact: true)
+                }
                 StatRow(label: "Latest Phase", value: simulationModel.learningCampaignCurrentPhase, compact: true)
                 if let reason = primaryFailureReason {
                     StatRow(label: "Primary Issue", value: reason, compact: true)

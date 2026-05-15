@@ -147,27 +147,31 @@ public final class SimulationViewModel {
     var learningCampaignExperimentName: String = "Drone Autonomy Starter"
     var learningCampaignExperimentDescription: String = "Ready-to-run hybrid GA/RL starter project for Manas lift control."
     var learningCampaignTagsText: String = "starter, drone, lift, hybrid"
+    var learningCampaignTrainingStageID: String?
+    var learningCampaignTrainingStageDisplayName: String?
+    var learningCampaignTrainingStageKind: AutonomousTrainingStageKind?
+    var learningCampaignPolicyContract: LearningProjectPolicyContract = .referenceQuadrotorTemporalCTBR()
     var learningStrategySelection: LearningStrategySelection = .hybrid
     var learningCampaignArtifactDirectory: String = ""
     var learningCampaignSourceCheckpointPath: String = ""
     var learningCampaignSuites: String = "6"
-    var learningCampaignSeedCount: Int = 1
-    var learningCampaignPopulation: Int = 8
-    var learningCampaignGenerations: Int = 5
-    var learningCampaignEliteCount: Int = 2
-    var learningCampaignWorkers: Int = 1
-    var learningCampaignCandidateEvaluationConcurrency: Int = 1
+    var learningCampaignSeedCount: Int = 2
+    var learningCampaignPopulation: Int = 100
+    var learningCampaignGenerations: Int = 1_000
+    var learningCampaignEliteCount: Int = 10
+    var learningCampaignWorkers: Int = 2
+    var learningCampaignCandidateEvaluationConcurrency: Int = 24
     var learningCampaignEpisodes: Int = 1
-    var learningCampaignMutationRate: Double = 0.08
-    var learningCampaignMutationNoiseScale: Double = 0.01
+    var learningCampaignMutationRate: Double = 0.16
+    var learningCampaignMutationNoiseScale: Double = 0.035
     var learningCampaignMinimumIncumbentImprovement: Double = 0
     var learningCampaignAdaptiveMutation: Bool = true
-    var learningCampaignCompactRetention: Bool = false
+    var learningCampaignCompactRetention: Bool = true
     var learningCampaignAutoParallelism: Bool = true
     var learningCampaignRequiresInitialParentPass: Bool = false
     var learningCampaignMachineCapacity: LearningCampaignMachineCapacity = .current()
     var learningCampaignAutonomyDomain: AutonomousOperationDomain = .aerialDrone
-    var learningCampaignPreset: LearningCampaignRunPreset = .fiveGeneration {
+    var learningCampaignPreset: LearningCampaignRunPreset = .convergence {
         didSet { applyLearningCampaignPreset(learningCampaignPreset) }
     }
     var learningStarterProjectStatus: String = "Preparing starter project"
@@ -179,10 +183,25 @@ public final class SimulationViewModel {
     var learningCampaignProgressFraction: Double = 0
     var learningCampaignCurrentPhase: String = "idle"
     var learningCampaignLatestEvent: String?
+    var learningCampaignRunLog: [LearningCampaignRunLogRecord] = []
+    var learningCampaignLiveFitnessSamples: [MetricSample] = []
+    var learningCampaignLiveRewardSamples: [MetricSample] = []
+    var learningCampaignLiveTaskPassSamples: [MetricSample] = []
+    var learningCampaignLiveHoldTimeSamples: [MetricSample] = []
+    var learningCampaignLiveAltitudeErrorSamples: [MetricSample] = []
+    var learningCampaignLiveEpisodeSamples: [MetricSample] = []
+    var learningCampaignLiveCandidateEvaluationCount: Int = 0
     var isLearningCampaignRunning = false
     var learningCampaignMonitorEnabled = false
     var learningCampaignState: LearningCampaignRunStoreState?
     var learningCampaignError: String?
+    var canContinueLearningCampaign: Bool {
+        guard !isLearningCampaignRunning else { return false }
+        return resumableLearningCampaignCheckpointURLIfAvailable() != nil
+    }
+    var learningCampaignContinuationCheckpointPath: String? {
+        resumableLearningCampaignCheckpointURLIfAvailable()?.path
+    }
     var simulationPlaybackFraction: Double = 0
     var simulationShowsTrajectoryOverlay = true
     var simulationShowsSensorReadouts = true
@@ -209,7 +228,6 @@ public final class SimulationViewModel {
     private let trainingBootstrapCoordinator = TrainingBootstrapCoordinator()
     private let learningStarterProjectStore: LearningStarterProjectStore
     private let runnableProjectAssetPreparer: any RunnableProjectAssetPreparing
-    private let learningCampaignRunStore = LearningCampaignRunStore()
     private let trainingLoopReducer = TrainingLoopStateReducer()
     private let descendingIntentResolver = DescendingIntentResolver()
     private var telemetryPresenter = TelemetryPresenter()
@@ -222,7 +240,10 @@ public final class SimulationViewModel {
     private var learningCampaignMonitorTask: Task<Void, Never>?
     private var learningCampaignEventTask: Task<Void, Never>?
     private var learningCampaignWaitTask: Task<Void, Never>?
-    private var learningCampaignHandle: LearningCampaignRunHandle?
+    private var learningCampaignArtifactLoadTask: Task<Void, Never>?
+    private var learningCampaignArtifactLoadID: UInt64 = 0
+    private var learningCampaignHandle: (any TrainingRunHandle)?
+    private var learningCampaignContinuationSourceArtifactRoot: URL?
     var availableModels: [TrainingModelInfo] = []
     private var activeModelID: UUID?
     var selectedModelID: UUID?
@@ -248,8 +269,10 @@ public final class SimulationViewModel {
         self.logger = Logger(label: "kuyu.ui")
         self.logger.logLevel = .info
 
-        let telemetry: (WorldStepLog) -> Void = { [weak self] step in
-            self?.recordLiveStep(step)
+        let telemetry: WorldStepTelemetry = { [weak self] step in
+            Task { @MainActor in
+                self?.recordLiveStep(step)
+            }
         }
         self.commandSystem.setTelemetry(telemetry)
         self.commandSystem.setManualActuatorStore(manualActuatorStore)
@@ -570,8 +593,10 @@ public final class SimulationViewModel {
         let store = ManasMLXModelStore()
         let command = CommandSystem(modelStore: store)
         command.setManualActuatorStore(manualActuatorStore)
-        let telemetry: (WorldStepLog) -> Void = { [weak self] step in
-            self?.recordLiveStep(step)
+        let telemetry: WorldStepTelemetry = { [weak self] step in
+            Task { @MainActor in
+                self?.recordLiveStep(step)
+            }
         }
         command.setTelemetry(telemetry)
         modelContexts[info.id] = ModelContext(
@@ -620,8 +645,10 @@ public final class SimulationViewModel {
         let store = ManasMLXModelStore()
         let command = CommandSystem(modelStore: store)
         command.setManualActuatorStore(manualActuatorStore)
-        let telemetry: (WorldStepLog) -> Void = { [weak self] step in
-            self?.recordLiveStep(step)
+        let telemetry: WorldStepTelemetry = { [weak self] step in
+            Task { @MainActor in
+                self?.recordLiveStep(step)
+            }
         }
         command.setTelemetry(telemetry)
         modelContexts[selectedModelID] = ModelContext(
@@ -1523,19 +1550,26 @@ public final class SimulationViewModel {
 
     func configureForProjectPackage(_ package: KuyuProjectPackage) {
         applyProjectTemplate(package.selectedTemplate)
+        let starterDefaults = runnableStarterCampaignDefaults(for: package)
+        learningCampaignTrainingStageID = starterDefaults.stageID
+        learningCampaignTrainingStageDisplayName = starterDefaults.stageDisplayName
+        learningCampaignTrainingStageKind = starterDefaults.stageKind
         learningCampaignExperimentName = package.defaultExperiment.name
         learningCampaignExperimentDescription = package.defaultExperiment.summary
         learningCampaignTagsText = package.defaultExperiment.tags.joined(separator: ", ")
-        learningCampaignSuites = package.defaultExperiment.curriculum.suiteIDs
+        learningCampaignSuites = starterDefaults.suiteIDs
             .map(String.init)
             .joined(separator: ",")
-        learningCampaignSeedCount = package.defaultExperiment.curriculum.seedCount
-        learningCampaignPopulation = package.defaultExperiment.curriculum.populationSize
-        learningCampaignGenerations = package.defaultExperiment.curriculum.generationLimit
+        learningCampaignSeedCount = starterDefaults.seedCount
+        learningCampaignPopulation = starterDefaults.populationSize
+        learningCampaignGenerations = starterDefaults.generationLimit
         learningCampaignEliteCount = package.defaultExperiment.curriculum.eliteCount
         learningCampaignWorkers = package.defaultExperiment.compute.workerCount
-        learningCampaignCandidateEvaluationConcurrency = package.defaultExperiment.compute.candidateEvaluationConcurrency
-        learningCampaignEpisodes = package.defaultExperiment.curriculum.episodesPerSuite
+        learningCampaignCandidateEvaluationConcurrency = max(
+            24,
+            package.defaultExperiment.compute.candidateEvaluationConcurrency
+        )
+        learningCampaignEpisodes = starterDefaults.episodesPerSuite
         learningCampaignAutonomyDomain = package.defaultExperiment.domain
 
         let sourceURL = package.rootURL.appendingPathComponent(
@@ -1551,13 +1585,37 @@ public final class SimulationViewModel {
             learningCampaignError = "\(error)"
             learningCampaignReadiness = .blocked(message: "\(error)")
         }
+        do {
+            if let latestRun = try latestProjectRunArtifactRoot(in: package.rootURL) {
+                learningCampaignArtifactDirectory = latestRun.path
+                loadLearningCampaignArtifacts()
+            }
+        } catch {
+            emitUIAction(level: .warning, message: "Latest project run unavailable", action: "loadLatestProjectRun", metadata: [
+                "project": package.rootURL.path,
+                "error": "\(error)"
+            ])
+        }
+
+        let sourceIsCompleteForTemplate = learningStarterProjectStore.checkpointIsComplete(
+            at: sourceURL,
+            policyContract: package.selectedTemplate.policy
+        )
+        let sourceIsValidForTemplate = sourceIsCompleteForTemplate && starterSourceCheckpointIsValid(
+            at: sourceURL,
+            descriptorPath: ensureDescriptorForTask(reason: "kuyuProjectOpen"),
+            policyContract: package.selectedTemplate.policy
+        )
 
         if !package.selectedTemplate.isRunnableStarter {
             isLearningStarterProjectReady = false
             learningStarterProjectStatus = "Template runtime is not implemented yet"
-        } else if learningStarterProjectStore.checkpointIsComplete(at: sourceURL) {
+        } else if sourceIsValidForTemplate {
             isLearningStarterProjectReady = true
             learningStarterProjectStatus = "Ready: \(package.rootURL.lastPathComponent)"
+        } else if sourceIsCompleteForTemplate {
+            isLearningStarterProjectReady = false
+            learningStarterProjectStatus = "Starter checkpoint incompatible"
         } else {
             isLearningStarterProjectReady = false
             learningStarterProjectStatus = "Starter checkpoint missing"
@@ -1572,7 +1630,7 @@ public final class SimulationViewModel {
 
     func prepareRunnableProjectAssets(for package: KuyuProjectPackage) throws {
         guard package.selectedTemplate.isRunnableStarter else {
-            throw LearningCampaignRunError.invalidConfig("Template runtime is not implemented: \(package.selectedTemplate.task)")
+            throw LearningCampaignLaunchError.invalidConfiguration("Template runtime is not implemented: \(package.selectedTemplate.task)")
         }
 
         applyProjectTemplate(package.selectedTemplate)
@@ -1590,8 +1648,10 @@ public final class SimulationViewModel {
             taskMode: observationTaskMode,
             driveCount: package.selectedTemplate.action.driveCount,
             expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
+            expectedObservationChannelCount: package.selectedTemplate.observation.channelCount,
             auxEnabled: trainingUseAux,
-            qualityGatingEnabled: trainingUseQualityGating
+            qualityGatingEnabled: trainingUseQualityGating,
+            policyContract: package.selectedTemplate.policy
         ))
 
         learningCampaignSourceCheckpointPath = sourceURL.path
@@ -1625,15 +1685,20 @@ public final class SimulationViewModel {
 
     func validateLearningCampaignLaunch() {
         do {
-            let config = try makeLearningCampaignRunConfig(prepareMissingInputs: true)
-            try commandSystem.validateLearningCampaign(config: config)
-            learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: config.suites)
+            let request = try makeTrainingRunRequest(
+                runID: TrainingRunID("validation-\(UUID().uuidString)"),
+                prepareMissingInputs: true
+            )
+            try commandSystem.validateLearningCampaign(request: request)
+            learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(
+                suites: request.configuration.scenarioSelection.suiteIDs
+            )
             learningCampaignReadiness = .ready(message: "Source checkpoint, descriptor, suites, and artifact root are valid.")
             learningCampaignError = nil
             emitUIAction(level: .notice, message: "Learning campaign dry validation passed", action: "validateLearningCampaign", metadata: [
-                "task": config.task.rawValue,
-                "artifactRoot": config.artifactRoot.path,
-                "sourceCheckpoint": config.sourceCheckpoint.path
+                "task": request.taskProfileID,
+                "artifactRoot": request.artifactRoot.path,
+                "sourceCheckpoint": request.sourceBundle?.url.path ?? ""
             ])
         } catch {
             learningCampaignReadiness = .blocked(message: "\(error)")
@@ -1642,6 +1707,59 @@ public final class SimulationViewModel {
                 "error": "\(error)"
             ])
         }
+    }
+
+    private func runnableStarterCampaignDefaults(
+        for package: KuyuProjectPackage
+    ) -> (
+        stageID: String?,
+        stageDisplayName: String?,
+        stageKind: AutonomousTrainingStageKind?,
+        suiteIDs: [Int],
+        seedCount: Int,
+        populationSize: Int,
+        generationLimit: Int,
+        episodesPerSuite: Int
+    ) {
+        guard package.selectedTemplate.isRunnableStarter,
+              let stage = package.selectedTemplate.primaryRunnableTrainingStage else {
+            let curriculum = package.defaultExperiment.curriculum
+            return (
+                stageID: nil,
+                stageDisplayName: nil,
+                stageKind: nil,
+                suiteIDs: curriculum.suiteIDs,
+                seedCount: curriculum.seedCount,
+                populationSize: curriculum.populationSize,
+                generationLimit: curriculum.generationLimit,
+                episodesPerSuite: curriculum.episodesPerSuite
+            )
+        }
+
+        if package.selectedTemplate.templateID == "aerial-drone-autonomy-starter-v1",
+           stage.task == "lift" {
+            return (
+                stageID: stage.stageID,
+                stageDisplayName: stage.displayName,
+                stageKind: stage.kind,
+                suiteIDs: [6],
+                seedCount: max(2, stage.seedCount),
+                populationSize: package.defaultExperiment.curriculum.populationSize,
+                generationLimit: stage.generationLimit,
+                episodesPerSuite: stage.episodesPerSuite
+            )
+        }
+
+        return (
+            stageID: stage.stageID,
+            stageDisplayName: stage.displayName,
+            stageKind: stage.kind,
+            suiteIDs: stage.suiteIDs,
+            seedCount: stage.seedCount,
+            populationSize: package.defaultExperiment.curriculum.populationSize,
+            generationLimit: stage.generationLimit,
+            episodesPerSuite: stage.episodesPerSuite
+        )
     }
 
     func estimateLearningCampaignCost() {
@@ -1759,33 +1877,135 @@ public final class SimulationViewModel {
             return
         }
 
+        let request: TrainingRunRequest
+        let continuationArtifactRoot: URL?
         do {
-            let config = try makeLearningCampaignRunConfig(prepareMissingInputs: true)
-            let handle = try commandSystem.startLearningCampaign(config: config)
-            learningCampaignHandle = handle
+            continuationArtifactRoot = learningCampaignContinuationSourceArtifactRoot
+            request = try makeTrainingRunRequest(
+                runID: TrainingRunID("ui-\(UUID().uuidString)"),
+                prepareMissingInputs: true
+            )
+            let configuration = request.configuration
+            let suites = configuration.scenarioSelection.suiteIDs
             isLearningCampaignRunning = true
             learningCampaignError = nil
-            learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: config.suites)
+            learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: suites)
             learningCampaignReadiness = .ready(message: "Campaign launched with validated config.")
-            learningCampaignProgressFraction = handle.progress.fractionCompleted
+            learningCampaignProgressFraction = 0
             learningCampaignCurrentPhase = "starting"
             learningCampaignLatestEvent = nil
-            startLearningCampaignEventMonitoring(handle: handle)
-            startLearningCampaignWaitTask(handle: handle)
+            learningCampaignRunLog = [
+                LearningCampaignRunLogRecord(
+                    category: .lifecycle,
+                    phase: "starting",
+                    title: "Campaign launch requested",
+                    detail: "stage \(configuration.trainingStageDisplayName ?? configuration.trainingStageID ?? "unscoped"), task \(request.taskProfileID), suites \(suites.map(String.init).joined(separator: ",")), seeds \(request.seedCount), population \(request.populationSize), generations \(request.generationLimit ?? 0)",
+                    metadata: ["artifact \(request.artifactRoot.path)"]
+                )
+            ]
+            resetLearningCampaignLiveMetricSamples()
             startLearningCampaignMonitoring()
             emitUIAction(level: .notice, message: "Learning campaign started", action: "startLearningCampaign", metadata: [
-                "task": config.task.rawValue,
-                "artifactRoot": config.artifactRoot.path,
-                "sourceCheckpoint": config.sourceCheckpoint.path,
-                "seedCount": "\(config.seedCount)",
-                "population": "\(config.population)",
-                "generations": "\(config.generations)"
+                "task": request.taskProfileID,
+                "stage": configuration.trainingStageID ?? "unscoped",
+                "artifactRoot": request.artifactRoot.path,
+                "sourceCheckpoint": request.sourceBundle?.url.path ?? "",
+                "seedCount": "\(request.seedCount)",
+                "population": "\(request.populationSize)",
+                "generations": "\(request.generationLimit ?? 0)"
             ])
+            learningCampaignContinuationSourceArtifactRoot = nil
         } catch {
+            learningCampaignContinuationSourceArtifactRoot = nil
             isLearningCampaignRunning = false
             learningCampaignError = "\(error)"
             learningCampaignReadiness = .blocked(message: "\(error)")
             emitUIAction(level: .error, message: "Learning campaign launch failed", action: "startLearningCampaign", metadata: [
+                "error": "\(error)"
+            ])
+            return
+        }
+
+        learningCampaignWaitTask?.cancel()
+        learningCampaignWaitTask = Task { @MainActor [weak self] in
+            do {
+                guard let self else { return }
+                let handle: any TrainingRunHandle
+                if let continuationArtifactRoot {
+                    handle = try await self.commandSystem.resumeTrainingRun(request: TrainingResumeRequest(
+                        runID: request.runID,
+                        source: .artifactRoot(continuationArtifactRoot),
+                        destinationArtifactRoot: request.artifactRoot,
+                        projectRoot: request.projectRoot,
+                        taskProfileID: request.taskProfileID,
+                        policyContract: request.policyContract,
+                        seedCount: request.seedCount,
+                        populationSize: request.populationSize,
+                        generationLimit: request.generationLimit,
+                        configuration: request.configuration
+                    ))
+                } else {
+                    handle = try await self.commandSystem.startTrainingRun(request: request)
+                }
+                self.learningCampaignHandle = handle
+                self.learningCampaignProgressFraction = handle.progress.fractionCompleted
+                self.startLearningCampaignEventMonitoring(handle: handle)
+            } catch {
+                self?.learningCampaignHandle = nil
+                self?.isLearningCampaignRunning = false
+                self?.learningCampaignError = "\(error)"
+                self?.learningCampaignReadiness = .blocked(message: "\(error)")
+                self?.learningCampaignCurrentPhase = "failed"
+                self?.emitUIAction(level: .error, message: "Learning campaign launch failed", action: "startLearningCampaign", metadata: [
+                    "error": "\(error)"
+                ])
+            }
+        }
+    }
+
+    func continueLearningCampaignFromLastCheckpoint() {
+        if isLearningCampaignRunning || learningCampaignHandle != nil {
+            emitUIAction(level: .warning, message: "Learning campaign already running", action: "continueLearningCampaign")
+            return
+        }
+
+        do {
+            loadLearningCampaignArtifacts()
+            let previousArtifactURL = try currentLearningCampaignArtifactURL()
+            let selection = try commandSystem.learningCampaignContinuationSelection(from: previousArtifactURL)
+            let checkpointURL = selection.checkpointURL
+            let nextArtifactURL = try makeSiblingRunArtifactRoot(after: previousArtifactURL)
+            learningCampaignSourceCheckpointPath = checkpointURL.path
+            learningCampaignArtifactDirectory = nextArtifactURL.path
+            learningCampaignContinuationSourceArtifactRoot = previousArtifactURL
+            learningCampaignState = nil
+            learningCampaignProgressFraction = 0
+            learningCampaignCurrentPhase = "continuing"
+            learningCampaignLatestEvent = "Continuing from \(checkpointURL.lastPathComponent)"
+            learningCampaignRunLog = [
+                LearningCampaignRunLogRecord(
+                    category: .lifecycle,
+                    phase: "continuing",
+                    title: "Continue requested",
+                    detail: "Continuing search from \(selection.source.rawValue) checkpoint \(checkpointURL.lastPathComponent)",
+                    metadata: [
+                        "previous artifact \(previousArtifactURL.path)",
+                        "source \(checkpointURL.path)",
+                        "artifact \(nextArtifactURL.path)"
+                    ]
+                )
+            ]
+            emitUIAction(level: .notice, message: "Learning campaign continuation prepared", action: "continueLearningCampaign", metadata: [
+                "sourceCheckpoint": checkpointURL.path,
+                "artifactRoot": nextArtifactURL.path,
+                "previousArtifactRoot": previousArtifactURL.path,
+                "selectionSource": selection.source.rawValue
+            ])
+            startLearningCampaign()
+        } catch {
+            learningCampaignError = "\(error)"
+            learningCampaignReadiness = .blocked(message: "\(error)")
+            emitUIAction(level: .error, message: "Learning campaign continuation failed", action: "continueLearningCampaign", metadata: [
                 "error": "\(error)"
             ])
         }
@@ -1839,18 +2059,70 @@ public final class SimulationViewModel {
         }
 
         let directory = URL(fileURLWithPath: path, isDirectory: true)
-        do {
-            learningCampaignState = try learningCampaignRunStore.load(from: directory)
-            learningCampaignError = nil
-            isLearningCampaignRunning = learningCampaignHandle != nil || (learningCampaignState?.isActive == true)
-        } catch {
-            learningCampaignError = "\(error)"
-            isLearningCampaignRunning = learningCampaignHandle != nil
-            emitTerminal(level: .warning, message: "Learning campaign artifacts unavailable", metadata: [
-                "path": directory.path,
-                "error": "\(error)"
-            ])
+        learningCampaignArtifactLoadID &+= 1
+        let loadID = learningCampaignArtifactLoadID
+        learningCampaignArtifactLoadTask?.cancel()
+        learningCampaignArtifactLoadTask = Task { [weak self, directory, loadID] in
+            do {
+                let state = try await Task.detached(priority: .utility) {
+                    try LearningCampaignRunStore().load(from: directory)
+                }.value
+                try Task.checkCancellation()
+                await MainActor.run {
+                    self?.applyLearningCampaignArtifactLoad(
+                        state: state,
+                        directory: directory,
+                        loadID: loadID
+                    )
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run {
+                    self?.applyLearningCampaignArtifactLoadFailure(
+                        error: error,
+                        directory: directory,
+                        loadID: loadID
+                    )
+                }
+            }
         }
+    }
+
+    func waitForLearningCampaignArtifactLoad() async {
+        await learningCampaignArtifactLoadTask?.value
+    }
+
+    private func applyLearningCampaignArtifactLoad(
+        state: LearningCampaignRunStoreState,
+        directory: URL,
+        loadID: UInt64
+    ) {
+        guard loadID == learningCampaignArtifactLoadID else { return }
+        learningCampaignState = state
+        learningCampaignProgressFraction = state.campaignProgressFraction
+        learningCampaignError = nil
+        isLearningCampaignRunning = learningCampaignHandle != nil
+        if learningCampaignHandle == nil {
+            learningCampaignRunLog = LearningCampaignRunLogFormatter.entries(from: state)
+            learningCampaignCurrentPhase = state.isActive ? "stale \(state.statusLabel)" : state.statusLabel
+        }
+        learningCampaignArtifactLoadTask = nil
+    }
+
+    private func applyLearningCampaignArtifactLoadFailure(
+        error: any Error,
+        directory: URL,
+        loadID: UInt64
+    ) {
+        guard loadID == learningCampaignArtifactLoadID else { return }
+        learningCampaignError = "\(error)"
+        isLearningCampaignRunning = learningCampaignHandle != nil
+        learningCampaignArtifactLoadTask = nil
+        emitTerminal(level: .warning, message: "Learning campaign artifacts unavailable", metadata: [
+            "path": directory.path,
+            "error": "\(error)"
+        ])
     }
 
     func startLearningCampaignMonitoring() {
@@ -1891,124 +2163,211 @@ public final class SimulationViewModel {
         emitUIAction(level: .notice, message: "Learning campaign monitor stopped", action: "stopLearningCampaignMonitor")
     }
 
-    private func startLearningCampaignEventMonitoring(handle: LearningCampaignRunHandle) {
+    private func startLearningCampaignEventMonitoring(handle: any TrainingRunHandle) {
         learningCampaignEventTask?.cancel()
-        learningCampaignEventTask = Task { [weak self] in
+        learningCampaignEventTask = Task { @MainActor [weak self, handle] in
             for await event in handle.events {
-                await MainActor.run {
-                    self?.applyLearningCampaignEvent(event, progress: handle.progress)
-                }
+                self?.applyTrainingRunEvent(event, progress: handle.progress)
             }
+            guard !Task.isCancelled else { return }
+            guard self?.learningCampaignHandle?.runID == handle.runID else { return }
+            self?.learningCampaignHandle = nil
+            self?.learningCampaignEventTask = nil
+            self?.learningCampaignWaitTask = nil
+            self?.isLearningCampaignRunning = false
+            if self?.learningCampaignCurrentPhase != "cancelled" {
+                self?.learningCampaignProgressFraction = max(
+                    self?.learningCampaignProgressFraction ?? 0,
+                    handle.progress.fractionCompleted
+                )
+            }
+            self?.loadLearningCampaignArtifacts()
         }
     }
 
-    private func startLearningCampaignWaitTask(handle: LearningCampaignRunHandle) {
-        learningCampaignWaitTask?.cancel()
-        learningCampaignWaitTask = Task { [weak self] in
-            do {
-                _ = try await handle.wait()
-                await MainActor.run {
-                    self?.learningCampaignHandle = nil
-                    self?.learningCampaignEventTask = nil
-                    self?.learningCampaignWaitTask = nil
-                    self?.isLearningCampaignRunning = false
-                    self?.learningCampaignProgressFraction = 1
-                    self?.loadLearningCampaignArtifacts()
-                }
-            } catch is CancellationError {
-                await MainActor.run {
-                    self?.learningCampaignHandle = nil
-                    self?.learningCampaignEventTask = nil
-                    self?.learningCampaignWaitTask = nil
-                    self?.isLearningCampaignRunning = false
-                    self?.learningCampaignCurrentPhase = "cancelled"
-                    self?.loadLearningCampaignArtifacts()
-                }
-            } catch {
-                await MainActor.run {
-                    self?.learningCampaignHandle = nil
-                    self?.learningCampaignEventTask = nil
-                    self?.learningCampaignWaitTask = nil
-                    self?.isLearningCampaignRunning = false
-                    self?.learningCampaignError = "\(error)"
-                    self?.learningCampaignCurrentPhase = "failed"
-                    self?.loadLearningCampaignArtifacts()
-                }
-            }
-        }
-    }
-
-    private func applyLearningCampaignEvent(
-        _ event: LearningCampaignRunEvent,
+    private func applyTrainingRunEvent(
+        _ event: TrainingRunEvent,
         progress: Progress
     ) {
-        learningCampaignProgressFraction = progress.fractionCompleted
+        learningCampaignProgressFraction = boundedLearningCampaignProgress(progress.fractionCompleted)
         switch event {
-        case .preflightStarted:
-            learningCampaignCurrentPhase = "preflight"
-            learningCampaignLatestEvent = "Preflight started"
-        case .preflightCompleted:
-            learningCampaignCurrentPhase = "preflight"
-            learningCampaignLatestEvent = "Preflight completed"
-        case .parentEvaluationStarted(let label, _):
-            learningCampaignCurrentPhase = "checkpoint evaluation"
-            learningCampaignLatestEvent = "\(label) evaluation started"
-        case .parentEvaluationCompleted(let label, _):
-            learningCampaignCurrentPhase = "checkpoint evaluation"
-            learningCampaignLatestEvent = "\(label) evaluation completed"
-        case .checkpointRegressionStarted(let label, _):
-            learningCampaignCurrentPhase = "regression"
-            learningCampaignLatestEvent = "\(label) regression started"
-        case .checkpointRegressionCompleted(let label, let accepted, let reasons):
-            learningCampaignCurrentPhase = "regression"
-            learningCampaignLatestEvent = "\(label) regression \(accepted ? "accepted" : reasons.joined(separator: ","))"
-        case .seedStarted(let seed):
-            learningCampaignCurrentPhase = "seed \(seed)"
-            learningCampaignLatestEvent = "Seed \(seed) started"
-        case .generationStarted(let seed, let generationIndex):
-            learningCampaignCurrentPhase = "seed \(seed) generation \(generationIndex)"
-            learningCampaignLatestEvent = "Generation \(generationIndex) started"
-        case .candidateEvaluated(_, let generationIndex, let candidateID, let fitness):
-            learningCampaignCurrentPhase = "generation \(generationIndex)"
-            learningCampaignLatestEvent = "\(candidateID) fitness \(String(format: "%.3f", fitness))"
-        case .generationCompleted(let seed, let generationIndex, let bestCandidateID):
-            learningCampaignCurrentPhase = "seed \(seed)"
-            learningCampaignLatestEvent = "Generation \(generationIndex) best \(bestCandidateID ?? "none")"
-        case .seedCompleted(let seed, let accepted, let bestCandidateID):
-            learningCampaignCurrentPhase = "seed \(seed)"
-            learningCampaignLatestEvent = "Seed \(seed) \(accepted ? "accepted" : "rejected") best \(bestCandidateID ?? "none")"
-        case .artifactWritten(let name, _):
-            learningCampaignLatestEvent = "Artifact \(name)"
-        case .finished:
-            learningCampaignCurrentPhase = "finished"
-            learningCampaignLatestEvent = "Campaign finished"
-        case .failed(let reason):
-            learningCampaignCurrentPhase = "failed"
-            learningCampaignLatestEvent = reason
-        case .cancelled:
-            learningCampaignCurrentPhase = "cancelled"
-            learningCampaignLatestEvent = "Campaign cancelled"
-        }
-        if shouldReloadLearningCampaignArtifacts(for: event) {
-            loadLearningCampaignArtifacts()
+        case .log(let logEvent):
+            applyTrainingRunLogEvent(logEvent, progress: progress)
+        case .started(let manifest):
+            learningCampaignCurrentPhase = "started"
+            learningCampaignLatestEvent = "Run \(manifest.runID) started"
+            appendLearningCampaignRunLogRecord(
+                LearningCampaignRunLogFormatter.entry(from: TrainingRunLogEvent(
+                    level: .info,
+                    phase: "started",
+                    message: "Training run started",
+                    metadata: ["runID": manifest.runID]
+                ), progress: progress)
+            )
+        case .iterationStarted(let iteration):
+            learningCampaignCurrentPhase = "iteration \(iteration)"
+            learningCampaignLatestEvent = "Iteration \(iteration) started"
+        case .suiteCompleted(let iteration, _, let score):
+            learningCampaignCurrentPhase = "iteration \(iteration)"
+            learningCampaignLatestEvent = String(format: "Suite score %.3f", score)
+        case .datasetExported(let iteration, let directory, let count):
+            learningCampaignCurrentPhase = "dataset"
+            learningCampaignLatestEvent = "Iteration \(iteration) exported \(count) samples"
+            appendLearningCampaignRunLogRecord(
+                LearningCampaignRunLogFormatter.entry(from: TrainingRunLogEvent(
+                    level: .info,
+                    phase: "dataset",
+                    message: "Dataset exported",
+                    metadata: ["iteration": "\(iteration)", "directory": directory, "count": "\(count)"]
+                ), progress: progress)
+            )
+        case .trainingCompleted(let iteration, let result):
+            learningCampaignCurrentPhase = "training"
+            learningCampaignLatestEvent = String(format: "Iteration \(iteration) loss %.6f", result.finalLoss)
+        case .reinforcementTrainingCompleted(let iteration, let result):
+            learningCampaignCurrentPhase = "reinforcement"
+            learningCampaignLatestEvent = String(format: "Iteration \(iteration) reward %.3f", result.rewardAverage)
+        case .convergenceUpdated(let summary):
+            learningCampaignCurrentPhase = "convergence"
+            learningCampaignLatestEvent = summary.accepted ? "Checkpoint accepted" : summary.reason
+        case .completed(let result):
+            learningCampaignCurrentPhase = result.manifest.terminalState.rawValue
+            learningCampaignLatestEvent = result.checkpointDecision.state.rawValue
         }
     }
 
-    private func shouldReloadLearningCampaignArtifacts(for event: LearningCampaignRunEvent) -> Bool {
-        switch event {
-        case .artifactWritten, .seedCompleted, .finished, .failed, .cancelled:
+    private func applyTrainingRunLogEvent(
+        _ logEvent: TrainingRunLogEvent,
+        progress: Progress
+    ) {
+        appendLearningCampaignRunLogRecord(
+            LearningCampaignRunLogFormatter.entry(from: logEvent, progress: progress)
+        )
+        learningCampaignCurrentPhase = logEvent.phase
+        learningCampaignLatestEvent = logEvent.message
+        guard logEvent.phase == "candidate",
+              let generationIndex = logEvent.generationIndex,
+              let candidateID = logEvent.candidateID,
+              let fitness = Double(logEvent.metadata["fitness"] ?? ""),
+              let reward = Double(logEvent.metadata["reward"] ?? "") else {
+            return
+        }
+        let reasons = (logEvent.metadata["failureReasons"] ?? "")
+            .split(separator: ",")
+            .map(String.init)
+        let summary = FitnessSummary(
+            runID: "live",
+            generationIndex: generationIndex,
+            candidateID: candidateID,
+            taskID: learningCampaignTask().rawValue,
+            scalarFitness: fitness,
+            rewardAverage: reward,
+            taskPassRate: Double(logEvent.metadata["taskPassRate"] ?? "") ?? 0,
+            safetyViolationRate: Double(logEvent.metadata["safetyViolationRate"] ?? "") ?? 0,
+            holdTimeRatio: Double(logEvent.metadata["holdTimeRatio"] ?? ""),
+            altitudeErrorRatio: Double(logEvent.metadata["altitudeErrorRatio"] ?? ""),
+            behaviorDescriptor: [:],
+            failureReasons: reasons
+        )
+        appendLearningCampaignLiveMetricSamples(summary)
+    }
+
+    private func boundedLearningCampaignProgress(_ fallback: Double) -> Double {
+        if let state = learningCampaignState {
+            return state.campaignProgressFraction
+        }
+        return min(0.999, max(0, fallback))
+    }
+
+    private func appendLearningCampaignRunLogRecord(_ entry: LearningCampaignRunLogRecord) {
+        learningCampaignRunLog.append(entry)
+        let maximumEntryCount = 500
+        if learningCampaignRunLog.count > maximumEntryCount {
+            learningCampaignRunLog.removeFirst(learningCampaignRunLog.count - maximumEntryCount)
+        }
+    }
+
+    private func resetLearningCampaignLiveMetricSamples() {
+        learningCampaignLiveFitnessSamples = []
+        learningCampaignLiveRewardSamples = []
+        learningCampaignLiveTaskPassSamples = []
+        learningCampaignLiveHoldTimeSamples = []
+        learningCampaignLiveAltitudeErrorSamples = []
+        learningCampaignLiveEpisodeSamples = []
+        learningCampaignLiveCandidateEvaluationCount = 0
+    }
+
+    func appendLearningCampaignLiveMetricSamples(_ fitness: FitnessSummary) {
+        learningCampaignLiveCandidateEvaluationCount += 1
+        let time = Double(fitness.generationIndex)
+
+        let replacesGenerationBest = shouldReplaceGenerationBest(
+            generationIndex: fitness.generationIndex,
+            scalarFitness: fitness.scalarFitness
+        )
+        if replacesGenerationBest {
+            upsertMetricSample(MetricSample(time: time, value: fitness.scalarFitness), in: &learningCampaignLiveFitnessSamples)
+            upsertMetricSample(MetricSample(time: time, value: fitness.rewardAverage), in: &learningCampaignLiveRewardSamples)
+            upsertMetricSample(MetricSample(time: time, value: fitness.taskPassRate), in: &learningCampaignLiveTaskPassSamples)
+        }
+        if let holdTimeRatio = fitness.holdTimeRatio {
+            if replacesGenerationBest {
+                upsertMetricSample(MetricSample(time: time, value: holdTimeRatio), in: &learningCampaignLiveHoldTimeSamples)
+            }
+        }
+        if let altitudeErrorRatio = fitness.altitudeErrorRatio {
+            if replacesGenerationBest {
+                upsertMetricSample(MetricSample(time: time, value: altitudeErrorRatio), in: &learningCampaignLiveAltitudeErrorSamples)
+            }
+        }
+        let suiteCount = learningCampaignSuites
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .count
+        let episodeMultiplier = max(1, learningCampaignEpisodes * max(1, suiteCount))
+        upsertMetricSample(
+            MetricSample(time: time, value: Double(learningCampaignLiveCandidateEvaluationCount * episodeMultiplier)),
+            in: &learningCampaignLiveEpisodeSamples
+        )
+    }
+
+    private func shouldReplaceGenerationBest(
+        generationIndex: Int,
+        scalarFitness: Double
+    ) -> Bool {
+        guard scalarFitness.isFinite else { return false }
+        let time = Double(generationIndex)
+        guard let existing = learningCampaignLiveFitnessSamples.first(where: { $0.time == time }) else {
             return true
-        case .preflightStarted,
-             .preflightCompleted,
-             .parentEvaluationStarted,
-             .parentEvaluationCompleted,
-             .checkpointRegressionStarted,
-             .checkpointRegressionCompleted,
-             .seedStarted,
-             .generationStarted,
-             .candidateEvaluated,
-             .generationCompleted:
-            return false
+        }
+        return scalarFitness >= existing.value
+    }
+
+    private func upsertMetricSample(_ sample: MetricSample, in samples: inout [MetricSample]) {
+        guard sample.value.isFinite else { return }
+        if let index = samples.firstIndex(where: { $0.time == sample.time }) {
+            samples[index] = sample
+        } else {
+            samples.append(sample)
+        }
+        samples.sort { $0.time < $1.time }
+        let maximumSampleCount = 500
+        if samples.count > maximumSampleCount {
+            samples.removeFirst(samples.count - maximumSampleCount)
+        }
+    }
+
+    private func appendMetricSample(_ sample: MetricSample, to samples: inout [MetricSample]) {
+        guard sample.value.isFinite else { return }
+        if let index = samples.firstIndex(where: { $0.time == sample.time }) {
+            samples[index] = sample
+        } else {
+            samples.append(sample)
+        }
+        let maximumSampleCount = 1_000
+        if samples.count > maximumSampleCount {
+            samples.removeFirst(samples.count - maximumSampleCount)
         }
     }
 
@@ -2030,34 +2389,115 @@ public final class SimulationViewModel {
         }
     }
 
+    private func learningCampaignTaskProfileID() -> String {
+        switch taskMode {
+        case .attitude, .lift:
+            return "lift-v1"
+        case .singleLift:
+            return "singleLift-v1"
+        }
+    }
+
     private func applyLearningCampaignPreset(_ preset: LearningCampaignRunPreset) {
-        let sourcePath = learningCampaignSourceCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let artifactPath = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = LearningCampaignRunConfig(
-            task: learningCampaignTask(),
-            sourceCheckpoint: URL(fileURLWithPath: sourcePath.isEmpty ? "/tmp/kuyu-missing-source" : sourcePath, isDirectory: true),
-            artifactRoot: URL(fileURLWithPath: artifactPath.isEmpty ? "/tmp/kuyu-missing-artifact-root" : artifactPath, isDirectory: true)
-        )
-        let config = preset.apply(to: base)
-        let tunedConfig = learningCampaignAutoParallelism
-            ? config.optimizedForMachine(learningCampaignMachineCapacity)
-            : config
-        learningCampaignSuites = tunedConfig.suites.map(String.init).joined(separator: ",")
-        learningCampaignSeedCount = tunedConfig.seedCount
-        learningCampaignPopulation = tunedConfig.population
-        learningCampaignGenerations = tunedConfig.generations
-        learningCampaignEliteCount = tunedConfig.eliteCount
-        learningCampaignWorkers = tunedConfig.workers
-        learningCampaignCandidateEvaluationConcurrency = tunedConfig.candidateEvaluationConcurrency
-        learningCampaignEpisodes = tunedConfig.episodes
-        learningCampaignAdaptiveMutation = tunedConfig.adaptiveMutationEnabled
-        learningCampaignMinimumIncumbentImprovement = tunedConfig.minimumIncumbentImprovement
-        learningCampaignCompactRetention = tunedConfig.artifactRetention == .compact
-        learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: tunedConfig.suites)
+        let settings = learningCampaignPresetSettings(preset)
+        learningCampaignSuites = settings.suites.map(String.init).joined(separator: ",")
+        learningCampaignSeedCount = settings.seedCount
+        learningCampaignPopulation = settings.population
+        learningCampaignGenerations = settings.generations
+        learningCampaignEliteCount = settings.eliteCount
+        learningCampaignWorkers = settings.workers
+        learningCampaignCandidateEvaluationConcurrency = settings.candidateEvaluationConcurrency
+        learningCampaignEpisodes = settings.episodes
+        learningCampaignMutationRate = settings.mutationRate
+        learningCampaignMutationNoiseScale = settings.mutationNoiseScale
+        learningCampaignAdaptiveMutation = settings.adaptiveMutationEnabled
+        learningCampaignMinimumIncumbentImprovement = settings.minimumIncumbentImprovement
+        learningCampaignCompactRetention = true
+        learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(suites: settings.suites)
         learningCampaignReadiness = .idle
         emitUIAction(level: .info, message: "Learning campaign preset applied", action: "setLearningCampaignPreset", metadata: [
             "preset": preset.rawValue
         ])
+    }
+
+    private func learningCampaignPresetSettings(_ preset: LearningCampaignRunPreset) -> LearningCampaignPresetSettings {
+        var settings: LearningCampaignPresetSettings
+        switch preset {
+        case .smoke:
+            settings = LearningCampaignPresetSettings(
+                suites: [6],
+                seedCount: 1,
+                population: 2,
+                generations: 1,
+                eliteCount: 1,
+                workers: 1,
+                candidateEvaluationConcurrency: 1,
+                episodes: 1,
+                mutationRate: 0.14,
+                mutationNoiseScale: 0.025,
+                adaptiveMutationEnabled: true,
+                minimumIncumbentImprovement: 0
+            )
+        case .standard:
+            settings = LearningCampaignPresetSettings(
+                suites: [6],
+                seedCount: 2,
+                population: 100,
+                generations: 1_000,
+                eliteCount: 10,
+                workers: 1,
+                candidateEvaluationConcurrency: 100,
+                episodes: 1,
+                mutationRate: 0.14,
+                mutationNoiseScale: 0.025,
+                adaptiveMutationEnabled: true,
+                minimumIncumbentImprovement: 0
+            )
+        case .convergence:
+            settings = LearningCampaignPresetSettings(
+                suites: [6],
+                seedCount: 2,
+                population: 100,
+                generations: 1_000,
+                eliteCount: 10,
+                workers: 1,
+                candidateEvaluationConcurrency: 100,
+                episodes: 1,
+                mutationRate: 0.16,
+                mutationNoiseScale: 0.035,
+                adaptiveMutationEnabled: true,
+                minimumIncumbentImprovement: 0
+            )
+        case .full:
+            settings = LearningCampaignPresetSettings(
+                suites: [6, 7, 8],
+                seedCount: 4,
+                population: 100,
+                generations: 2_000,
+                eliteCount: 12,
+                workers: 3,
+                candidateEvaluationConcurrency: 100,
+                episodes: 1,
+                mutationRate: 0.14,
+                mutationNoiseScale: 0.03,
+                adaptiveMutationEnabled: true,
+                minimumIncumbentImprovement: 0.01
+            )
+        }
+        guard learningCampaignAutoParallelism else {
+            return settings
+        }
+        let optimizedPopulation = learningCampaignMachineCapacity.recommendedPopulation(current: settings.population)
+        let recommendation = learningCampaignMachineCapacity.recommendation(
+            population: optimizedPopulation,
+            suiteCount: settings.suites.count,
+            episodes: settings.episodes
+        )
+        settings.population = optimizedPopulation
+        settings.eliteCount = min(max(1, settings.eliteCount), optimizedPopulation)
+        settings.workers = recommendation.workerCount
+        settings.candidateEvaluationConcurrency = recommendation.candidateEvaluationConcurrency
+        return settings
     }
 
     private func prepareStarterLearningProjectIfNeeded(forceNewArtifactRoot: Bool) throws -> LearningStarterProject {
@@ -2066,9 +2506,16 @@ public final class SimulationViewModel {
         let descriptorPath = ensureDescriptorForTask(reason: "starterProject")
         let sourceURL = URL(fileURLWithPath: sourcePath, isDirectory: true)
         let sourceIsComplete = !sourcePath.isEmpty
-            && learningStarterProjectStore.checkpointIsComplete(at: sourceURL)
+            && learningStarterProjectStore.checkpointIsComplete(
+                at: sourceURL,
+                policyContract: learningCampaignPolicyContract
+            )
         let sourceIsValid = sourceIsComplete
-            && starterSourceCheckpointIsValid(at: sourceURL, descriptorPath: descriptorPath)
+            && starterSourceCheckpointIsValid(
+                at: sourceURL,
+                descriptorPath: descriptorPath,
+                policyContract: learningCampaignPolicyContract
+            )
         let artifactURL = URL(fileURLWithPath: artifactPath, isDirectory: true)
         let artifactIsReusable = !artifactPath.isEmpty
             ? try learningStarterProjectStore.artifactRootIsReusable(artifactURL)
@@ -2084,11 +2531,63 @@ public final class SimulationViewModel {
             )
         }
 
+        if sourceIsValid && !forceNewArtifactRoot && !artifactIsReusable && !artifactPath.isEmpty {
+            let nextArtifactURL = try makeSiblingRunArtifactRoot(after: artifactURL)
+            learningCampaignArtifactDirectory = nextArtifactURL.path
+            isLearningStarterProjectReady = true
+            learningStarterProjectStatus = "Ready"
+            return LearningStarterProject(
+                projectRoot: nextArtifactURL.deletingLastPathComponent().deletingLastPathComponent(),
+                sourceCheckpoint: URL(fileURLWithPath: sourcePath, isDirectory: true),
+                artifactRoot: nextArtifactURL
+            )
+        }
+
         let observationTaskMode = taskMode
         let driveCount = starterDriveCount(for: observationTaskMode)
+        let policyContract = learningCampaignPolicyContract
+
+        if !sourcePath.isEmpty {
+            try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
+                checkpointURL: sourceURL,
+                displayName: learningCampaignExperimentName,
+                descriptorPath: descriptorPath,
+                descriptor: currentDescriptor(),
+                taskMode: observationTaskMode,
+                driveCount: driveCount,
+                expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
+                expectedObservationChannelCount: starterObservationChannelCount(for: observationTaskMode),
+                auxEnabled: trainingUseAux,
+                qualityGatingEnabled: trainingUseQualityGating,
+                policyContract: policyContract
+            ))
+            try validateStarterSourceCheckpoint(
+                at: sourceURL,
+                descriptorPath: descriptorPath,
+                policyContract: policyContract
+            )
+            let nextArtifactURL: URL
+            if !forceNewArtifactRoot && artifactIsReusable && !artifactPath.isEmpty {
+                nextArtifactURL = artifactURL
+            } else if !artifactPath.isEmpty {
+                nextArtifactURL = try makeSiblingRunArtifactRoot(after: artifactURL)
+            } else {
+                nextArtifactURL = try learningStarterProjectStore.makeNextRunArtifactRoot()
+            }
+            learningCampaignArtifactDirectory = nextArtifactURL.path
+            isLearningStarterProjectReady = true
+            learningStarterProjectStatus = "Ready"
+            return LearningStarterProject(
+                projectRoot: projectRootForSourceCheckpoint(sourceURL),
+                sourceCheckpoint: sourceURL,
+                artifactRoot: nextArtifactURL
+            )
+        }
+
         let project = try learningStarterProjectStore.prepareStarterProject(
-            regenerateSourceCheckpoint: forceNewArtifactRoot || !sourceIsValid
-        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, driveCount] checkpointURL in
+            regenerateSourceCheckpoint: forceNewArtifactRoot || !sourceIsValid,
+            policyContract: policyContract
+        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, driveCount, policyContract] checkpointURL in
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
                 checkpointURL: checkpointURL,
                 displayName: "Bounded Drone Autonomy Starter",
@@ -2097,11 +2596,17 @@ public final class SimulationViewModel {
                 taskMode: observationTaskMode,
                 driveCount: driveCount,
                 expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
+                expectedObservationChannelCount: starterObservationChannelCount(for: observationTaskMode),
                 auxEnabled: trainingUseAux,
-                qualityGatingEnabled: trainingUseQualityGating
+                qualityGatingEnabled: trainingUseQualityGating,
+                policyContract: policyContract
             ))
         }
-        try validateStarterSourceCheckpoint(at: project.sourceCheckpoint, descriptorPath: descriptorPath)
+        try validateStarterSourceCheckpoint(
+            at: project.sourceCheckpoint,
+            descriptorPath: descriptorPath,
+            policyContract: learningCampaignPolicyContract
+        )
 
         if forceNewArtifactRoot || !sourceIsValid {
             learningCampaignSourceCheckpointPath = project.sourceCheckpoint.path
@@ -2119,6 +2624,7 @@ public final class SimulationViewModel {
     }
 
     private func applyProjectTemplate(_ template: LearningProjectTemplate) {
+        learningCampaignPolicyContract = template.policy
         let runtimeTask = template.primaryRunnableTrainingStage?.task ?? template.task
         switch runtimeTask {
         case "singleLift":
@@ -2146,9 +2652,85 @@ public final class SimulationViewModel {
         return candidate
     }
 
-    private func starterSourceCheckpointIsValid(at url: URL, descriptorPath: String) -> Bool {
+    private func makeSiblingRunArtifactRoot(after artifactRoot: URL) throws -> URL {
+        let runsRoot = artifactRoot.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: runsRoot, withIntermediateDirectories: true)
+        let stamp = max(0, Int(Date().timeIntervalSince1970))
+        var candidate = runsRoot.appendingPathComponent("run-\(stamp)", isDirectory: true)
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = runsRoot.appendingPathComponent("run-\(stamp)-\(suffix)", isDirectory: true)
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func latestProjectRunArtifactRoot(in projectRoot: URL) throws -> URL? {
+        let runsRoot = projectRoot.appendingPathComponent("runs", isDirectory: true)
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: runsRoot.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        let runDirectories = try FileManager.default.contentsOfDirectory(
+            at: runsRoot,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ).filter { url in
+            var childIsDirectory = ObjCBool(false)
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &childIsDirectory)
+                && childIsDirectory.boolValue
+                && url.lastPathComponent.hasPrefix("run-")
+        }
+        guard !runDirectories.isEmpty else { return nil }
+        return try runDirectories.max { lhs, rhs in
+            let lhsDate = try contentModificationDate(lhs)
+            let rhsDate = try contentModificationDate(rhs)
+            if lhsDate != rhsDate { return lhsDate < rhsDate }
+            return lhs.lastPathComponent < rhs.lastPathComponent
+        }
+    }
+
+    private func contentModificationDate(_ url: URL) throws -> Date {
+        let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
+        return values.contentModificationDate ?? .distantPast
+    }
+
+    private func resumableLearningCampaignCheckpointURL() throws -> URL {
+        let artifactURL = try currentLearningCampaignArtifactURL()
+        return try commandSystem.learningCampaignContinuationSelection(from: artifactURL).checkpointURL
+    }
+
+    private func resumableLearningCampaignCheckpointURLIfAvailable() -> URL? {
         do {
-            try validateStarterSourceCheckpoint(at: url, descriptorPath: descriptorPath)
+            return try resumableLearningCampaignCheckpointURL()
+        } catch {
+            return nil
+        }
+    }
+
+    private func currentLearningCampaignArtifactURL() throws -> URL {
+        if let state = learningCampaignState {
+            return state.artifactDirectory
+        }
+        let artifactPath = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !artifactPath.isEmpty else {
+            throw LearningCampaignLaunchError.invalidConfiguration("Learning campaign artifact directory is empty.")
+        }
+        return URL(fileURLWithPath: artifactPath, isDirectory: true)
+    }
+
+    private func starterSourceCheckpointIsValid(
+        at url: URL,
+        descriptorPath: String,
+        policyContract: LearningProjectPolicyContract
+    ) -> Bool {
+        do {
+            try validateStarterSourceCheckpoint(
+                at: url,
+                descriptorPath: descriptorPath,
+                policyContract: policyContract
+            )
             return true
         } catch {
             emitUIAction(level: .warning, message: "Starter source checkpoint validation failed", action: "validateStarterSourceCheckpoint", metadata: [
@@ -2159,16 +2741,41 @@ public final class SimulationViewModel {
         }
     }
 
-    private func validateStarterSourceCheckpoint(at url: URL, descriptorPath: String) throws {
+    private func projectRootForSourceCheckpoint(_ sourceURL: URL) -> URL {
+        let parent = sourceURL.deletingLastPathComponent()
+        if parent.lastPathComponent == "model-bundles" {
+            return parent.deletingLastPathComponent()
+        }
+        return parent
+    }
+
+    private func validateStarterSourceCheckpoint(
+        at url: URL,
+        descriptorPath: String,
+        policyContract: LearningProjectPolicyContract
+    ) throws {
         _ = try ManasMLXE2EPreflight().check(
             descriptorPath: descriptorPath,
             sourceCheckpointURL: url,
             requireSourceCheckpoint: true
         )
+        if policyContract.actionEncoding == .ctbr {
+            let manifestURL = url.appendingPathComponent("model.json", isDirectory: false)
+            let data = try Data(contentsOf: manifestURL)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let manifest = try decoder.decode(ManasMLXTemporalCTBRCheckpointManifest.self, from: data)
+            let expectedConfig = try ManasMLXTemporalCTBRPolicyContractResolver().makeConfig(from: policyContract)
+            guard manifest.config == expectedConfig else {
+                throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: ctbr policy config mismatch")
+            }
+            return
+        }
         if let failure = try ManasMLXCheckpointCompatibility(
-            expectedDriveCount: starterExpectedDriveCount(for: taskMode)
+            expectedDriveCount: starterExpectedDriveCount(for: taskMode),
+            expectedCoreInputSize: starterObservationChannelCount(for: taskMode) * 4
         ).validate(snapshotURL: url) {
-            throw LearningCampaignRunError.invalidConfig("starter checkpoint incompatible: \(failure.description)")
+            throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: \(failure.description)")
         }
     }
 
@@ -2178,6 +2785,17 @@ public final class SimulationViewModel {
 
     private func starterExpectedDriveCount(for taskMode: SimulationTaskMode) -> Int {
         taskMode == .singleLift ? 1 : 4
+    }
+
+    private func starterObservationChannelCount(for taskMode: SimulationTaskMode) -> Int {
+        switch taskMode {
+        case .lift:
+            return 64
+        case .singleLift:
+            return 8
+        case .attitude:
+            return 6
+        }
     }
 
     private func invalidateLearningStarterProject(reason: String) {
@@ -2190,9 +2808,12 @@ public final class SimulationViewModel {
         ])
     }
 
-    private func makeLearningCampaignRunConfig(prepareMissingInputs: Bool) throws -> LearningCampaignRunConfig {
+    private func makeTrainingRunRequest(
+        runID: TrainingRunID,
+        prepareMissingInputs: Bool
+    ) throws -> TrainingRunRequest {
         guard learningStrategySelection.isExecutable else {
-            throw LearningCampaignRunError.invalidConfig(
+            throw LearningCampaignLaunchError.invalidConfiguration(
                 "\(learningStrategySelection.title) is not executable. Select Hybrid to use the shared learning campaign runner."
             )
         }
@@ -2204,47 +2825,93 @@ public final class SimulationViewModel {
         let sourcePath = learningCampaignSourceCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let artifactPath = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sourcePath.isEmpty, !artifactPath.isEmpty else {
-            throw LearningCampaignRunError.invalidConfig("Source checkpoint and artifact directory are required.")
+            throw LearningCampaignLaunchError.invalidConfiguration("Source checkpoint and artifact directory are required.")
         }
 
-        let config = LearningCampaignRunConfig(
-            task: learningCampaignTask(),
-            sourceCheckpoint: URL(fileURLWithPath: sourcePath, isDirectory: true),
-            artifactRoot: URL(fileURLWithPath: artifactPath, isDirectory: true),
-            explicitSeeds: nil,
-            seedCount: learningCampaignSeedCount,
-            population: learningCampaignPopulation,
-            generations: learningCampaignGenerations,
-            eliteCount: learningCampaignEliteCount,
-            workers: learningCampaignWorkers,
-            candidateEvaluationConcurrency: learningCampaignCandidateEvaluationConcurrency,
-            suites: try learningCampaignSuiteValues(),
-            episodes: learningCampaignEpisodes,
-            tier: learningCampaignTier(),
-            cutPeriodSteps: cutPeriodSteps,
-            modelDescriptorPath: ensureDescriptorForTask(reason: "learningCampaignConfig"),
-            mutationRate: learningCampaignMutationRate,
-            mutationNoiseScale: learningCampaignMutationNoiseScale,
-            adaptiveMutationEnabled: learningCampaignAdaptiveMutation,
-            searchStrategy: .qualityDiversity,
-            variation: .gaussian,
-            minimumIncumbentImprovement: learningCampaignMinimumIncumbentImprovement,
-            artifactRetention: learningCampaignCompactRetention ? .compact : .full,
-            kp: kp,
-            kd: kd,
-            yawDamping: yawDamping,
-            hoverScale: hoverThrustScale,
-            requiresInitialParentPass: learningCampaignRequiresInitialParentPass,
+        let suites = try learningCampaignSuiteValues()
+        let optimizedPopulation: Int
+        let optimizedEliteCount: Int
+        let optimizedWorkers: Int
+        let optimizedCandidateConcurrency: Int
+        if learningCampaignAutoParallelism {
+            optimizedPopulation = learningCampaignMachineCapacity.recommendedPopulation(current: learningCampaignPopulation)
+            let recommendation = learningCampaignMachineCapacity.recommendation(
+                population: optimizedPopulation,
+                suiteCount: suites.count,
+                episodes: learningCampaignEpisodes
+            )
+            optimizedEliteCount = min(max(1, learningCampaignEliteCount), optimizedPopulation)
+            optimizedWorkers = recommendation.workerCount
+            optimizedCandidateConcurrency = recommendation.candidateEvaluationConcurrency
+        } else {
+            optimizedPopulation = learningCampaignPopulation
+            optimizedEliteCount = learningCampaignEliteCount
+            optimizedWorkers = learningCampaignWorkers
+            optimizedCandidateConcurrency = learningCampaignCandidateEvaluationConcurrency
+        }
+
+        let configuration = TrainingRunConfiguration(
+            trainingStageID: learningCampaignTrainingStageID,
+            trainingStageDisplayName: learningCampaignTrainingStageDisplayName,
+            trainingStageKind: learningCampaignTrainingStageKind,
+            scenarioSelection: TrainingScenarioSelection(
+                suiteIDs: suites,
+                episodesPerSuite: learningCampaignEpisodes,
+                tier: TrainingDeterminismTier(uiTier: learningCampaignTier()),
+                cutPeriodSteps: cutPeriodSteps
+            ),
+            resources: TrainingResourcePlan(
+                workerCount: optimizedWorkers,
+                candidateEvaluationConcurrency: optimizedCandidateConcurrency
+            ),
+            evolution: TrainingEvolutionSettings(
+                eliteCount: optimizedEliteCount,
+                searchStrategy: .qualityDiversity,
+                variation: .gaussian,
+                mutation: TrainingMutationSchedule(
+                    rate: learningCampaignMutationRate,
+                    noiseScale: learningCampaignMutationNoiseScale,
+                    adaptiveEnabled: learningCampaignAdaptiveMutation
+                ),
+                minimumIncumbentImprovement: learningCampaignMinimumIncumbentImprovement
+            ),
+            control: TrainingControlSettings(
+                modelDescriptorPath: ensureDescriptorForTask(reason: "learningCampaignConfig"),
+                kp: kp,
+                kd: kd,
+                yawDamping: yawDamping,
+                hoverScale: hoverThrustScale
+            ),
+            artifacts: TrainingArtifactPolicy(
+                retention: learningCampaignCompactRetention ? .compact : .full,
+                requiresInitialParentPass: learningCampaignRequiresInitialParentPass
+            ),
             autonomyDomain: learningCampaignAutonomyDomain
         )
-        return learningCampaignAutoParallelism
-            ? config.optimizedForMachine(learningCampaignMachineCapacity)
-            : config
+        return TrainingRunRequest(
+            runID: runID,
+            projectRoot: learningStarterProjectStore.projectRoot,
+            artifactRoot: URL(fileURLWithPath: artifactPath, isDirectory: true),
+            taskProfileID: learningCampaignTaskProfileID(),
+            policyContract: learningCampaignPolicyContract,
+            sourceBundle: ModelBundleReference(
+                bundleID: URL(fileURLWithPath: sourcePath, isDirectory: true).lastPathComponent,
+                kind: .source,
+                url: URL(fileURLWithPath: sourcePath, isDirectory: true)
+            ),
+            seedCount: learningCampaignSeedCount,
+            populationSize: optimizedPopulation,
+            generationLimit: learningCampaignGenerations,
+            configuration: configuration
+        )
     }
 
     private func makeLearningCampaignLaunchEstimate(suites: [Int]) -> LearningCampaignLaunchEstimate {
+        let estimatedPopulation = learningCampaignAutoParallelism
+            ? learningCampaignMachineCapacity.recommendedPopulation(current: learningCampaignPopulation)
+            : learningCampaignPopulation
         let recommendation = learningCampaignMachineCapacity.recommendation(
-            population: learningCampaignPopulation,
+            population: estimatedPopulation,
             suiteCount: suites.count,
             episodes: learningCampaignEpisodes
         )
@@ -2253,12 +2920,15 @@ public final class SimulationViewModel {
             ? recommendation.candidateEvaluationConcurrency
             : learningCampaignCandidateEvaluationConcurrency
         let totalParallelSlots = workerCount * candidateConcurrency
+        let capacitySlots = learningCampaignAutoParallelism
+            ? learningCampaignMachineCapacity.acceleratedParallelSlotBudget
+            : learningCampaignMachineCapacity.usableProcessorSlots
         let utilization = min(
             1,
-            Double(totalParallelSlots) / Double(learningCampaignMachineCapacity.usableProcessorSlots)
+            Double(totalParallelSlots) / Double(capacitySlots)
         )
         let candidateEvaluations = max(1, learningCampaignSeedCount)
-            * max(1, learningCampaignPopulation)
+            * max(1, estimatedPopulation)
             * max(1, learningCampaignGenerations)
         let regressionRollouts = candidateEvaluations * max(1, suites.count)
         let regressionEpisodes = regressionRollouts * max(1, learningCampaignEpisodes)
@@ -2269,7 +2939,7 @@ public final class SimulationViewModel {
             workerCount: workerCount,
             candidateConcurrency: candidateConcurrency,
             machineSummary: learningCampaignMachineCapacity.summary,
-            usableProcessorSlots: learningCampaignMachineCapacity.usableProcessorSlots,
+            usableProcessorSlots: capacitySlots,
             totalParallelSlots: totalParallelSlots,
             utilizationLabel: "\(Int((utilization * 100).rounded()))%",
             retention: learningCampaignCompactRetention ? "compact" : "full",
@@ -2278,8 +2948,13 @@ public final class SimulationViewModel {
     }
 
     private func applyLearningCampaignParallelismRecommendation(suites: [Int]) {
+        let optimizedPopulation = learningCampaignMachineCapacity.recommendedPopulation(
+            current: learningCampaignPopulation
+        )
+        learningCampaignPopulation = optimizedPopulation
+        learningCampaignEliteCount = min(max(learningCampaignEliteCount, min(2, optimizedPopulation)), optimizedPopulation)
         let recommendation = learningCampaignMachineCapacity.recommendation(
-            population: learningCampaignPopulation,
+            population: optimizedPopulation,
             suiteCount: suites.count,
             episodes: learningCampaignEpisodes
         )
@@ -2313,7 +2988,7 @@ public final class SimulationViewModel {
         guard !tokens.isEmpty else { return [6] }
         return try tokens.map { token in
             guard let suite = Int(token) else {
-                throw LearningCampaignRunError.invalidConfig("Invalid suite: \(token)")
+                throw LearningCampaignLaunchError.invalidConfiguration("Invalid suite: \(token)")
             }
             return suite
         }
@@ -2762,8 +3437,10 @@ public final class SimulationViewModel {
             let store = ManasMLXModelStore()
             let command = CommandSystem(modelStore: store)
             command.setManualActuatorStore(manualActuatorStore)
-            let telemetry: (WorldStepLog) -> Void = { [weak self] step in
-                self?.recordLiveStep(step)
+            let telemetry: WorldStepTelemetry = { [weak self] step in
+                Task { @MainActor in
+                    self?.recordLiveStep(step)
+                }
             }
             command.setTelemetry(telemetry)
             modelContexts[model.id] = ModelContext(
@@ -3140,4 +3817,32 @@ public final class SimulationViewModel {
         return ids.compactMap { map[$0] }
     }
 
+}
+
+private extension TrainingDeterminismTier {
+    init(uiTier: LearningCampaignTier) {
+        switch uiTier {
+        case .tier0:
+            self = .tier0
+        case .tier1:
+            self = .tier1
+        case .tier2:
+            self = .tier2
+        }
+    }
+}
+
+private struct LearningCampaignPresetSettings {
+    let suites: [Int]
+    let seedCount: Int
+    var population: Int
+    let generations: Int
+    var eliteCount: Int
+    var workers: Int
+    var candidateEvaluationConcurrency: Int
+    let episodes: Int
+    let mutationRate: Double
+    let mutationNoiseScale: Double
+    let adaptiveMutationEnabled: Bool
+    let minimumIncumbentImprovement: Double
 }

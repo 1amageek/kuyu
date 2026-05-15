@@ -163,12 +163,12 @@ public struct TrainingConfigurationView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-                    Stepper(value: $model.learningCampaignGenerations, in: 1...50) {
-                        Text("Generations: \(model.learningCampaignGenerations)")
+                    Stepper(value: $model.learningCampaignGenerations, in: 1...10_000) {
+                        Text("Safety budget: \(model.learningCampaignGenerations) generations")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-                    Stepper(value: $model.learningCampaignPopulation, in: 1...32) {
+                    Stepper(value: $model.learningCampaignPopulation, in: 1...512) {
                         Text("Population: \(model.learningCampaignPopulation)")
                             .font(.callout)
                             .foregroundStyle(.secondary)

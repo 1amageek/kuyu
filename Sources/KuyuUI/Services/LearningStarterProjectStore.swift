@@ -1,4 +1,5 @@
 import Foundation
+import KuyuTraining
 
 public enum LearningStarterProjectStoreError: Error, Equatable, LocalizedError, Sendable {
     case checkpointWriterDidNotCreateRequiredFiles([String])
@@ -25,6 +26,7 @@ public struct LearningStarterProjectStore: Sendable {
 
     public func prepareStarterProject(
         regenerateSourceCheckpoint: Bool = false,
+        policyContract: LearningProjectPolicyContract,
         checkpointWriter: (URL) throws -> Void
     ) throws -> LearningStarterProject {
         let fileManager = FileManager.default
@@ -36,13 +38,13 @@ public struct LearningStarterProjectStore: Sendable {
         try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: runsRoot, withIntermediateDirectories: true)
 
-        if regenerateSourceCheckpoint || !checkpointIsComplete(at: sourceCheckpoint) {
+        if regenerateSourceCheckpoint || !checkpointIsComplete(at: sourceCheckpoint, policyContract: policyContract) {
             if fileManager.fileExists(atPath: sourceCheckpoint.path) {
                 try fileManager.removeItem(at: sourceCheckpoint)
             }
             try fileManager.createDirectory(at: sourceCheckpoint, withIntermediateDirectories: true)
             try checkpointWriter(sourceCheckpoint)
-            let missing = missingCheckpointFiles(at: sourceCheckpoint)
+            let missing = missingCheckpointFiles(at: sourceCheckpoint, policyContract: policyContract)
             guard missing.isEmpty else {
                 throw LearningStarterProjectStoreError.checkpointWriterDidNotCreateRequiredFiles(missing)
             }
@@ -92,9 +94,34 @@ public struct LearningStarterProjectStore: Sendable {
         missingCheckpointFiles(at: url).isEmpty
     }
 
+    public func checkpointIsComplete(
+        at url: URL,
+        policyContract: LearningProjectPolicyContract
+    ) -> Bool {
+        missingCheckpointFiles(at: url, policyContract: policyContract).isEmpty
+    }
+
     private func missingCheckpointFiles(at url: URL) -> [String] {
         Self.requiredCheckpointFiles.filter { fileName in
             !FileManager.default.fileExists(atPath: url.appendingPathComponent(fileName).path)
+        }
+    }
+
+    private func missingCheckpointFiles(
+        at url: URL,
+        policyContract: LearningProjectPolicyContract
+    ) -> [String] {
+        requiredCheckpointFiles(policyContract: policyContract).filter { fileName in
+            !FileManager.default.fileExists(atPath: url.appendingPathComponent(fileName).path)
+        }
+    }
+
+    private func requiredCheckpointFiles(policyContract: LearningProjectPolicyContract) -> [String] {
+        switch policyContract.actionEncoding {
+        case .ctbr:
+            return Self.ctbrCheckpointFiles
+        case .directMotor, .jointTargets, .vehicleSteerThrottleBrake:
+            return Self.requiredCheckpointFiles
         }
     }
 
@@ -102,6 +129,12 @@ public struct LearningStarterProjectStore: Sendable {
         "model.json",
         "core.safetensors",
         "reflex.safetensors",
+        "manas-bundle.json",
+    ]
+
+    private static let ctbrCheckpointFiles = [
+        "model.json",
+        "core.safetensors",
         "manas-bundle.json",
     ]
 
