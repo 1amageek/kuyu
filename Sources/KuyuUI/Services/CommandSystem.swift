@@ -45,7 +45,7 @@ public final class CommandSystem {
     private let logWriter: KuyAtt1LogWriter
     private let datasetExporter: TrainingDatasetExporter
     private let trainingService: TrainingService
-    private let trainingRunExecutor: ManasMLXTrainingRunExecutor
+    private let trainingRunExecutor: any AnyTrainingRunExecuting
     private lazy var trainingLoopController = TrainingLoopController(commandExecutor: self)
 
     public init(
@@ -54,7 +54,7 @@ public final class CommandSystem {
         logWriter: KuyAtt1LogWriter = KuyAtt1LogWriter(),
         datasetExporter: TrainingDatasetExporter = TrainingDatasetExporter(),
         trainingService: TrainingService? = nil,
-        trainingRunExecutor: ManasMLXTrainingRunExecutor = ManasMLXTrainingRunExecutor()
+        trainingRunExecutor: any AnyTrainingRunExecuting = ManasMLXTrainingRunExecutor()
     ) {
         self.modelStore = modelStore
         self.runnerService = runnerService ?? SimulationRunnerService(modelStore: modelStore)
@@ -111,7 +111,7 @@ public final class CommandSystem {
 
     public func learningCampaignContinuationSelection(
         from artifactRoot: URL
-    ) throws -> LearningCampaignContinuationSelection {
+    ) throws -> TrainingContinuationSelection {
         try trainingRunExecutor.continuationSelection(from: artifactRoot)
     }
 
