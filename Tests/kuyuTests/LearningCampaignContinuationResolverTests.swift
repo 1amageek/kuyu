@@ -104,6 +104,40 @@ import Testing
     #expect(selection.checkpointURL.standardizedFileURL == internalCheckpoint.standardizedFileURL)
 }
 
+@Test(.timeLimit(.minutes(1))) func continuationResolverAcceptsManifestCompleteCTBRCandidateWithoutReflexWeights() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-ctbr-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        removeContinuationTestDirectory(root)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeContinuationJSON(makeContinuationResolverPlan(root: root, task: "lift"), to: root.appendingPathComponent("learning-campaign-plan.json"))
+
+    let evolution = root
+        .appendingPathComponent("seeds", isDirectory: true)
+        .appendingPathComponent("seed-1", isDirectory: true)
+        .appendingPathComponent("evolution", isDirectory: true)
+    let ctbrCheckpoint = evolution
+        .appendingPathComponent("candidates", isDirectory: true)
+        .appendingPathComponent("generation-3", isDirectory: true)
+        .appendingPathComponent("candidate-ctbr", isDirectory: true)
+    try writeContinuationCTBRCheckpointSkeleton(at: ctbrCheckpoint)
+    try FileManager.default.createDirectory(at: evolution, withIntermediateDirectories: true)
+
+    try writeContinuationJSONLines([
+        makeContinuationCandidate(id: "g3-c4", generation: 3, checkpoint: ctbrCheckpoint),
+    ], to: evolution.appendingPathComponent("candidates.jsonl"))
+    try writeContinuationJSONLines([
+        makeContinuationFitness(id: "g3-c4", generation: 3, task: "lift", fitness: 123),
+    ], to: evolution.appendingPathComponent("fitness.jsonl"))
+
+    let selection = try LearningCampaignContinuationResolver().resolve(from: root)
+
+    #expect(selection.source == .bestCandidate)
+    #expect(selection.candidateID == "g3-c4")
+    #expect(selection.checkpointURL.standardizedFileURL == ctbrCheckpoint.standardizedFileURL)
+}
+
 @Test(.timeLimit(.minutes(1))) func continuationResolverRejectsFinalCheckpointMismatchForAcceptedRun() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-continuation-final-mismatch-\(UUID().uuidString)", isDirectory: true)
@@ -310,6 +344,16 @@ private func writeContinuationCheckpointSkeleton(at url: URL) throws {
     )
 }
 
+private func writeContinuationCTBRCheckpointSkeleton(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: url.appendingPathComponent("model.json"), options: [.atomic])
+    try Data("core".utf8).write(to: url.appendingPathComponent("core.safetensors"), options: [.atomic])
+    try Data(ContinuationCTBRBundleManifestFixture.json.utf8).write(
+        to: url.appendingPathComponent("manas-bundle.json"),
+        options: [.atomic]
+    )
+}
+
 private enum ContinuationBundleManifestFixture {
     static let json = """
     {
@@ -341,6 +385,37 @@ private enum ContinuationBundleManifestFixture {
         "descriptorHash" : "descriptor",
         "driveSemanticsID" : "drive",
         "observationSchemaID" : "observation"
+      },
+      "schemaVersion" : 1
+    }
+    """
+}
+
+private enum ContinuationCTBRBundleManifestFixture {
+    static let json = """
+    {
+      "bundleID" : "ctbr-fixture",
+      "components" : [
+        {
+          "contentType" : "application/json",
+          "path" : "model.json",
+          "required" : true,
+          "role" : "modelConfig"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "core.safetensors",
+          "required" : true,
+          "role" : "coreWeights"
+        }
+      ],
+      "createdAt" : "1970-01-01T00:00:00Z",
+      "modelFamily" : "manas-temporal-ctbr",
+      "runtimeContract" : {
+        "configHash" : "config",
+        "descriptorHash" : "descriptor",
+        "driveSemanticsID" : "ctbr",
+        "observationSchemaID" : "temporal-ctbr"
       },
       "schemaVersion" : 1
     }
