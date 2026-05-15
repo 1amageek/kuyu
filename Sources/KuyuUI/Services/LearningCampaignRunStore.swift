@@ -196,6 +196,36 @@ public struct LearningCampaignAutonomyStageState: Identifiable, Sendable, Equata
     }
 }
 
+public struct LearningCampaignAcceptedCheckpointState: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let seed: String
+    public let accepted: Bool
+    public let candidateID: String?
+    public let bestCandidateID: String?
+    public let bestFitness: Double?
+    public let incumbentCandidateID: String?
+    public let incumbentFitness: Double?
+    public let bestVsIncumbentDelta: Double?
+    public let minimumImprovementOverIncumbent: Double?
+    public let publishMetricRegressions: [String]
+    public let reasons: [String]
+
+    init(seed: String, decision: EvolutionAcceptedCheckpointDecision) {
+        self.id = "\(seed)-\(decision.runID)"
+        self.seed = seed
+        self.accepted = decision.accepted
+        self.candidateID = decision.candidateID
+        self.bestCandidateID = decision.bestCandidateID
+        self.bestFitness = decision.bestFitness
+        self.incumbentCandidateID = decision.incumbentCandidateID
+        self.incumbentFitness = decision.incumbentFitness
+        self.bestVsIncumbentDelta = decision.bestVsIncumbentDelta
+        self.minimumImprovementOverIncumbent = decision.minimumImprovementOverIncumbent
+        self.publishMetricRegressions = decision.publishMetricRegressions
+        self.reasons = decision.reasons
+    }
+}
+
 public enum LearningCampaignVectorizedBatchKind: String, Sendable, Codable, Equatable {
     case variation
     case evaluation
@@ -280,6 +310,7 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     public let generations: [LearningCampaignGenerationState]
     public let candidates: [LearningCampaignCandidateState]
     public let vectorizedBatches: [LearningCampaignVectorizedBatchState]
+    public let acceptedCheckpoints: [LearningCampaignAcceptedCheckpointState]
 
     public var latestEvent: LearningCampaignProgressRecord? {
         progressEvents.last
@@ -631,6 +662,7 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
                     exitCode: $0.exitCode
                 )
             },
+            checkpointRejectionReasons: acceptedCheckpointFailureReasons,
             generationRejectionReasons: generationFailureReasons,
             autonomyFailureReasons: autonomyFailureReasons
         )
@@ -690,6 +722,17 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
         generations.flatMap { generation in
             generation.rejectionReasons.map { reason in
                 "generation:\(generation.seed):g\(generation.generationIndex): \(reason)"
+            }
+        }
+    }
+
+    private var acceptedCheckpointFailureReasons: [String] {
+        acceptedCheckpoints.flatMap { checkpoint in
+            if checkpoint.accepted {
+                return [String]()
+            }
+            return checkpoint.reasons.map { reason in
+                "accepted-checkpoint:\(checkpoint.seed): \(reason)"
             }
         }
     }
@@ -791,8 +834,45 @@ public struct LearningCampaignRunStore {
             ),
             generations: try loadGenerations(from: artifactDirectory),
             candidates: try loadCandidates(from: artifactDirectory),
-            vectorizedBatches: try loadVectorizedBatches(from: artifactDirectory)
+            vectorizedBatches: try loadVectorizedBatches(from: artifactDirectory),
+            acceptedCheckpoints: try loadAcceptedCheckpoints(from: artifactDirectory)
         )
+    }
+
+    private func loadAcceptedCheckpoints(from artifactDirectory: URL) throws -> [LearningCampaignAcceptedCheckpointState] {
+        var states: [LearningCampaignAcceptedCheckpointState] = []
+        if let rootDecision = try decodeIfPresent(
+            EvolutionAcceptedCheckpointDecision.self,
+            from: artifactDirectory.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
+        ) {
+            states.append(LearningCampaignAcceptedCheckpointState(seed: "evolution", decision: rootDecision))
+        }
+
+        let seedsRoot = artifactDirectory.appendingPathComponent("seeds", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: seedsRoot.path) else {
+            return states
+        }
+        let seedDirectories = try FileManager.default.contentsOfDirectory(
+            at: seedsRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        for seedDirectory in seedDirectories {
+            guard try isDirectory(seedDirectory) else { continue }
+            let decisionURL = seedDirectory
+                .appendingPathComponent("evolution", isDirectory: true)
+                .appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
+            if let decision = try decodeIfPresent(EvolutionAcceptedCheckpointDecision.self, from: decisionURL) {
+                states.append(LearningCampaignAcceptedCheckpointState(
+                    seed: seedDirectory.lastPathComponent,
+                    decision: decision
+                ))
+            }
+        }
+        return states.sorted { lhs, rhs in
+            if lhs.seed != rhs.seed { return lhs.seed < rhs.seed }
+            return lhs.id < rhs.id
+        }
     }
 
     private func loadVectorizedBatches(from artifactDirectory: URL) throws -> [LearningCampaignVectorizedBatchState] {

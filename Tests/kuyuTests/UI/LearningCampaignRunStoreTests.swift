@@ -296,6 +296,70 @@ import Testing
     #expect(state.diagnosticText.contains("accepted-checkpoint-missing"))
 }
 
+@Test func learningCampaignRunStoreExplainsValidRunRejectedByAcceptedCheckpointGate() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-campaign-accepted-checkpoint-rejected-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    try writeJSON(makePlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
+    try writeJSON(
+        LearningCampaignStatus(
+            status: "succeeded",
+            exitCode: 0,
+            startedAt: "2026-05-07T00:00:00Z",
+            finishedAt: "2026-05-07T00:01:00Z"
+        ),
+        to: root.appendingPathComponent("campaign-status.json")
+    )
+    try writeJSON(
+        LearningCampaignSummary(
+            artifactRoot: root.path,
+            seedCount: 1,
+            acceptedCount: 0,
+            finalCheckpoint: "",
+            runs: []
+        ),
+        to: root.appendingPathComponent("learning-campaign-summary.json")
+    )
+
+    let evolutionRoot = root
+        .appendingPathComponent("seeds", isDirectory: true)
+        .appendingPathComponent("seed-1", isDirectory: true)
+        .appendingPathComponent("evolution", isDirectory: true)
+    try FileManager.default.createDirectory(at: evolutionRoot, withIntermediateDirectories: true)
+    try writeJSON(
+        EvolutionAcceptedCheckpointDecision(
+            runID: "run-1",
+            terminalState: .completed,
+            accepted: false,
+            candidateID: nil,
+            checkpointID: nil,
+            checkpointURL: nil,
+            scalarFitness: nil,
+            bestCandidateID: "g12-c7",
+            bestCheckpointID: "checkpoint-g12-c7",
+            bestCheckpointURL: URL(fileURLWithPath: "/tmp/checkpoint-g12-c7", isDirectory: true),
+            bestFitness: -287.3,
+            incumbentCandidateID: "parent",
+            incumbentFitness: -287.3,
+            bestVsIncumbentDelta: 0,
+            minimumImprovementOverIncumbent: 0.001,
+            publishMetricRegressions: [],
+            reasons: ["incumbent-improvement-below-min:g12-c7:-287.3--287.3<0.001"]
+        ),
+        to: evolutionRoot.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
+    )
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.acceptedCheckpoints.count == 1)
+    #expect(state.acceptedCheckpoints.first?.accepted == false)
+    #expect(state.primaryFailureReason == "accepted-checkpoint:seed-1: incumbent-improvement-below-min:g12-c7:-287.3--287.3<0.001")
+    #expect(state.failureReasons.contains("No checkpoint was accepted by the gate."))
+    #expect(state.diagnosticText.contains("accepted-checkpoint:seed-1"))
+    #expect(state.diagnosticText.contains("incumbent-improvement-below-min"))
+}
+
 @Test func learningCampaignRunStoreExplainsCancelledPartialEvolutionAsCancellation() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-ui-campaign-cancelled-\(UUID().uuidString)", isDirectory: true)
