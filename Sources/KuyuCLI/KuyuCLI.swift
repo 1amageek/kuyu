@@ -5108,6 +5108,8 @@ struct RunLearningCampaign: AsyncParsableCommand {
 
     private func printTrainingRunEvent(_ event: TrainingRunEvent) -> (accepted: Bool, reason: String?)? {
         switch event {
+        case .progress:
+            return nil
         case .log(let log):
             let seed = log.seed.map { " seed=\($0)" } ?? ""
             let generation = log.generationIndex.map { " generation=\($0)" } ?? ""

@@ -2198,6 +2198,8 @@ public final class SimulationViewModel {
     ) {
         learningCampaignProgressFraction = boundedLearningCampaignProgress(progress.fractionCompleted)
         switch event {
+        case .progress(let progressEvent):
+            applyTrainingRunProgressEvent(progressEvent)
         case .log(let logEvent):
             applyTrainingRunLogEvent(logEvent, progress: progress)
         case .started(let manifest):
@@ -2250,7 +2252,6 @@ public final class SimulationViewModel {
         appendLearningCampaignRunLogRecord(
             LearningCampaignRunLogFormatter.entry(from: logEvent, progress: progress)
         )
-        appendLearningCampaignLiveProgressEvent(logEvent)
         learningCampaignCurrentPhase = logEvent.phase
         learningCampaignLatestEvent = logEvent.message
         guard logEvent.phase == "candidate",
@@ -2280,6 +2281,19 @@ public final class SimulationViewModel {
         appendLearningCampaignLiveMetricSamples(summary)
     }
 
+    private func applyTrainingRunProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
+        appendLearningCampaignLiveProgressEvent(progressEvent)
+        if let progressFraction = progressEvent.progressFraction {
+            learningCampaignProgressFraction = boundedLearningCampaignProgress(progressFraction)
+        }
+        if let phase = progressEvent.phase {
+            learningCampaignCurrentPhase = phase
+        }
+        if let message = progressEvent.message {
+            learningCampaignLatestEvent = message
+        }
+    }
+
     private func boundedLearningCampaignProgress(_ fallback: Double) -> Double {
         if let state = learningCampaignState {
             return state.campaignProgressFraction
@@ -2306,8 +2320,8 @@ public final class SimulationViewModel {
         learningCampaignLiveProgressEvents = []
     }
 
-    private func appendLearningCampaignLiveProgressEvent(_ logEvent: TrainingRunLogEvent) {
-        guard let progressRecord = makeLearningCampaignProgressRecord(from: logEvent) else { return }
+    private func appendLearningCampaignLiveProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
+        let progressRecord = makeLearningCampaignProgressRecord(from: progressEvent)
         learningCampaignLiveProgressEvents.append(progressRecord)
         let maximumEntryCount = 1_000
         if learningCampaignLiveProgressEvents.count > maximumEntryCount {
@@ -2316,90 +2330,38 @@ public final class SimulationViewModel {
     }
 
     private func makeLearningCampaignProgressRecord(
-        from logEvent: TrainingRunLogEvent
-    ) -> LearningCampaignProgressRecord? {
-        let eventName: String
-        switch logEvent.phase {
-        case "preflight":
-            eventName = logEvent.level == .success ? "preflight-completed" : "preflight-started"
-        case "seed":
-            eventName = logEvent.metadata["accepted"] == nil ? "seed-started" : "seed-completed"
-        case "generation":
-            eventName = logEvent.candidateID == nil ? "generation-started" : "generation-completed"
-        case "candidate":
-            eventName = "candidate-evaluated"
-        case "artifact":
-            eventName = "artifact-written"
-        case "finished":
-            eventName = "campaign-finished"
-        case "failed":
-            eventName = "campaign-failed"
-        case "cancelled":
-            eventName = "campaign-cancelled"
-        default:
-            return nil
-        }
-
+        from progressEvent: TrainingRunProgressEvent
+    ) -> LearningCampaignProgressRecord {
         return LearningCampaignProgressRecord(
-            event: eventName,
-            timestamp: ISO8601DateFormatter().string(from: logEvent.timestamp),
-            status: logEvent.phase == "failed" || logEvent.phase == "cancelled" ? logEvent.phase : nil,
-            exitCode: nil,
-            phase: logEvent.phase,
-            seed: logEvent.seed,
-            generationIndex: logEvent.generationIndex,
-            candidateID: logEvent.candidateID,
-            fitness: Double(logEvent.metadata["fitness"] ?? ""),
-            rewardAverage: Double(logEvent.metadata["reward"] ?? ""),
-            taskPassRate: Double(logEvent.metadata["taskPassRate"] ?? ""),
-            safetyViolationRate: Double(logEvent.metadata["safetyViolationRate"] ?? ""),
-            holdTimeRatio: Double(logEvent.metadata["holdTimeRatio"] ?? ""),
-            altitudeErrorRatio: Double(logEvent.metadata["altitudeErrorRatio"] ?? ""),
-            workerThroughput: Double(logEvent.metadata["workerThroughput"] ?? ""),
-            gpuAcceleration: boolMetadata(logEvent.metadata["gpu"]),
-            tensorWorldBatch: boolMetadata(logEvent.metadata["tensorWorld"]),
-            tensorSummary: tensorSummaryMetadata(logEvent.metadata["summary"]),
-            vectorizedPopulationSize: intMetadata(logEvent.metadata["population"]),
-            vectorizedWorldCount: intMetadata(logEvent.metadata["worlds"]),
-            vectorizedHistoryLength: intMetadata(logEvent.metadata["history"]),
-            vectorizedObservationDimension: intMetadata(logEvent.metadata["obs"]),
-            vectorizedActionDimension: intMetadata(logEvent.metadata["action"]),
-            failureReasons: failureReasonsMetadata(logEvent.metadata["failureReasons"]),
-            bestCandidateID: logEvent.phase == "generation" ? logEvent.candidateID : nil,
-            accepted: boolMetadata(logEvent.metadata["accepted"]),
-            path: logEvent.metadata["path"],
-            message: logEvent.message
+            event: progressEvent.event,
+            timestamp: ISO8601DateFormatter().string(from: progressEvent.timestamp),
+            status: progressEvent.status,
+            exitCode: progressEvent.exitCode,
+            phase: progressEvent.phase,
+            seed: progressEvent.seed,
+            generationIndex: progressEvent.generationIndex,
+            candidateID: progressEvent.candidateID,
+            fitness: progressEvent.fitness,
+            rewardAverage: progressEvent.rewardAverage,
+            taskPassRate: progressEvent.taskPassRate,
+            safetyViolationRate: progressEvent.safetyViolationRate,
+            holdTimeRatio: progressEvent.holdTimeRatio,
+            altitudeErrorRatio: progressEvent.altitudeErrorRatio,
+            workerThroughput: progressEvent.workerThroughput,
+            gpuAcceleration: progressEvent.gpuAcceleration,
+            tensorWorldBatch: progressEvent.tensorWorldBatch,
+            tensorSummary: progressEvent.tensorSummary,
+            vectorizedPopulationSize: progressEvent.vectorizedPopulationSize,
+            vectorizedWorldCount: progressEvent.vectorizedWorldCount,
+            vectorizedHistoryLength: progressEvent.vectorizedHistoryLength,
+            vectorizedObservationDimension: progressEvent.vectorizedObservationDimension,
+            vectorizedActionDimension: progressEvent.vectorizedActionDimension,
+            failureReasons: progressEvent.failureReasons,
+            bestCandidateID: progressEvent.bestCandidateID,
+            accepted: progressEvent.accepted,
+            path: progressEvent.path,
+            message: progressEvent.message
         )
-    }
-
-    private func boolMetadata(_ value: String?) -> Bool? {
-        guard let value else { return nil }
-        switch value.lowercased() {
-        case "true", "1", "yes":
-            return true
-        case "false", "0", "no":
-            return false
-        default:
-            return nil
-        }
-    }
-
-    private func tensorSummaryMetadata(_ value: String?) -> Bool? {
-        guard let value else { return nil }
-        return value == "tensor"
-    }
-
-    private func intMetadata(_ value: String?) -> Int? {
-        guard let value else { return nil }
-        return Int(value)
-    }
-
-    private func failureReasonsMetadata(_ value: String?) -> [String] {
-        guard let value else { return [] }
-        return value
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
     }
 
     func appendLearningCampaignLiveMetricSamples(_ fitness: FitnessSummary) {
