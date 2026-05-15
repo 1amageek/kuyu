@@ -74,6 +74,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 name: request.displayName,
                 policyContract: request.policyContract,
                 descriptor: request.descriptor,
+                starterCollectiveThrustScale: starterCollectiveThrustScale(taskMode: request.taskMode),
                 createdAt: Date(),
                 lastTrainedAt: nil
             ))
@@ -93,6 +94,17 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
             )
         }
         try validateCheckpoint(request: request)
+    }
+
+    private func starterCollectiveThrustScale(taskMode: SimulationTaskMode) -> Double {
+        switch taskMode {
+        case .lift:
+            return 1.18
+        case .attitude:
+            return 1.0
+        case .singleLift:
+            return 1.12
+        }
     }
 
     private func validateCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
