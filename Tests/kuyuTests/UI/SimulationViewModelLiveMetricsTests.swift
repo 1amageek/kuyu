@@ -1,3 +1,4 @@
+import Foundation
 import KuyuTraining
 @testable import KuyuUI
 import Testing
@@ -85,6 +86,42 @@ import Testing
     #expect(records.first?.vectorizedWorldCount == 100)
 }
 
+@MainActor
+@Test(.timeLimit(.minutes(1))) func simulationViewModelBuildsChartSamplesFromProgressEvents() {
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+
+    model.appendLearningCampaignLiveProgressEvent(makeProgressEvent(
+        generationIndex: 2,
+        candidateID: "g2-c0",
+        fitness: -12,
+        rewardAverage: -30,
+        taskPassRate: 0.1
+    ))
+    model.appendLearningCampaignLiveProgressEvent(makeProgressEvent(
+        generationIndex: 2,
+        candidateID: "g2-c1",
+        fitness: -8,
+        rewardAverage: -18,
+        taskPassRate: 0.5
+    ))
+    model.appendLearningCampaignLiveProgressEvent(makeProgressEvent(
+        generationIndex: 3,
+        candidateID: "g3-c0",
+        fitness: -6,
+        rewardAverage: -14,
+        taskPassRate: 0.75
+    ))
+
+    #expect(model.learningCampaignLiveCandidateEvaluationCount == 3)
+    #expect(model.learningCampaignLiveFitnessSamples.map(\.time) == [2, 3])
+    #expect(model.learningCampaignLiveFitnessSamples.map(\.value) == [-8, -6])
+    #expect(model.learningCampaignLiveRewardSamples.map(\.value) == [-18, -14])
+    #expect(model.learningCampaignLiveTaskPassSamples.map(\.value) == [0.5, 0.75])
+    #expect(model.learningCampaignLiveProgressEvents.last?.gpuAcceleration == true)
+    #expect(model.learningCampaignLiveProgressEvents.last?.tensorWorldBatch == true)
+    #expect(model.learningCampaignLiveProgressEvents.last?.vectorizedPopulationSize == 100)
+}
+
 private func makeFitness(
     generationIndex: Int,
     candidateID: String,
@@ -103,5 +140,38 @@ private func makeFitness(
         safetyViolationRate: 0,
         holdTimeRatio: taskPassRate,
         altitudeErrorRatio: 1 - taskPassRate
+    )
+}
+
+private func makeProgressEvent(
+    generationIndex: Int,
+    candidateID: String,
+    fitness: Double,
+    rewardAverage: Double,
+    taskPassRate: Double
+) -> TrainingRunProgressEvent {
+    TrainingRunProgressEvent(
+        timestamp: Date(timeIntervalSince1970: Double(generationIndex)),
+        event: "candidate-evaluated",
+        phase: "candidate",
+        seed: "seed-1",
+        generationIndex: generationIndex,
+        candidateID: candidateID,
+        fitness: fitness,
+        rewardAverage: rewardAverage,
+        taskPassRate: taskPassRate,
+        safetyViolationRate: 0,
+        holdTimeRatio: taskPassRate,
+        altitudeErrorRatio: 1 - taskPassRate,
+        workerThroughput: 10,
+        gpuAcceleration: true,
+        tensorWorldBatch: true,
+        tensorSummary: true,
+        vectorizedPopulationSize: 100,
+        vectorizedWorldCount: 100,
+        vectorizedHistoryLength: 32,
+        vectorizedObservationDimension: 64,
+        vectorizedActionDimension: 4,
+        failureReasons: []
     )
 }

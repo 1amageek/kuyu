@@ -118,7 +118,7 @@ struct PopulationSimulationView: View {
                 }
                 return "MLX \(action) policy + tensor world"
             }
-            return "MLX policy + CPU world"
+            return "Unsupported non-tensor evaluation"
         }
     }
 
@@ -130,11 +130,11 @@ struct PopulationSimulationView: View {
         case "mlx-tensor-ctbr-observation-bridge-v1":
             return "Tensor CTBR bridge"
         case "cpu-materialized-ctbr-observations":
-            return "CPU CTBR materialized"
+            return "Unsupported CTBR materialized"
         case "mlx-tensor-direct-motor-observation-bridge-v1":
             return "Tensor motor bridge"
         case "cpu-materialized-direct-motor-observations":
-            return "CPU motor materialized"
+            return "Unsupported motor materialized"
         case let mode?:
             return mode
         case nil:

@@ -2254,31 +2254,6 @@ public final class SimulationViewModel {
         )
         learningCampaignCurrentPhase = logEvent.phase
         learningCampaignLatestEvent = logEvent.message
-        guard logEvent.phase == "candidate",
-              let generationIndex = logEvent.generationIndex,
-              let candidateID = logEvent.candidateID,
-              let fitness = Double(logEvent.metadata["fitness"] ?? ""),
-              let reward = Double(logEvent.metadata["reward"] ?? "") else {
-            return
-        }
-        let reasons = (logEvent.metadata["failureReasons"] ?? "")
-            .split(separator: ",")
-            .map(String.init)
-        let summary = FitnessSummary(
-            runID: "live",
-            generationIndex: generationIndex,
-            candidateID: candidateID,
-            taskID: learningCampaignTask().rawValue,
-            scalarFitness: fitness,
-            rewardAverage: reward,
-            taskPassRate: Double(logEvent.metadata["taskPassRate"] ?? "") ?? 0,
-            safetyViolationRate: Double(logEvent.metadata["safetyViolationRate"] ?? "") ?? 0,
-            holdTimeRatio: Double(logEvent.metadata["holdTimeRatio"] ?? ""),
-            altitudeErrorRatio: Double(logEvent.metadata["altitudeErrorRatio"] ?? ""),
-            behaviorDescriptor: [:],
-            failureReasons: reasons
-        )
-        appendLearningCampaignLiveMetricSamples(summary)
     }
 
     private func applyTrainingRunProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
@@ -2320,13 +2295,14 @@ public final class SimulationViewModel {
         learningCampaignLiveProgressEvents = []
     }
 
-    private func appendLearningCampaignLiveProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
+    func appendLearningCampaignLiveProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
         let progressRecord = makeLearningCampaignProgressRecord(from: progressEvent)
         learningCampaignLiveProgressEvents.append(progressRecord)
         let maximumEntryCount = 1_000
         if learningCampaignLiveProgressEvents.count > maximumEntryCount {
             learningCampaignLiveProgressEvents.removeFirst(learningCampaignLiveProgressEvents.count - maximumEntryCount)
         }
+        appendLearningCampaignLiveMetricSamples(progressRecord)
     }
 
     private func makeLearningCampaignProgressRecord(
@@ -2397,6 +2373,40 @@ public final class SimulationViewModel {
             MetricSample(time: time, value: Double(learningCampaignLiveCandidateEvaluationCount * episodeMultiplier)),
             in: &learningCampaignLiveEpisodeSamples
         )
+    }
+
+    private func appendLearningCampaignLiveMetricSamples(_ progressRecord: LearningCampaignProgressRecord) {
+        guard progressRecord.event == "candidate-evaluated",
+              let generationIndex = progressRecord.generationIndex,
+              let candidateID = progressRecord.candidateID,
+              let fitness = progressRecord.fitness,
+              let rewardAverage = progressRecord.rewardAverage else {
+            return
+        }
+        let summary = FitnessSummary(
+            runID: progressRecord.seed ?? "live",
+            generationIndex: generationIndex,
+            candidateID: candidateID,
+            taskID: learningCampaignTask().rawValue,
+            scalarFitness: fitness,
+            rewardAverage: rewardAverage,
+            taskPassRate: progressRecord.taskPassRate ?? 0,
+            safetyViolationRate: progressRecord.safetyViolationRate ?? 0,
+            holdTimeRatio: progressRecord.holdTimeRatio,
+            altitudeErrorRatio: progressRecord.altitudeErrorRatio,
+            behaviorDescriptor: [
+                "evaluation.gpu": progressRecord.gpuAcceleration == true ? 1 : 0,
+                "evaluation.worldTensorBatch": progressRecord.tensorWorldBatch == true ? 1 : 0,
+                "evaluation.tensorSummary": progressRecord.tensorSummary == true ? 1 : 0,
+                "vectorized.populationSize": Double(progressRecord.vectorizedPopulationSize ?? 0),
+                "vectorized.worldCount": Double(progressRecord.vectorizedWorldCount ?? 0),
+                "vectorized.historyLength": Double(progressRecord.vectorizedHistoryLength ?? 0),
+                "vectorized.observationDimension": Double(progressRecord.vectorizedObservationDimension ?? 0),
+                "vectorized.actionDimension": Double(progressRecord.vectorizedActionDimension ?? 0)
+            ],
+            failureReasons: progressRecord.failureReasons ?? []
+        )
+        appendLearningCampaignLiveMetricSamples(summary)
     }
 
     private func shouldReplaceGenerationBest(

@@ -81,7 +81,7 @@ struct VectorizedExecutionView: View {
         if latestBatch.kind == .variation {
             return "mlx"
         }
-        return "materialized"
+        return "unsupported"
     }
 
     private var executionStatusTone: StatusPill.Tone {
@@ -90,7 +90,7 @@ struct VectorizedExecutionView: View {
             return .success
         case "mlx":
             return .info
-        case "materialized":
+        case "unsupported":
             return .warning
         default:
             return .neutral
@@ -111,8 +111,8 @@ struct VectorizedExecutionView: View {
                 StatRow(label: "Worlds", value: live.vectorizedWorldCount.map(String.init) ?? "--", compact: true)
                 StatRow(label: "Throughput", value: formattedThroughput(live.workerThroughput), compact: true)
                 StatRow(label: "Accelerator", value: live.gpuAcceleration == true ? acceleratorName : "--", compact: true)
-                StatRow(label: "Summary", value: live.tensorSummary == true ? "tensor" : "materialized", compact: true)
-                StatRow(label: "World", value: live.tensorWorldBatch == true ? "MLX tensor world" : "materialized world", compact: true)
+                StatRow(label: "Summary", value: live.tensorSummary == true ? "tensor" : "unsupported", compact: true)
+                StatRow(label: "World", value: live.tensorWorldBatch == true ? "MLX tensor world" : "unsupported", compact: true)
                 StatRow(label: "Shape", value: liveShapeLabel(live), compact: true)
             } else if let latestBatch {
                 StatRow(label: "Kind", value: latestBatch.kind.rawValue, compact: true)
@@ -318,7 +318,7 @@ struct VectorizedExecutionView: View {
             if batch.worldExecutionMode?.hasPrefix("mlx-tensor-") == true {
                 return "GPU tensor world"
             }
-            return "materialized world"
+            return "unsupported non-tensor"
         }
     }
 
