@@ -4488,9 +4488,6 @@ struct EvolveManas: AsyncParsableCommand {
     @Flag(name: .customLong("no-auto-parallelism"), help: "Disable machine-optimized population and evaluation concurrency.")
     var noAutoParallelism: Bool = false
 
-    @Flag(name: .customLong("allow-cpu-world-fallback"), help: "Allow unsupported scenarios to use CPU isolated-world rollout. Default requires MLX tensor world support.")
-    var allowCPUWorldFallback: Bool = false
-
     @Option(help: "Comma-separated M2 suite list: 6,7,8.")
     var suites: String = "6"
 
@@ -4680,9 +4677,7 @@ struct EvolveManas: AsyncParsableCommand {
                 mutationRate: mutationRate,
                 mutationNoiseScale: mutationNoiseScale,
                 adaptiveMutation: EvolutionAdaptiveMutationConfig(enabled: adaptiveMutation),
-                worldExecutionRequirement: allowCPUWorldFallback
-                    ? .allowIsolatedWorldFallback
-                    : .acceleratorSharedWorld,
+                worldExecutionRequirement: .acceleratorSharedWorld,
                 parentCheckpointID: snapshotURL.lastPathComponent,
                 parentCheckpointURL: snapshotURL
             ),
@@ -4823,9 +4818,6 @@ struct RunLearningCampaign: AsyncParsableCommand {
 
     @Flag(name: .customLong("no-auto-parallelism"), help: "Disable machine-optimized population and evaluation concurrency.")
     var noAutoParallelism: Bool = false
-
-    @Flag(name: .customLong("allow-cpu-world-fallback"), help: "Allow unsupported scenarios to use CPU isolated-world rollout. Default requires MLX tensor world support.")
-    var allowCPUWorldFallback: Bool = false
 
     @Option(help: "Comma-separated M2 suite list: 6,7,8.")
     var suites: String = "6"
@@ -4983,9 +4975,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
                 workerCount: resolvedWorkers,
                 candidateEvaluationConcurrency: resolvedCandidateEvaluationConcurrency,
                 resourceSampleSeconds: resourceSampleSeconds,
-                worldExecutionRequirement: allowCPUWorldFallback
-                    ? .allowIsolatedWorldFallback
-                    : .acceleratorSharedWorld
+                worldExecutionRequirement: .acceleratorSharedWorld
             ),
             evolution: TrainingEvolutionSettings(
                 eliteCount: resolvedEliteCount,
