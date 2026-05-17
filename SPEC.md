@@ -8,8 +8,10 @@ simulator; it exists to provide the environment, realism, and logs required
 for MLX‑based learning. It injects swappability events and HF stressors while
 keeping runs reproducible.
 
-Kuyu does **not** implement learning algorithms. MLX training happens outside
-Kuyu; Kuyu provides closed‑loop execution, data, and evaluation.
+Kuyu owns the training runtime boundary for Manas improvement. Generic
+training contracts, rollout orchestration, population execution, artifacts, and
+validators live in Kuyu packages. Concrete Manas/MLX execution lives in
+`kuyu-mlx` behind Kuyu training protocols.
 
 ## Responsibility Boundary (Normative)
 Kuyu owns the training-world side of the unconscious stack:
@@ -24,12 +26,12 @@ Kuyu MUST NOT own or duplicate:
 
 - Manas control protocol internals,
 - Manas learning model internals,
-- PPO, Dreamer, or other RL algorithm implementations,
+- concrete MLX optimizer kernels outside the `kuyu-mlx` backend boundary,
 - shared `ManasMLXModelStore` execution across parallel rollout workers.
 
 The top-level Kuyu application may bridge to Manas/MLX for execution and
-training smoke tests, but those bridges do not make Manas model internals a
-Kuyu core responsibility.
+training, but those bridges do not make Manas model internals a Kuyu core or
+training-contract responsibility.
 
 ## API-First Application Boundary (Normative)
 Kuyu APIs are the source of truth for training execution, scenario rollout,
@@ -212,11 +214,11 @@ See `TRAINING_SPEC.md` for training loop contracts, required suites, and
 dataset/metric requirements for M1.
 
 ## Evolution Harness (M2, Normative)
-Kuyu may run evolutionary optimization over Manas checkpoint candidates, but
-Kuyu still does not own the optimizer implementation. Kuyu owns candidate
-scheduling, rollout evaluation, task-quality gates, artifact validation, and
-checkpoint accept/reject decisions. Manas/MLX owns model weights, mutation and
-training backend details, and checkpoint serialization.
+Kuyu runs evolutionary optimization over Manas checkpoint candidates through a
+typed training runtime. `kuyu-training` owns the generic population, scheduling,
+rollout, gate, artifact, validation, and continuation contracts. `kuyu-mlx`
+owns concrete Manas/MLX mutation, crossover, batched inference, checkpoint
+serialization, and accelerator execution.
 
 Required artifacts:
 - `evolution-contract.json`
@@ -249,8 +251,7 @@ Required semantics:
   best candidate id, and a finite best fitness.
 - Quality-diversity cells MUST reference existing candidates and finite
   behavior descriptors. The archive is an observability and selection artifact;
-  it does not make Kuyu the owner of PPO, Dreamer, CMA-ES, or other optimizer
-  internals.
+  it does not make `kuyu-app` or Bounded the owner of optimizer internals.
 - Rejected generations MUST include typed candidate-level rejection reasons.
 - Gaussian mutation over ManasMLX checkpoints MUST preserve `model.json`,
   write `core.safetensors` and optional `reflex.safetensors`, emit the Manas
@@ -264,8 +265,9 @@ Reference verification commands:
 
 ```bash
 cd unconscious/kuyu
-swift run kuyu evolve-manas --snapshot /path/to/checkpoint --variation gaussian --evaluation regression --population 1 --generations 1 --elite-count 1 --episodes 1 --suites 6
-xcodebuild test -scheme kuyu-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 120
+xcodebuild -scheme kuyu -destination 'platform=macOS' -derivedDataPath .xcode/DerivedData build
+.xcode/DerivedData/Build/Products/Debug/kuyu evolve-manas --snapshot /path/to/checkpoint --variation gaussian --evaluation regression --population 1 --generations 1 --elite-count 1 --episodes 1 --suites 6
+xcodebuild test -scheme kuyu-app-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
 ```
 
 ## World Physics Specification
