@@ -5178,6 +5178,8 @@ private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating 
 private extension LearningCampaignTask {
     var profileID: String {
         switch self {
+        case .attitude:
+            return "attitude-v1"
         case .lift:
             return "lift-v1"
         case .singleLift:
@@ -5187,6 +5189,8 @@ private extension LearningCampaignTask {
 
     var policyContract: LearningProjectPolicyContract {
         switch self {
+        case .attitude:
+            return .referenceQuadrotorTemporalCTBR()
         case .lift:
             return .referenceQuadrotorTemporalCTBR()
         case .singleLift:
