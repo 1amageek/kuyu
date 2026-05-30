@@ -163,6 +163,12 @@ kuyu run-learning-campaign --artifact-root <root> --resume
 - `TrainingResumeRequest.source` gains `.inPlace(artifactRoot)`.
 - Writing into an existing root without `--resume` is **fail-closed**: "artifact root
   contains an incomplete run; pass --resume to continue or --force to discard".
+- **runID invariant:** a resumed run MUST reuse the interrupted run's `runID`
+  (carried in `EvolutionResumeState`). Restored records carry the original runID;
+  generating a fresh runID would write a mixed-runID generations/candidates/fitness
+  set that the artifact validator rejects. The orchestrator fails closed if the
+  resume state's runID does not match the run config's runID. (Found by the
+  real-MLX E2E resume smoke; unit fakes used a fixed runID and did not catch it.)
 
 ## 8. Integrity & no-silent-fallback policy
 
