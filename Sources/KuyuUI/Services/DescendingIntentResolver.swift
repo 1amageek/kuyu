@@ -53,8 +53,8 @@ struct DescendingIntentResolver {
                     intent: ResolvedDescendingIntent(vector: nil, program: nil),
                     presentation: .init(
                         severity: .warning,
-                        message: "Descending channels ignored; descriptor has no control mapping",
-                        metadata: ["from": "configured", "to": "count=0", "reason": "noDescriptorDescendingChannels"]
+                        message: "Descending channels ignored; embodiment has no control mapping",
+                        metadata: ["from": "configured", "to": "count=0", "reason": "noEmbodimentDescendingChannels"]
                     )
                 )
             }
@@ -89,7 +89,7 @@ struct DescendingIntentResolver {
                     metadata: [
                         "from": "count=\(parsedVector.count)",
                         "to": "count=\(channelIDs.count)",
-                        "reason": "descriptorCountMismatch",
+                        "reason": "embodimentCountMismatch",
                         "channels": channelIDs.joined(separator: ","),
                         "values": formatVector(normalized),
                     ]
@@ -118,7 +118,7 @@ struct DescendingIntentResolver {
                     metadata: [
                         "from": "count=\(parsedProgram.channelCount)",
                         "to": "count=\(channelIDs.count)",
-                        "reason": "descriptorCountMismatch",
+                        "reason": "embodimentCountMismatch",
                         "channels": channelIDs.joined(separator: ","),
                         "keyframes": "\(normalizedProgram.keyframes.count)",
                     ]

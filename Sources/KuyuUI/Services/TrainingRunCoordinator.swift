@@ -13,7 +13,7 @@ struct TrainingRunPreparationInput {
     let hoverThrustScale: Double
     let cutPeriodSteps: UInt64
     let determinismSelection: DeterminismSelection
-    let modelDescriptorPath: String
+    let robotManifestPath: String
     let overrideParameters: ReferenceQuadrotorParameters?
     let descendingIntent: ResolvedDescendingIntent
     let datasetDirectory: String
@@ -59,7 +59,7 @@ struct TrainingRunCoordinator {
             cutPeriodSteps: input.cutPeriodSteps,
             noise: .zero,
             determinism: determinism,
-            modelDescriptorPath: input.modelDescriptorPath,
+            robotManifestPath: input.robotManifestPath,
             overrideParameters: input.overrideParameters,
             useAux: input.trainingUseAux,
             useQualityGating: input.trainingUseQualityGating,

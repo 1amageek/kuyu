@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "kuyu.world.v1",
+  "worldID": "earth-dynamic-v0",
+  "time": {
+    "fixedStepSeconds": 0.016666666666666666,
+    "substeps": 1
+  },
+  "integrator": {
+    "kind": "semiImplicitEuler"
+  },
+  "solver": {
+    "kind": "disabledContact",
+    "iterations": 0,
+    "tolerance": 0
+  },
+  "gravity": {
+    "kind": "uniform",
+    "acceleration": [0, 0, -9.80665]
+  },
+  "atmosphere": {
+    "kind": "standard",
+    "airDensity": 1.225,
+    "temperatureKelvin": 288.15
+  },
+  "wind": {
+    "kind": "none",
+    "velocityWorld": [0, 0, 0]
+  },
+  "surfaces": [],
+  "materials": [
+    {
+      "id": "default-rigid",
+      "staticFriction": 0.6,
+      "dynamicFriction": 0.5,
+      "restitution": 0.05
+    }
+  ],
+  "contact": {
+    "mode": "disabled"
+  },
+  "nap": {
+    "forceAbsoluteThreshold": 0,
+    "forceRelativeThreshold": 0,
+    "torqueAbsoluteThreshold": 0,
+    "torqueRelativeThreshold": 0
+  },
+  "randomness": {
+    "seed": 0,
+    "deterministicReplay": true
+  }
+}

@@ -1,38 +1,37 @@
 # Modeling Formats
 
-Kuyu uses different formats for physics, rendering, and printing. This keeps the simulation deterministic
-and fast while preserving compatibility with external tools.
+Kuyu uses native contracts as authority and external formats as compatibility
+adapters.
 
-## Formats by Purpose
-- Physics model: **URDF** (required)
-  - Contains links, joints, mass, and inertia.
-- Render mesh: **glTF/GLB** (preferred), **OBJ** (fallback), **USDZ** (Apple tooling)
-  - Used only for visualization in KuyuUI.
-- Print mesh: **STL** or **3MF**
-  - Used for fabrication; may be simplified from the render mesh.
+| Responsibility | External compatibility | Kuyu authority |
+|---|---|---|
+| Robot body structure | URDF / expanded Xacro | `KuyuBodyModel` (`.kuyubody.json`) |
+| Simulation world | SDF | `KuyuWorldModel` (`.kuyuworld.json`) |
+| Manas control boundary | Shared JSON schema | `EmbodimentContract` (`.embodiment.json`) |
+| Robot package entry | N/A | `KuyuRobotManifest` (`.kuyurobot.json`) |
+| Rendering | glTF/GLB, OBJ, USDZ/USDC, STL, URDF render assets | `SceneState` consumed read-only |
 
-## Recommended Workflow
-1) Author a physics model (URDF) as the source of truth for mass and inertia.
-2) Attach a render mesh (glTF/GLB or USDZ) for visualization.
-3) Provide a print mesh (STL/3MF) derived from the same CAD source.
+## Workflow
 
-## Descriptor
-Use `RobotDescriptor` (JSON) to bind physics, render, and signal catalogs together.
-The canonical schema is defined in `ROBOT_DESCRIPTOR.md`.
-The descriptor is the canonical entry point for KuyuUI and CLI, and it must
-reference the physics model (URDF) instead of loading URDF directly.
+1. Import or author the body model.
+2. Import or author the world model.
+3. Bind signals, actuators, latency budgets, and MotorNerve stages in the
+   embodiment contract.
+4. Reference the native files from the robot manifest.
+5. Run the readiness gate for the required training level.
 
-## ReferenceQuadrotor Example
-Reference assets are placed under `Models/QuadRef/`. Descriptor files are in the
-`RobotDescriptor` format described in `ROBOT_DESCRIPTOR.md`. Mesh files referenced
-by the descriptor are not bundled by default.
+Missing physical values are fail-closed unless explicitly declared as
+supplemented values in the native model and compatibility report.
 
-## KuyuUI Integration
-KuyuUI reads the descriptor path from the Configuration panel and loads:
-- **Mass and inertia** from the URDF
-- Remaining parameters from the baseline quadrotor defaults
+## Readiness Levels
 
-Rendering meshes are not required for running the simulation.
+| Level | Meaning |
+|---|---|
+| `visualPreview` | Geometry and render inspection only. |
+| `kinematicPreview` | Joint topology and control-shape inspection. |
+| `dynamicSimulation` | Deterministic rigid-body simulation without contact-rich tasks. |
+| `contactTraining` | Contact/friction/manipulation training. |
+| `hardwareParity` | Calibrated comparison with real hardware. |
 
-`KuyuUI` bundles the example descriptor and URDF under
-`Sources/KuyuUI/Resources/Models/QuadRef/` so the default path works in app builds.
+RoArm M1 currently targets `dynamicSimulation`. `contactTraining` and
+`hardwareParity` are intentionally gated out.

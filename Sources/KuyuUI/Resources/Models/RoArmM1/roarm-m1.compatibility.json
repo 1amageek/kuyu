@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "kuyu.compatibility.v1",
+  "reportID": "roarm-m1-native-v0",
+  "sourceFormat": "urdf+manufacturer-public-docs+supplemented-dynamics",
+  "targetContract": "COMPLETE_NATIVE_BODY_WORLD_DYNAMIC_SIMULATION",
+  "readinessLevel": "dynamicSimulation",
+  "unsupportedFields": [],
+  "mappings": [
+    {
+      "source": "URDF link/joint tree",
+      "target": "KuyuBodyModel.links/joints",
+      "status": "exact",
+      "notes": "Joint topology is treated as the fixed-base articulated tree."
+    },
+    {
+      "source": "Manufacturer/public physical dimensions",
+      "target": "KuyuBodyModel.geometry",
+      "status": "approximated",
+      "notes": "Dimensions are sufficient for dynamic state evolution and visual framing, not hardware parity."
+    },
+    {
+      "source": "Missing masses and inertias",
+      "target": "KuyuBodyModel.links.mass/inertia",
+      "status": "supplemented",
+      "notes": "Supplemented to make dynamicSimulation explicit and deterministic."
+    },
+    {
+      "source": "Missing friction and damping",
+      "target": "KuyuBodyModel.joints.damping/friction and actuator dynamics",
+      "status": "supplemented",
+      "notes": "Values are declared estimates; contactTraining and hardwareParity remain gated out."
+    },
+    {
+      "source": "SDF contact/friction task environment",
+      "target": "KuyuWorldModel.contact",
+      "status": "ignored",
+      "notes": "Contact is disabled for the dynamicSimulation target level."
+    }
+  ]
+}

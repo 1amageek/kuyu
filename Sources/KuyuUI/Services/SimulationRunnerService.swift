@@ -4,6 +4,9 @@ import Logging
 import KuyuPhysics
 import KuyuScenarios
 
+// SimulationRunnerService is passed through MainActor UI coordination and async
+// CLI paths, while the underlying model store is MainActor-isolated and the
+// optional manual actuator store protects its state with a lock.
 public struct SimulationRunnerService: @unchecked Sendable {
     let modelStore: ManasMLXModelStore
     let manualActuatorStore: ManualActuatorStore?
@@ -23,10 +26,20 @@ public struct SimulationRunnerService: @unchecked Sendable {
         control: SimulationControl? = nil,
         telemetry: WorldStepTelemetry? = nil
     ) async throws -> KuyAtt1RunOutput {
+        if let loadedRobot = try loadRobot(request: request),
+           isArticulatedDynamicModel(loadedRobot) {
+            return try await runArticulatedDynamic(
+                request: request,
+                loadedRobot: loadedRobot,
+                control: control,
+                telemetry: telemetry
+            )
+        }
+
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: request.cutPeriodSteps)
         let resolution = try resolveParameters(request: request)
         let parameters = resolution.parameters
-        let descriptor = resolution.descriptor
+        let embodiment = resolution.embodiment
         switch request.controller {
         case .baseline, .teacherBaseline, .sensorBaseline:
             let baselineMode = request.controller.kuyAtt1BaselineMode ?? .teacher
@@ -34,7 +47,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
                 return try await runManualBaseline(
                     request: request,
                     parameters: parameters,
-                    descriptor: descriptor,
+                    embodiment: embodiment,
                     schedule: schedule,
                     control: control,
                     telemetry: telemetry,
@@ -43,7 +56,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
             }
             if request.taskMode == .lift {
                 if let chainFactory = motorNerveChainFactory(
-                    descriptor: descriptor,
+                    embodiment: embodiment,
                     request: request,
                     expectedDriveCount: 4,
                     fallbackProfile: "lift"
@@ -68,7 +81,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
             }
             if request.taskMode == .singleLift {
                 if let chainFactory = motorNerveChainFactory(
-                    descriptor: descriptor,
+                    embodiment: embodiment,
                     request: request,
                     expectedDriveCount: 1,
                     fallbackProfile: "fixed-single-prop"
@@ -92,7 +105,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
                 }
             }
             if let chainFactory = motorNerveChainFactory(
-                descriptor: descriptor,
+                embodiment: embodiment,
                 request: request,
                 expectedDriveCount: 4,
                 fallbackProfile: "fixed-quad"
@@ -122,26 +135,27 @@ public struct SimulationRunnerService: @unchecked Sendable {
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
-                descriptor: descriptor,
+                embodiment: embodiment,
                 control: control,
                 telemetry: telemetry
             )
         }
     }
 
-    private func loadDescriptor(path: String, task: SimulationTaskMode) throws -> LoadedRobotDescriptor? {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func loadRobot(request: SimulationRunRequest) throws -> LoadedKuyuRobot? {
+        let trimmed = request.robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         do {
-            let loader = RobotDescriptorLoader()
-            return try loader.loadDescriptor(path: trimmed)
+            let loader = KuyuModelLoader()
+            return try loader.loadRobot(path: trimmed, worldPath: request.worldModelPath)
         } catch {
-            logger.error("RobotDescriptor load failed", metadata: [
-                "action": "descriptorLoadFailed",
-                "task": .string(task.rawValue),
+            logger.error("Kuyu robot load failed", metadata: [
+                "action": "robotManifestLoadFailed",
+                "task": .string(request.taskMode.rawValue),
                 "model": .string(trimmed),
-                "modelDescriptor": .string(trimmed),
+                "robotManifest": .string(trimmed),
+                "worldModel": .string(request.worldModelPath),
                 "reason": "loadFailed",
                 "error": .string(String(describing: error))
             ])
@@ -150,25 +164,25 @@ public struct SimulationRunnerService: @unchecked Sendable {
     }
 
     private func resolveParameters(request: SimulationRunRequest) throws -> SimulationParameterResolution {
-        let loadedDescriptor = try loadDescriptor(path: request.modelDescriptorPath, task: request.taskMode)
-        return try loadParameters(request: request, loadedDescriptor: loadedDescriptor)
+        let loadedRobot = try loadRobot(request: request)
+        return try loadParameters(request: request, loadedRobot: loadedRobot)
     }
 
     private func motorNerveChainFactory(
-        descriptor: RobotDescriptor?,
+        embodiment: EmbodimentContract?,
         request: SimulationRunRequest,
         expectedDriveCount: Int,
         fallbackProfile: String
     ) -> (() throws -> MotorNerveChain)? {
-        guard let descriptor else { return nil }
-        let modelPath = request.modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let embodiment else { return nil }
+        let modelPath = request.robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if descriptor.control.driveChannels.count != expectedDriveCount {
+        if embodiment.control.driveChannels.count != expectedDriveCount {
             logger.warning("MotorNerveChain disabled due to drive count mismatch", metadata: [
                 "action": "motorNerveFallback",
                 "task": .string(request.taskMode.rawValue),
                 "model": .string(modelPath),
-                "from": "descriptor-chain",
+                "from": "embodiment-contract",
                 "to": .string(fallbackProfile),
                 "reason": "driveCountMismatch",
                 "motorNerveProfile": .string(fallbackProfile)
@@ -176,12 +190,12 @@ public struct SimulationRunnerService: @unchecked Sendable {
             return nil
         }
 
-        if descriptor.motorNerve.stages.contains(where: { $0.type == .custom }) {
+        if embodiment.motorNerve.stages.contains(where: { $0.type == .custom }) {
             logger.warning("MotorNerveChain disabled due to unsupported stage", metadata: [
                 "action": "motorNerveFallback",
                 "task": .string(request.taskMode.rawValue),
                 "model": .string(modelPath),
-                "from": "descriptor-chain",
+                "from": "embodiment-contract",
                 "to": .string(fallbackProfile),
                 "reason": "unsupportedCustomStage",
                 "motorNerveProfile": .string(fallbackProfile)
@@ -193,10 +207,10 @@ public struct SimulationRunnerService: @unchecked Sendable {
             "action": "motorNerveChain",
             "task": .string(request.taskMode.rawValue),
             "model": .string(modelPath),
-            "motorNerveProfile": "descriptor-chain"
+            "motorNerveProfile": "embodiment-contract"
         ])
 
-        return { try MotorNerveChain(descriptor: descriptor) }
+        return { try MotorNerveChain(contract: embodiment) }
     }
 
     private func runAttitudeBaselineWithChain(
@@ -263,46 +277,126 @@ public struct SimulationRunnerService: @unchecked Sendable {
         return KuyAtt1RunOutput(result: output.result, summary: summary, logs: output.logs)
     }
 
+    private func runArticulatedDynamic(
+        request: SimulationRunRequest,
+        loadedRobot: LoadedKuyuRobot,
+        control: SimulationControl?,
+        telemetry: WorldStepTelemetry?
+    ) async throws -> KuyAtt1RunOutput {
+        logger.notice("Articulated dynamic simulation enabled", metadata: [
+            "action": "articulatedDynamic",
+            "task": .string(request.taskMode.rawValue),
+            "model": .string(request.robotManifestPath),
+            "robotID": .string(loadedRobot.manifest.robotID),
+            "readiness": .string(request.readinessRequirement.rawValue),
+            "motorNerveProfile": "embodiment-contract"
+        ])
+
+        let log = try await ArticulatedRigidBodySimulator().run(
+            request: ArticulatedRigidBodySimulationRequest(
+                body: loadedRobot.body,
+                world: loadedRobot.world,
+                embodiment: loadedRobot.embodiment,
+                compatibilityReport: loadedRobot.compatibilityReport,
+                determinism: request.determinism,
+                readinessLevel: request.readinessRequirement,
+                duration: 6.0,
+                timeStep: try TimeStep(delta: loadedRobot.world.time.fixedStepSeconds)
+            ),
+            control: control,
+            telemetry: telemetry
+        )
+        let key = ScenarioKey(scenarioId: log.scenarioId, seed: log.seed)
+        let entry = ScenarioLogEntry(key: key, log: log)
+        let evaluation = ScenarioEvaluation(
+            scenarioId: log.scenarioId,
+            seed: log.seed,
+            passed: log.failureReason == nil,
+            maxOmega: log.events.map(\.safetyTrace.omegaMagnitude).max() ?? 0.0,
+            maxTiltDegrees: (log.events.map(\.safetyTrace.tiltRadians).max() ?? 0.0) * 180.0 / Double.pi,
+            sustainedViolationSeconds: 0.0,
+            recoveryTimeSeconds: nil,
+            overshootDegrees: nil,
+            hfStabilityScore: nil,
+            failures: [],
+            failureReason: log.failureReason,
+            failureTime: log.failureTime
+        )
+        let manifest = ReferenceQuadrotorScenarioManifest(
+            scenarioId: log.scenarioId,
+            seed: log.seed,
+            kind: .liftHover,
+            duration: Double(log.events.count) * log.timeStep.delta,
+            timeStep: log.timeStep,
+            torqueEvents: [],
+            actuatorDegradation: nil,
+            gyroDriftScale: 0.0,
+            swapEvents: [],
+            hfEvents: []
+        )
+        let result = SuiteRunResult(
+            evaluations: [evaluation],
+            replayChecks: [],
+            passed: evaluation.passed
+        )
+        let summary = ValidationSummary(
+            suitePassed: result.passed,
+            evaluations: result.evaluations,
+            replayChecks: result.replayChecks,
+            manifest: [manifest],
+            aggregate: EvaluationAggregate.from(evaluations: result.evaluations)
+        )
+        return KuyAtt1RunOutput(result: result, summary: summary, logs: [entry])
+    }
+
+    private func isArticulatedDynamicModel(_ loadedRobot: LoadedKuyuRobot) -> Bool {
+        let movableJointCount = loadedRobot.body.joints.filter {
+            $0.kind == .revolute || $0.kind == .continuous || $0.kind == .prismatic
+        }.count
+        return (loadedRobot.manifest.category == "manipulator" || loadedRobot.body.category == "manipulator")
+            && movableJointCount > 0
+    }
+
     private func loadParameters(
         request: SimulationRunRequest,
-        loadedDescriptor: LoadedRobotDescriptor?
+        loadedRobot: LoadedKuyuRobot?
     ) throws -> SimulationParameterResolution {
         if let override = request.overrideParameters {
             return SimulationParameterResolution(
                 parameters: override,
-                descriptor: loadedDescriptor?.descriptor,
+                embodiment: loadedRobot?.embodiment,
                 source: .override,
-                robotID: loadedDescriptor?.descriptor.robot.robotID
+                robotID: loadedRobot?.manifest.robotID
             )
         }
 
-        guard let loadedDescriptor else {
-            let modelPath = request.modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let loadedRobot else {
+            let modelPath = request.robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if !modelPath.isEmpty {
-                logger.error("RobotDescriptor parameters unavailable", metadata: [
-                    "action": "descriptorParametersFailed",
+                logger.error("EmbodimentContract parameters unavailable", metadata: [
+                    "action": "robotManifestParametersFailed",
                     "task": .string(request.taskMode.rawValue),
                     "model": .string(modelPath),
-                    "modelDescriptor": .string(modelPath),
-                    "reason": "descriptorNotLoaded",
-                    "error": "descriptorNotLoaded"
+                    "robotManifest": .string(modelPath),
+                    "reason": "robotManifestNotLoaded",
+                    "error": "robotManifestNotLoaded"
                 ])
-                throw SimulationRunnerServiceError.descriptorParametersUnavailable(modelPath)
+                throw SimulationRunnerServiceError.robotManifestParametersUnavailable(modelPath)
             }
             return SimulationParameterResolution(
                 parameters: try defaultParameters(for: request.taskMode, hoverThrustScale: request.gains.hoverThrustScale),
-                descriptor: nil,
+                embodiment: nil,
                 source: .referenceBaseline,
                 robotID: nil
             )
         }
 
         do {
-            let loader = RobotDescriptorLoader()
-            let inertial = try loader.loadPlantInertialProperties(descriptor: loadedDescriptor)
+            let loader = KuyuModelLoader()
+            let inertial = try loader.loadPlantInertialProperties(robot: loadedRobot)
             let parameters = try ReferenceQuadrotorParameters.reference(
                 from: inertial,
-                robotID: loadedDescriptor.descriptor.robot.robotID
+                robotID: loadedRobot.manifest.robotID
             )
             let tunedParameters = request.taskMode == .singleLift
                 ? try KuyuSingleLiftParameterTuning.tuned(
@@ -312,16 +406,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
                 : parameters
             return SimulationParameterResolution(
                 parameters: tunedParameters,
-                descriptor: loadedDescriptor.descriptor,
-                source: .descriptor,
-                robotID: loadedDescriptor.descriptor.robot.robotID
+                embodiment: loadedRobot.embodiment,
+                source: .robotManifest,
+                robotID: loadedRobot.manifest.robotID
             )
         } catch {
-            logger.error("RobotDescriptor inertial load failed", metadata: [
-                "action": "descriptorParametersFailed",
+            logger.error("EmbodimentContract inertial load failed", metadata: [
+                "action": "robotManifestParametersFailed",
                 "task": .string(request.taskMode.rawValue),
-                "model": .string(request.modelDescriptorPath),
-                "modelDescriptor": .string(request.modelDescriptorPath),
+                "model": .string(request.robotManifestPath),
+                "robotManifest": .string(request.robotManifestPath),
                 "reason": "inertialLoadFailed",
                 "error": .string(String(describing: error))
             ])
@@ -332,7 +426,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
     private func runManualBaseline(
         request: SimulationRunRequest,
         parameters: ReferenceQuadrotorParameters,
-        descriptor: RobotDescriptor?,
+        embodiment: EmbodimentContract?,
         schedule: SimulationSchedule,
         control: SimulationControl?,
         telemetry: WorldStepTelemetry?,
@@ -378,7 +472,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
                 tiltCorrectionTimeConstant: nil
             )
             let channelMaxima = manualActuatorChannelMaxima(
-                descriptor: descriptor,
+                embodiment: embodiment,
                 fallback: parameters.maxThrust,
                 expectedCount: 4
             )
@@ -409,16 +503,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
     }
 
     private func manualActuatorChannelMaxima(
-        descriptor: RobotDescriptor?,
+        embodiment: EmbodimentContract?,
         fallback: Double,
         expectedCount: Int
     ) -> [Double] {
         let safeFallback = max(fallback, 0.0)
         var maxima = Array(repeating: safeFallback, count: max(expectedCount, 1))
 
-        guard let descriptor else { return maxima }
+        guard let embodiment else { return maxima }
 
-        let sortedSignals = descriptor.signals.actuator.sorted { $0.index < $1.index }
+        let sortedSignals = embodiment.signals.actuator.sorted { $0.index < $1.index }
         let count = min(expectedCount, sortedSignals.count)
         if count > 0 {
             for index in 0..<count {
@@ -432,7 +526,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
         }
 
         var limitsBySignalID: [String: Double] = [:]
-        for actuator in descriptor.actuators {
+        for actuator in embodiment.actuators {
             for channelID in actuator.channels {
                 let existing = limitsBySignalID[channelID] ?? 0.0
                 limitsBySignalID[channelID] = max(existing, actuator.limits.max)
@@ -739,29 +833,29 @@ public struct SimulationRunnerService: @unchecked Sendable {
 }
 
 public enum SimulationRunnerServiceError: Error, Equatable {
-    case descriptorParametersUnavailable(String)
+    case robotManifestParametersUnavailable(String)
 }
 
 public struct SimulationParameterResolution: Sendable, Equatable {
     public enum Source: String, Sendable, Codable, Equatable {
         case referenceBaseline
-        case descriptor
+        case robotManifest
         case override
     }
 
     public let parameters: ReferenceQuadrotorParameters
-    public let descriptor: RobotDescriptor?
+    public let embodiment: EmbodimentContract?
     public let source: Source
     public let robotID: String?
 
     public init(
         parameters: ReferenceQuadrotorParameters,
-        descriptor: RobotDescriptor?,
+        embodiment: EmbodimentContract?,
         source: Source,
         robotID: String?
     ) {
         self.parameters = parameters
-        self.descriptor = descriptor
+        self.embodiment = embodiment
         self.source = source
         self.robotID = robotID
     }

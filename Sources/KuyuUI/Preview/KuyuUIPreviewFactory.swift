@@ -51,7 +51,7 @@ public enum KuyuUIPreviewFactory {
             cutPeriodSteps: 2,
             noise: .zero,
             determinism: determinism,
-            modelDescriptorPath: KuyuUIModelPaths.defaultDescriptorPath(),
+            robotManifestPath: KuyuUIModelPaths.defaultRobotManifestPath(),
             overrideParameters: nil,
             useAux: true,
             useQualityGating: true

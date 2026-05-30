@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "kuyu.robot.v1",
+  "robotID": "quadref-v0",
+  "name": "Quadrotor Reference",
+  "category": "aerial",
+  "tags": ["reference", "quadrotor"],
+  "bodyModel": {
+    "path": "quadref.kuyubody.json"
+  },
+  "defaultWorldModel": {
+    "path": "../Common/earth-dynamic.kuyuworld.json"
+  },
+  "embodimentContract": {
+    "path": "quadref.embodiment.json"
+  },
+  "renderAssets": [
+    {
+      "id": "urdf-render",
+      "name": "QuadRef URDF Render",
+      "format": "urdf",
+      "path": "quadref.urdf",
+      "frameID": "base_link",
+      "scale": [1, 1, 1]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
 
-@Test func quadrotorReferenceUsesDescriptorMassAndInertia() async throws {
+@Test func quadrotorReferenceUsesBodyMassAndInertia() async throws {
     let inertial = PlantInertialProperties(
         mass: 2.4,
         inertia: Axis3(x: 0.02, y: 0.03, z: 0.04)

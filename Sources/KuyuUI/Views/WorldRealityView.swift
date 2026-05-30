@@ -1,3 +1,4 @@
+import AppKit
 import RealityKit
 import SwiftUI
 import KuyuCore
@@ -9,6 +10,8 @@ public struct WorldRealityView: View {
     let position: Axis3
     let label: String
     let renderInfo: RenderAssetInfo?
+    let jointAngles: [Double]
+    let jointValues: [String: Double]
     /// Live per-actuator command/thrust values for the forces/actuator debug overlay.
     let actuatorChannels: [ActuatorChannelSnapshot]
 
@@ -19,6 +22,8 @@ public struct WorldRealityView: View {
         position: Axis3,
         label: String,
         renderInfo: RenderAssetInfo?,
+        jointAngles: [Double] = [],
+        jointValues: [String: Double] = [:],
         actuatorChannels: [ActuatorChannelSnapshot] = []
     ) {
         self.roll = roll
@@ -27,12 +32,15 @@ public struct WorldRealityView: View {
         self.position = position
         self.label = label
         self.renderInfo = renderInfo
+        self.jointAngles = jointAngles
+        self.jointValues = jointValues
         self.actuatorChannels = actuatorChannels
     }
 
     @State private var rootEntity: Entity?
     @State private var proxyEntity: Entity?
     @State private var loadedEntity: Entity?
+    @State private var loadedJointBindings: [RenderJointBinding] = []
     @State private var loadedURL: URL?
     @State private var loadFailed = false
     @State private var cameraEntity: PerspectiveCamera?
@@ -137,14 +145,15 @@ public struct WorldRealityView: View {
             guard let rootEntity else { return }
             rootEntity.transform.rotation = rotationQuaternion()
             rootEntity.position = realityPosition()
+            updateLoadedJoints()
             updateCamera()
         }
         .onChange(of: renderInfo?.url) { _, _ in
-            guard let info = renderInfo, !loadFailed else { return }
+            guard let info = renderInfo else { return }
             loadRenderAssetIfNeeded(info: info)
         }
         .onAppear {
-            if let info = renderInfo, !loadFailed { loadRenderAssetIfNeeded(info: info) }
+            if let info = renderInfo { loadRenderAssetIfNeeded(info: info) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay {
@@ -445,15 +454,18 @@ public struct WorldRealityView: View {
     private func loadRenderAssetIfNeeded(info: RenderAssetInfo) {
         guard loadedURL != info.url else { return }
         loadedURL = info.url
+        loadFailed = false
         Task {
             do {
-                let entity = try await renderSystem.loadEntity(info: info)
+                let rendered = try await renderSystem.loadRobotEntity(info: info)
                 await MainActor.run {
-                    loadedEntity = entity
+                    loadedEntity = rendered.entity
+                    loadedJointBindings = rendered.jointBindings
                     if let proxyEntity {
                         rootEntity?.removeChild(proxyEntity)
                     }
-                    rootEntity?.addChild(entity)
+                    rootEntity?.addChild(rendered.entity)
+                    updateLoadedJoints()
                 }
             } catch {
                 await MainActor.run {
@@ -461,6 +473,35 @@ public struct WorldRealityView: View {
                 }
             }
         }
+    }
+
+    private func updateLoadedJoints() {
+        guard !loadedJointBindings.isEmpty else { return }
+        for binding in loadedJointBindings {
+            let value = jointValue(for: binding)
+            switch binding.motion {
+            case .fixed:
+                binding.entity.position = binding.basePosition
+                binding.entity.transform.rotation = binding.baseRotation
+            case .revolute:
+                binding.entity.position = binding.basePosition
+                binding.entity.transform.rotation = binding.baseRotation
+                    * simd_quatf(angle: Float(value), axis: binding.axis)
+            case .prismatic:
+                binding.entity.position = binding.basePosition + (binding.axis * Float(value))
+                binding.entity.transform.rotation = binding.baseRotation
+            }
+        }
+    }
+
+    private func jointValue(for binding: RenderJointBinding) -> Double {
+        if let value = jointValues[binding.name] {
+            return value
+        }
+        if jointAngles.indices.contains(binding.order) {
+            return jointAngles[binding.order]
+        }
+        return 0.0
     }
 
     private var statusLine: String {

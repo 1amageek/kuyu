@@ -5,6 +5,7 @@ import KuyuMLX
 import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
+import KuyuUI
 import ManasCore
 
 @main
@@ -12,7 +13,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
     )
 }
 
@@ -119,6 +120,7 @@ extension LearningCampaignTier: @retroactive ExpressibleByArgument {}
 extension LearningCampaignVariation: @retroactive ExpressibleByArgument {}
 extension AutonomousOperationDomain: @retroactive ExpressibleByArgument {}
 extension EvolutionSearchStrategy: @retroactive ExpressibleByArgument {}
+extension ReadinessLevel: @retroactive ExpressibleByArgument {}
 
 struct Run: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Run a single KUY-ATT-1 suite.")
@@ -132,8 +134,14 @@ struct Run: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path (optional).")
+    @Option(help: "Robot manifest path (optional).")
     var model: String = ""
+
+    @Option(help: "World model path override (optional).")
+    var world: String = ""
+
+    @Option(help: "Required readiness level.")
+    var readiness: ReadinessLevel = .dynamicSimulation
 
     @Option(help: "kp gain for baseline controller.")
     var kp: Double = 2.0
@@ -171,9 +179,6 @@ struct Run: AsyncParsableCommand {
     @MainActor
     mutating func run() async throws {
         let determinism = try makeDeterminism(tier: tier)
-        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
-        let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -186,52 +191,22 @@ struct Run: AsyncParsableCommand {
             throw ValidationError("Specify either --descending or --descending-program, not both.")
         }
 
-        let output: KuyAtt1RunOutput
-        switch controller {
-        case .baseline, .teacherBaseline:
-            let runner = KuyAtt1Runner(
-                parameters: parameters,
-                schedule: schedule,
-                determinism: determinism,
-                noise: .zero,
-                gains: gains,
-                baselineMode: .teacher
-            )
-            output = try await runner.runWithLogs()
-        case .sensorBaseline:
-            let runner = KuyAtt1Runner(
-                parameters: parameters,
-                schedule: schedule,
-                determinism: determinism,
-                noise: .zero,
-                gains: gains,
-                baselineMode: .sensor
-            )
-            output = try await runner.runWithLogs()
-        case .manasMLX:
-            try MLXRuntimePreflight().check()
-            let request = SimulationRunRequest(
-                controller: .manasMLX,
-                gains: gains,
-                cutPeriodSteps: cutPeriodSteps,
-                noise: .zero,
-                determinism: determinism,
-                modelDescriptorPath: model,
-                overrideParameters: model.isEmpty ? nil : parameters,
-                useAux: !noAux,
-                useQualityGating: !noQualityGate,
-                descendingVector: descendingVector,
-                descendingProgram: parsedDescendingProgram
-            )
-            let store = ManasMLXModelStore()
-            output = try await store.runManasMLX(
-                parameters: parameters,
-                schedule: schedule,
-                request: request,
-                descriptor: descriptor,
-                control: nil
-            )
-        }
+        let request = SimulationRunRequest(
+            controller: controllerSelection(from: controller),
+            gains: gains,
+            cutPeriodSteps: cutPeriodSteps,
+            noise: .zero,
+            determinism: determinism,
+            robotManifestPath: model,
+            worldModelPath: world,
+            readinessRequirement: readiness,
+            overrideParameters: nil,
+            useAux: !noAux,
+            useQualityGating: !noQualityGate,
+            descendingVector: descendingVector,
+            descendingProgram: parsedDescendingProgram
+        )
+        let output = try await SimulationRunnerService(modelStore: ManasMLXModelStore()).run(request: request)
 
         printSummary(output: output)
 
@@ -276,7 +251,7 @@ struct Rollout: AsyncParsableCommand {
     @Option(help: "M2 scenario suite: 6 long-horizon, 7 morphology transfer, 8 partial-observability/disturbance.")
     var suite: Int?
 
-    @Option(help: "Model descriptor path (optional).")
+    @Option(help: "Robot manifest path (optional).")
     var model: String = ""
 
     @Option(help: "ManasMLX model snapshot directory containing model.json/core.safetensors/reflex.safetensors.")
@@ -302,6 +277,12 @@ struct Rollout: AsyncParsableCommand {
 
     @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
     var hoverScale: Double = 1.0
+
+    @Option(name: .customLong("motor-rate-limit"), help: "Override the motor-nerve rate limit per second (default: teacher 100, policy 2). Use the policy value (2) to generate teacher demonstrations achievable under the policy's actuator constraints.")
+    var motorRateLimit: Double?
+
+    @Option(name: .customLong("motor-smoothing"), help: "Override the motor-nerve smoothing time constant (default: teacher nil, policy 0.08). Pass a negative value to force nil.")
+    var motorSmoothing: Double?
 
     @Option(name: .customLong("export-dataset"), help: "Directory to export rollout dataset.")
     var exportDatasetPath: String?
@@ -347,24 +328,31 @@ struct Rollout: AsyncParsableCommand {
             print("[rollout] requested episodes=\(requestedEpisodeCount) available=\(definitions.count); using available KUY-ATT-1 scenarios")
         }
 
-        let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
+        let loadedRobot = try loadLoadedRobot(modelPath: model)
         let rolloutParameters = try makeRolloutParameters(
             task: task,
-            loadedDescriptor: loadedDescriptor,
+            loadedRobot: loadedRobot,
             hoverThrustScale: hoverScale
         )
         let limits = try RolloutRunner.Limits.validated(
             maxStepsPerEpisode: maxSteps,
             maxWallTimeSeconds: maxWallTime
         )
+        let resolvedRateLimit = motorRateLimit ?? (mode == .teacher ? 100.0 : 2.0)
+        let resolvedSmoothing: Double?
+        if let motorSmoothing {
+            resolvedSmoothing = motorSmoothing < 0 ? nil : motorSmoothing
+        } else {
+            resolvedSmoothing = mode == .teacher ? nil : 0.08
+        }
         let runner = RolloutRunner(
             parameters: rolloutParameters,
             schedule: schedule,
             determinism: determinism,
             hoverThrustScale: hoverScale,
-            loadedDescriptor: loadedDescriptor,
-            motorNerveRateLimitPerSecond: mode == .teacher ? 100.0 : 2.0,
-            motorNerveSmoothingTimeConstant: mode == .teacher ? nil : 0.08,
+            loadedRobot: loadedRobot,
+            motorNerveRateLimitPerSecond: resolvedRateLimit,
+            motorNerveSmoothingTimeConstant: resolvedSmoothing,
             limits: limits
         )
         let policyFactory: any ReferenceQuadrotorPolicyFactory
@@ -436,7 +424,7 @@ struct Loop: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path (optional).")
+    @Option(help: "Robot manifest path (optional).")
     var model: String = ""
 
     @Option(help: "Iterations to run.")
@@ -492,7 +480,7 @@ struct Loop: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
+        let embodiment = try loadEmbodiment(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -522,7 +510,7 @@ struct Loop: AsyncParsableCommand {
             cutPeriodSteps: cutPeriodSteps,
             noise: .zero,
             determinism: determinism,
-            modelDescriptorPath: model,
+            robotManifestPath: model,
             overrideParameters: model.isEmpty ? nil : parameters,
             useAux: !noAux,
             useQualityGating: !noQualityGate,
@@ -540,7 +528,7 @@ struct Loop: AsyncParsableCommand {
                 store: scenarioStore,
                 parameters: parameters,
                 schedule: schedule,
-                descriptor: descriptor
+                embodiment: embodiment
             ),
             backend: ManasMLXTrainingBackend(
                 runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
@@ -624,7 +612,7 @@ struct ProbeManas: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("source-checkpoint"), help: "Optional source checkpoint directory containing model.json and core.safetensors.")
@@ -706,15 +694,15 @@ struct ProbeManas: AsyncParsableCommand {
             print("[probe] mlxSeed=\(mlxSeed)")
         }
         let preflight = try ManasMLXE2EPreflight().check(
-            descriptorPath: model,
+            robotManifestPath: model,
             sourceCheckpointURL: sourceCheckpointURL
         )
-        print("[probe] preflight mlx=\(preflight.mlxRuntimeReady) descriptorLoaded=\(preflight.descriptorLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
+        print("[probe] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
 
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
+        let embodiment = try loadEmbodiment(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -737,7 +725,7 @@ struct ProbeManas: AsyncParsableCommand {
             cutPeriodSteps: cutPeriodSteps,
             noise: .zero,
             determinism: determinism,
-            modelDescriptorPath: model,
+            robotManifestPath: model,
             overrideParameters: model.isEmpty ? nil : parameters,
             useAux: !noAux,
             useQualityGating: !noQualityGate
@@ -749,7 +737,7 @@ struct ProbeManas: AsyncParsableCommand {
             cutPeriodSteps: cutPeriodSteps,
             noise: .zero,
             determinism: determinism,
-            modelDescriptorPath: model,
+            robotManifestPath: model,
             overrideParameters: model.isEmpty ? nil : parameters,
             useAux: !noAux,
             useQualityGating: !noQualityGate
@@ -767,7 +755,7 @@ struct ProbeManas: AsyncParsableCommand {
                 snapshotID: "\(runID)-source",
                 checkpointID: url.lastPathComponent,
                 checkpointURL: url,
-                descriptorID: model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : model,
+                robotManifestID: model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : model,
                 configHash: model
             )
         }
@@ -786,7 +774,7 @@ struct ProbeManas: AsyncParsableCommand {
                         .appendingPathComponent("training", isDirectory: true)
                         .appendingPathComponent("worker-snapshots", isDirectory: true),
                     policyID: "manasMLX",
-                    descriptorID: sourceSnapshot?.descriptorID,
+                    robotManifestID: sourceSnapshot?.robotManifestID,
                     configHash: sourceSnapshot?.configHash
                 )
             )
@@ -807,7 +795,7 @@ struct ProbeManas: AsyncParsableCommand {
                 trainedStore: trainedStore,
                 parameters: parameters,
                 schedule: schedule,
-                descriptor: descriptor
+                embodiment: embodiment
             ),
             backend: backend
         )
@@ -974,7 +962,7 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
                 checkpointURL: sourceCheckpointURL,
                 name: "CTBR PPO Probe Source",
                 policyContract: policyContract,
-                descriptor: nil,
+                embodiment: nil,
                 hiddenSize: hiddenSize
             )
         )
@@ -1000,7 +988,7 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
                     snapshotID: "ctbr-ppo-probe-source",
                     checkpointID: sourceManifest.name,
                     checkpointURL: sourceCheckpointURL,
-                    descriptorID: nil,
+                    robotManifestID: nil,
                     configHash: "ctbr-ppo-probe"
                 ),
                 workerCount: 1,
@@ -1116,6 +1104,123 @@ struct BehaviorCloneCTBR: ParsableCommand {
     }
 }
 
+struct DaggerRelabelCTBR: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "dagger-relabel-ctbr",
+        abstract: "Roll a CTBR attitude policy through the A1 scenarios and write a teacher-relabeled (DAgger) dataset covering the policy's visited states."
+    )
+
+    @Option(help: "Task suite (attitude only).")
+    var task: RolloutTaskChoice = .attitude
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: TierChoice = .tier0
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Robot manifest path.")
+    var model: String = ""
+
+    @Option(name: .customLong("checkpoint"), help: "CTBR policy checkpoint to roll out.")
+    var checkpointPath: String
+
+    @Option(name: .customLong("output"), help: "Directory where the teacher-relabeled dataset is written.")
+    var outputPath: String
+
+    @Option(help: "kp gain for teacher baseline.")
+    var kp: Double = 2.0
+
+    @Option(help: "kd gain for teacher baseline.")
+    var kd: Double = 0.25
+
+    @Option(name: .customLong("yaw-damping"), help: "Yaw damping gain for teacher baseline.")
+    var yawDamping: Double = 0.2
+
+    @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
+    var hoverScale: Double = 1.0
+
+    @Flag(name: .customLong("include-successful"), help: "Relabel all scenarios, not only the policy's failed ones (broader coverage).")
+    var includeSuccessful: Bool = false
+
+    @MainActor
+    mutating func run() async throws {
+        guard task == .attitude else {
+            throw ValidationError("dagger-relabel-ctbr currently supports --task attitude only.")
+        }
+        let checkpointURL = URL(fileURLWithPath: checkpointPath, isDirectory: true)
+        let outputURL = URL(fileURLWithPath: outputPath, isDirectory: true)
+        let profile = try TaskEvaluationProfile.profile(task: task.rawValue)
+        let determinism = try makeDeterminism(tier: tier)
+        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
+        let gains = try ImuRateDampingCutGains(
+            kp: kp,
+            kd: kd,
+            yawDamping: yawDamping,
+            hoverThrustScale: hoverScale
+        )
+        let evaluator = ManasMLXCheckpointEvaluator(
+            config: ManasMLXCheckpointEvaluatorConfig(
+                robotManifestPath: model,
+                determinism: determinism,
+                schedule: schedule,
+                gains: gains,
+                useQualityGating: false
+            )
+        )
+        let episodes = try await evaluator.temporalCTBRRolloutEpisodes(
+            request: CheckpointEvaluationRequest(
+                profile: profile,
+                checkpointURL: checkpointURL,
+                artifactRoot: outputURL.appendingPathComponent("rollout-artifacts", isDirectory: true)
+            )
+        )
+        let definitions = try KuyAtt1Suite().scenarios()
+        let definitionByKey = Dictionary(
+            uniqueKeysWithValues: definitions.map {
+                ("\($0.config.id.rawValue)#\($0.config.seed.rawValue)", $0)
+            }
+        )
+        let relabeler = AttitudeRecoveryRelabeler()
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        var writtenEpisodes = 0
+        var writtenSteps = 0
+        for episode in episodes {
+            let key = "\(episode.scenarioId)#\(episode.seed)"
+            guard let definition = definitionByKey[key] else {
+                throw ValidationError("No scenario definition for rolled episode \(key).")
+            }
+            // includeSuccessful is honored at the loop level: skip episodes the
+            // policy already completed cleanly unless broad coverage is requested.
+            if !includeSuccessful, episode.failureReason == nil, !episode.done {
+                continue
+            }
+            let relabeled = try relabeler.relabelEpisode(
+                episode,
+                definition: definition,
+                parameters: ReferenceQuadrotorParameters.baseline,
+                gains: gains
+            )
+            let subdir = outputURL.appendingPathComponent(
+                "\(episode.scenarioId.replacingOccurrences(of: "/", with: "_"))_seed_\(episode.seed)",
+                isDirectory: true
+            )
+            _ = try TrainingDatasetWriter().write(
+                episode: relabeled,
+                timeStep: definition.config.timeStep.delta,
+                determinismTier: determinism.tier.rawValue,
+                to: subdir
+            )
+            writtenEpisodes += 1
+            writtenSteps += relabeled.steps.count
+        }
+        print("daggerRelabelCTBR=true")
+        print("relabeledEpisodes=\(writtenEpisodes)")
+        print("relabeledSteps=\(writtenSteps)")
+        print("output=\(outputURL.path)")
+    }
+}
+
 struct WriteCTBRCheckpoint: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "write-ctbr-checkpoint",
@@ -1160,7 +1265,7 @@ struct WriteCTBRCheckpoint: ParsableCommand {
     @Option(name: .customLong("name"), help: "Bundle display name.")
     var name: String = "Reference Quadrotor Temporal CTBR"
 
-    @Option(name: .customLong("model"), help: "Optional RobotDescriptor path used to bind descriptor hash/profile metadata.")
+    @Option(name: .customLong("model"), help: "Optional EmbodimentContract path used to bind embodiment hash/profile metadata.")
     var model: String = ""
 
     @Option(name: .customLong("hidden-size"), help: "Temporal actor-critic hidden size.")
@@ -1204,7 +1309,7 @@ struct WriteCTBRCheckpoint: ParsableCommand {
             throw CommandError.outputParentIsFile(parentURL.path)
         }
 
-        let descriptor = try loadDescriptor(modelPath: model)
+        let embodiment = try loadEmbodiment(modelPath: model)
         let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR(
             observationDimension: observationDimension,
             historyLength: historyLength
@@ -1214,12 +1319,12 @@ struct WriteCTBRCheckpoint: ParsableCommand {
                 checkpointURL: outputURL,
                 name: name,
                 policyContract: policyContract,
-                descriptor: descriptor,
+                embodiment: embodiment,
                 hiddenSize: hiddenSize
             )
         )
         _ = try ManasMLXE2EPreflight().check(
-            descriptorPath: model,
+            robotManifestPath: model,
             sourceCheckpointURL: outputURL,
             requireSourceCheckpoint: true
         )
@@ -1233,7 +1338,7 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         print("privilegedDimension=\(manifest.config.batchSpec.privilegedDimension)")
         print("actionDimension=\(manifest.config.batchSpec.actionDimension)")
         print("hiddenSize=\(manifest.config.hiddenSize)")
-        print("descriptorBound=\(descriptor != nil)")
+        print("embodimentBound=\(embodiment != nil)")
     }
 }
 
@@ -1252,7 +1357,7 @@ struct ProbeManasSuite: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("source-checkpoint"), help: "Optional source checkpoint directory containing model.json and core.safetensors.")
@@ -1570,7 +1675,7 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("checkpoint"), help: "Checkpoint directory containing model.json, core.safetensors, and reflex.safetensors.")
@@ -1612,7 +1717,7 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
         )
         let evaluator = ManasMLXCheckpointEvaluator(
             config: ManasMLXCheckpointEvaluatorConfig(
-                descriptorPath: model,
+                robotManifestPath: model,
                 determinism: determinism,
                 schedule: schedule,
                 gains: gains,
@@ -1715,7 +1820,7 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(help: "kp gain for baseline controller.")
@@ -1770,7 +1875,7 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
         )
         let checkpointEvaluator = ManasMLXCheckpointEvaluator(
             config: ManasMLXCheckpointEvaluatorConfig(
-                descriptorPath: model,
+                robotManifestPath: model,
                 determinism: determinism,
                 schedule: schedule,
                 gains: gains,
@@ -2105,7 +2210,7 @@ struct CheckEnvironments: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("artifact-root"), help: "Directory where readiness artifacts are written.")
@@ -2137,7 +2242,7 @@ struct CheckEnvironments: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
+        let embodiment = try loadEmbodiment(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -2159,8 +2264,8 @@ struct CheckEnvironments: AsyncParsableCommand {
             schedule: schedule,
             determinism: determinism,
             gains: gains,
-            modelDescriptorPath: model,
-            descriptor: descriptor,
+            robotManifestPath: model,
+            embodiment: embodiment,
             artifactRoot: artifactRoot
         )
 
@@ -2191,7 +2296,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("artifact-root"), help: "Directory where harness artifacts are written.")
@@ -2272,7 +2377,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
+        let embodiment = try loadEmbodiment(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -2288,8 +2393,8 @@ struct CheckTrainingHarness: AsyncParsableCommand {
             schedule: schedule,
             determinism: determinism,
             gains: gains,
-            modelDescriptorPath: model,
-            descriptor: descriptor,
+            robotManifestPath: model,
+            embodiment: embodiment,
             artifactRoot: environmentRoot
         )
         for task in environmentReport.tasks {
@@ -2456,7 +2561,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("artifact-root"), help: "Directory where sweep artifacts are written.")
@@ -2570,7 +2675,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let parameters = try loadParameters(modelPath: model)
-        let descriptor = try loadDescriptor(modelPath: model)
+        let embodiment = try loadEmbodiment(modelPath: model)
         let gains = try ImuRateDampingCutGains(
             kp: kp,
             kd: kd,
@@ -2594,8 +2699,8 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
             schedule: schedule,
             determinism: determinism,
             gains: gains,
-            modelDescriptorPath: model,
-            descriptor: descriptor,
+            robotManifestPath: model,
+            embodiment: embodiment,
             artifactRoot: environmentRoot
         )
         for task in environmentReport.tasks {
@@ -2882,7 +2987,7 @@ struct CheckKuyuRegression: AsyncParsableCommand {
     @Option(name: .customLong("max-wall-time"), help: "Maximum wall-clock seconds per M2 rollout episode. Omit for no wall-time limit.")
     var maxWallTime: Double?
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(help: "ManasMLX model snapshot directory containing model.json/core.safetensors/reflex.safetensors.")
@@ -3044,7 +3149,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(help: "ManasMLX model snapshot directory.")
@@ -3217,7 +3322,7 @@ private func runKuyuRegression(
     if selectedController == .manasMLX {
         do {
             _ = try await runManasMLXE2EPreflight(
-                descriptorPath: model,
+                robotManifestPath: model,
                 sourceCheckpointURL: snapshotURL,
                 requireSourceCheckpoint: true
             )
@@ -3253,11 +3358,11 @@ private func runKuyuRegression(
 
     let determinism = try makeDeterminism(tier: tier)
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
-    let descriptor = try loadDescriptor(modelPath: model)
-    let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
+    let embodiment = try loadEmbodiment(modelPath: model)
+    let loadedRobot = try loadLoadedRobot(modelPath: model)
     let parameters = try makeRolloutParameters(
         task: regressionTask,
-        loadedDescriptor: loadedDescriptor,
+        loadedRobot: loadedRobot,
         hoverThrustScale: hoverScale
     )
     let gains = try ImuRateDampingCutGains(
@@ -3275,8 +3380,8 @@ private func runKuyuRegression(
         schedule: schedule,
         determinism: determinism,
         gains: gains,
-        modelDescriptorPath: model,
-        descriptor: descriptor,
+        robotManifestPath: model,
+        embodiment: embodiment,
         artifactRoot: environmentRoot
     )
 
@@ -3352,7 +3457,7 @@ private func runKuyuRegression(
             schedule: schedule,
             determinism: determinism,
             hoverThrustScale: hoverScale,
-            loadedDescriptor: loadedDescriptor,
+            loadedRobot: loadedRobot,
             motorNerveRateLimitPerSecond: motorNerveSettings.rateLimitPerSecond,
             motorNerveSmoothingTimeConstant: motorNerveSettings.smoothingTimeConstant,
             limits: try RolloutRunner.Limits.validated(
@@ -3471,12 +3576,12 @@ private func runKuyuRegression(
 
 @MainActor
 private func runManasMLXE2EPreflight(
-    descriptorPath: String,
+    robotManifestPath: String,
     sourceCheckpointURL: URL?,
     requireSourceCheckpoint: Bool
 ) throws -> ManasMLXE2EPreflightReport {
     try ManasMLXE2EPreflight().check(
-        descriptorPath: descriptorPath,
+        robotManifestPath: robotManifestPath,
         sourceCheckpointURL: sourceCheckpointURL,
         requireSourceCheckpoint: requireSourceCheckpoint
     )
@@ -3490,8 +3595,8 @@ private func runRegressionEnvironmentReadiness(
     schedule: SimulationSchedule,
     determinism: DeterminismConfig,
     gains: ImuRateDampingCutGains,
-    modelDescriptorPath: String,
-    descriptor: RobotDescriptor?,
+    robotManifestPath: String,
+    embodiment: EmbodimentContract?,
     artifactRoot: URL?
 ) async throws -> KuyuEnvironmentReadinessReport {
     try await KuyuEnvironmentReadinessChecker().check(
@@ -3501,8 +3606,8 @@ private func runRegressionEnvironmentReadiness(
         schedule: schedule,
         determinism: determinism,
         gains: gains,
-        modelDescriptorPath: modelDescriptorPath,
-        descriptor: descriptor,
+        robotManifestPath: robotManifestPath,
+        embodiment: embodiment,
         artifactRoot: artifactRoot
     )
 }
@@ -4114,11 +4219,11 @@ private func runCLIManasProbe(
         }
     }
     let preflight = try ManasMLXE2EPreflight().check(
-        descriptorPath: model,
+        robotManifestPath: model,
         sourceCheckpointURL: sourceCheckpointURL
     )
     if printEvents {
-        print("[probe] preflight mlx=\(preflight.mlxRuntimeReady) descriptorLoaded=\(preflight.descriptorLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
+        print("[probe] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
         if !additionalDatasetURLs.isEmpty {
             print("[probe] additionalDatasets=\(additionalDatasetURLs.map(\.path).joined(separator: ","))")
         }
@@ -4127,7 +4232,7 @@ private func runCLIManasProbe(
     let determinism = try makeDeterminism(tier: tier)
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
     let parameters = try loadParameters(modelPath: model)
-    let descriptor = try loadDescriptor(modelPath: model)
+    let embodiment = try loadEmbodiment(modelPath: model)
     let gains = try ImuRateDampingCutGains(
         kp: kp,
         kd: kd,
@@ -4143,7 +4248,7 @@ private func runCLIManasProbe(
         cutPeriodSteps: cutPeriodSteps,
         noise: .zero,
         determinism: determinism,
-        modelDescriptorPath: model,
+        robotManifestPath: model,
         overrideParameters: model.isEmpty ? nil : parameters,
         useAux: useAux,
         useQualityGating: useQualityGating
@@ -4155,7 +4260,7 @@ private func runCLIManasProbe(
         cutPeriodSteps: cutPeriodSteps,
         noise: .zero,
         determinism: determinism,
-        modelDescriptorPath: model,
+        robotManifestPath: model,
         overrideParameters: model.isEmpty ? nil : parameters,
         useAux: useAux,
         useQualityGating: useQualityGating
@@ -4173,7 +4278,7 @@ private func runCLIManasProbe(
             snapshotID: "\(runID)-source",
             checkpointID: url.lastPathComponent,
             checkpointURL: url,
-            descriptorID: model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : model,
+            robotManifestID: model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : model,
             configHash: model
         )
     }
@@ -4192,7 +4297,7 @@ private func runCLIManasProbe(
                     .appendingPathComponent("training", isDirectory: true)
                     .appendingPathComponent("worker-snapshots", isDirectory: true),
                 policyID: "manasMLX",
-                descriptorID: sourceSnapshot?.descriptorID,
+                robotManifestID: sourceSnapshot?.robotManifestID,
                 configHash: sourceSnapshot?.configHash
             )
         )
@@ -4216,7 +4321,7 @@ private func runCLIManasProbe(
             trainedStore: trainedStore,
             parameters: parameters,
             schedule: schedule,
-            descriptor: descriptor
+            embodiment: embodiment
         ),
         backend: backend
     )
@@ -4294,14 +4399,14 @@ private struct CLIScenarioExecutor: TrainingScenarioExecuting {
     let store: ManasMLXModelStore
     let parameters: ReferenceQuadrotorParameters
     let schedule: SimulationSchedule
-    let descriptor: RobotDescriptor?
+    let embodiment: EmbodimentContract?
 
     func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> KuyAtt1RunOutput {
         try await store.runManasMLX(
             parameters: parameters,
             schedule: schedule,
             request: request,
-            descriptor: descriptor,
+            embodiment: embodiment,
             control: nil
         )
     }
@@ -4314,7 +4419,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
     private let trainedStore: ManasMLXModelStore
     private let parameters: ReferenceQuadrotorParameters
     private let schedule: SimulationSchedule
-    private let descriptor: RobotDescriptor?
+    private let embodiment: EmbodimentContract?
 
     init(
         teacherRequest: SimulationRunRequest,
@@ -4322,14 +4427,14 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
         trainedStore: ManasMLXModelStore,
         parameters: ReferenceQuadrotorParameters,
         schedule: SimulationSchedule,
-        descriptor: RobotDescriptor?
+        embodiment: EmbodimentContract?
     ) {
         self.teacherRequest = teacherRequest
         self.initialStore = initialStore
         self.trainedStore = trainedStore
         self.parameters = parameters
         self.schedule = schedule
-        self.descriptor = descriptor
+        self.embodiment = embodiment
     }
 
     func runProbeSuite(
@@ -4343,7 +4448,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
-                descriptor: descriptor,
+                embodiment: embodiment,
                 control: nil
             )
         case .trainingIteration:
@@ -4359,7 +4464,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
-                descriptor: descriptor,
+                embodiment: embodiment,
                 control: nil
             )
         case .initialPolicy:
@@ -4367,7 +4472,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
-                descriptor: descriptor,
+                embodiment: embodiment,
                 control: nil
             )
         case .trainedPolicy:
@@ -4379,7 +4484,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
-                descriptor: descriptor,
+                embodiment: embodiment,
                 control: nil
             )
         }
@@ -4482,7 +4587,7 @@ struct EvolveManas: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("artifact-root"), help: "Directory where evolution artifacts are written.")
@@ -4627,7 +4732,7 @@ struct EvolveManas: AsyncParsableCommand {
                 suites: selectedSuites,
                 episodes: episodes,
                 workers: effectiveWorkers,
-                modelDescriptorPath: model,
+                robotManifestPath: model,
                 artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
                 minimumRewardAverage: effectiveMinimumRewardAverage,
                 useQualityGating: !noQualityGate
@@ -4642,8 +4747,8 @@ struct EvolveManas: AsyncParsableCommand {
         _ = await orchestrator.run(
             config: EvolutionRunConfig(
                 taskID: task.rawValue,
-                descriptorID: model.isEmpty ? nil : model,
-                descriptorHash: model.isEmpty ? nil : model,
+                robotManifestID: model.isEmpty ? nil : model,
+                robotManifestHash: model.isEmpty ? nil : model,
                 configHash: "\(task.rawValue)-\(suites)-\(episodes)-\(effectiveWorkers)-\(effectiveCandidateEvaluationConcurrency)-\(searchStrategy.rawValue)",
                 policyID: "manasMLX",
                 populationSize: effectivePopulation,
@@ -4748,11 +4853,11 @@ struct EvolveManas: AsyncParsableCommand {
         let requiresMLXCheckpoint = variation == .gaussian || evaluation == .regression
         if requiresMLXCheckpoint {
             let preflight = try ManasMLXE2EPreflight().check(
-                descriptorPath: model,
+                robotManifestPath: model,
                 sourceCheckpointURL: snapshotURL,
                 requireSourceCheckpoint: true
             )
-            print("[evolve] preflight mlx=\(preflight.mlxRuntimeReady) descriptorLoaded=\(preflight.descriptorLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
+            print("[evolve] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
         } else {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: snapshotURL.path, isDirectory: &isDirectory),
@@ -4824,7 +4929,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path.")
+    @Option(help: "Robot manifest path.")
     var model: String = ""
 
     @Option(name: .customLong("mutation-rate"), help: "Mutation rate passed to the ManasMLX variation provider.")
@@ -5027,7 +5132,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
                 maxBatches: reinforcementWarmupMaxBatches
             ),
             control: TrainingControlSettings(
-                modelDescriptorPath: model,
+                robotManifestPath: model,
                 kp: kp,
                 kd: kd,
                 yawDamping: yawDamping,
@@ -5434,7 +5539,7 @@ struct Verify: AsyncParsableCommand {
     @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
     var cutPeriodSteps: UInt64 = 2
 
-    @Option(help: "Model descriptor path (optional; empty uses the reference baseline).")
+    @Option(help: "Robot manifest path (optional; empty uses the reference baseline).")
     var model: String = ""
 
     @Option(help: "Scenarios per A1 suite stage.")
@@ -5465,8 +5570,8 @@ struct Verify: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
         let gains = try ImuRateDampingCutGains(kp: kp, kd: kd, yawDamping: yawDamping, hoverThrustScale: hoverScale)
-        let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
-        let parameters = try makeRolloutParameters(task: .attitude, loadedDescriptor: loadedDescriptor, hoverThrustScale: hoverScale)
+        let loadedRobot = try loadLoadedRobot(modelPath: model)
+        let parameters = try makeRolloutParameters(task: .attitude, loadedRobot: loadedRobot, hoverThrustScale: hoverScale)
         let limits = try RolloutRunner.Limits.validated(maxStepsPerEpisode: maxSteps, maxWallTimeSeconds: nil)
 
         func baselineRollout(_ definitions: [ReferenceQuadrotorScenarioDefinition]) async throws -> RolloutSummary {
@@ -5475,7 +5580,7 @@ struct Verify: AsyncParsableCommand {
                 schedule: schedule,
                 determinism: determinism,
                 hoverThrustScale: hoverScale,
-                loadedDescriptor: loadedDescriptor,
+                loadedRobot: loadedRobot,
                 motorNerveRateLimitPerSecond: 100.0,
                 motorNerveSmoothingTimeConstant: nil,
                 limits: limits
@@ -5496,9 +5601,9 @@ struct Verify: AsyncParsableCommand {
         if !skipMLX {
             stage("MLX runtime preflight")
             do {
-                let report = try ManasMLXE2EPreflight().check(descriptorPath: model)
+                let report = try ManasMLXE2EPreflight().check(robotManifestPath: model)
                 if report.mlxRuntimeReady {
-                    pass("MLX/Metal runtime ready (descriptorLoaded=\(report.descriptorLoaded))")
+                    pass("MLX/Metal runtime ready (robotManifestLoaded=\(report.robotManifestLoaded))")
                 } else {
                     fail("MLX runtime not ready")
                 }
@@ -5517,8 +5622,8 @@ struct Verify: AsyncParsableCommand {
                 schedule: schedule,
                 determinism: determinism,
                 gains: gains,
-                modelDescriptorPath: model,
-                descriptor: loadedDescriptor?.descriptor,
+                robotManifestPath: model,
+                embodiment: loadedRobot?.embodiment,
                 artifactRoot: artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
             )
             for task in report.tasks {
@@ -5617,30 +5722,30 @@ private func loadParameters(modelPath: String) throws -> ReferenceQuadrotorParam
     let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return .baseline }
 
-    let loader = RobotDescriptorLoader()
-    let descriptor = try loader.loadDescriptor(path: trimmed)
-    let inertial = try loader.loadPlantInertialProperties(descriptor: descriptor)
+    let loader = KuyuModelLoader()
+    let embodiment = try loader.loadRobot(path: trimmed)
+    let inertial = try loader.loadPlantInertialProperties(robot: embodiment)
     return try ReferenceQuadrotorParameters.reference(
         from: inertial,
-        robotID: descriptor.descriptor.robot.robotID
+        robotID: embodiment.manifest.robotID
     )
 }
 
-private func loadDescriptor(modelPath: String) throws -> RobotDescriptor? {
+private func loadEmbodiment(modelPath: String) throws -> EmbodimentContract? {
     let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let loader = RobotDescriptorLoader()
-    let descriptor = try loader.loadDescriptor(path: trimmed)
-    return descriptor.descriptor
+    let loader = KuyuModelLoader()
+    let embodiment = try loader.loadRobot(path: trimmed)
+    return embodiment.embodiment
 }
 
-private func loadLoadedDescriptor(modelPath: String) throws -> LoadedRobotDescriptor? {
+private func loadLoadedRobot(modelPath: String) throws -> LoadedKuyuRobot? {
     let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let loader = RobotDescriptorLoader()
-    return try loader.loadDescriptor(path: trimmed)
+    let loader = KuyuModelLoader()
+    return try loader.loadRobot(path: trimmed)
 }
 
 private func score(from summary: ValidationSummary) -> Double {
@@ -5817,19 +5922,19 @@ private func parseRegressionControllers(_ raw: String) throws -> [ControllerChoi
 
 private func makeRolloutParameters(
     task: RolloutTaskChoice,
-    loadedDescriptor: LoadedRobotDescriptor? = nil,
+    loadedRobot: LoadedKuyuRobot? = nil,
     hoverThrustScale: Double = 1.0
 ) throws -> ReferenceQuadrotorParameters {
     guard hoverThrustScale.isFinite, hoverThrustScale > 0 else {
         throw ValidationError("--hover-scale must be finite and greater than 0.")
     }
 
-    if let loadedDescriptor {
-        let loader = RobotDescriptorLoader()
-        let inertial = try loader.loadPlantInertialProperties(descriptor: loadedDescriptor)
+    if let loadedRobot {
+        let loader = KuyuModelLoader()
+        let inertial = try loader.loadPlantInertialProperties(robot: loadedRobot)
         let parameters = try ReferenceQuadrotorParameters.reference(
             from: inertial,
-            robotID: loadedDescriptor.descriptor.robot.robotID
+            robotID: loadedRobot.manifest.robotID
         )
         guard task == .singleLift else { return parameters }
         return try KuyuSingleLiftParameterTuning.tuned(

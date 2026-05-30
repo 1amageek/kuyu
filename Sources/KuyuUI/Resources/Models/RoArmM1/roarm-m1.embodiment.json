@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "kuyu.embodiment.v1",
+  "contractID": "roarm-m1-embodiment-v0",
+  "bodyID": "roarm-m1-body-v0",
+  "signals": {
+    "sensor": [
+      { "id": "joint_angle_1", "index": 0, "name": "Joint 1 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
+      { "id": "joint_angle_2", "index": 1, "name": "Joint 2 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
+      { "id": "joint_angle_3", "index": 2, "name": "Joint 3 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
+      { "id": "joint_angle_4", "index": 3, "name": "Joint 4 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
+      { "id": "joint_angle_5", "index": 4, "name": "Joint 5 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" }
+    ],
+    "actuator": [
+      { "id": "joint_1", "index": 0, "name": "Joint 1 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
+      { "id": "joint_2", "index": 1, "name": "Joint 2 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
+      { "id": "joint_3", "index": 2, "name": "Joint 3 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
+      { "id": "joint_4", "index": 3, "name": "Joint 4 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
+      { "id": "joint_5", "index": 4, "name": "Joint 5 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" }
+    ],
+    "drive": [
+      { "id": "drive_joint_1", "index": 0, "name": "Drive joint 1", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
+      { "id": "drive_joint_2", "index": 1, "name": "Drive joint 2", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
+      { "id": "drive_joint_3", "index": 2, "name": "Drive joint 3", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
+      { "id": "drive_joint_4", "index": 3, "name": "Drive joint 4", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
+      { "id": "drive_joint_5", "index": 4, "name": "Drive joint 5", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" }
+    ],
+    "reflex": [
+      { "id": "reflex_joint_1", "index": 0, "name": "Reflex joint 1 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_2", "index": 1, "name": "Reflex joint 2 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_3", "index": 2, "name": "Reflex joint 3 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_4", "index": 3, "name": "Reflex joint 4 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_5", "index": 4, "name": "Reflex joint 5 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" }
+    ],
+    "descending": [
+      { "id": "intent.end_effector.x", "index": 0, "name": "End effector x bias", "units": "m", "rateHz": 5, "range": [-0.1, 0.1], "group": "task-bias" },
+      { "id": "intent.end_effector.y", "index": 1, "name": "End effector y bias", "units": "m", "rateHz": 5, "range": [-0.1, 0.1], "group": "task-bias" },
+      { "id": "intent.end_effector.z", "index": 2, "name": "End effector z bias", "units": "m", "rateHz": 5, "range": [-0.1, 0.1], "group": "task-bias" },
+      { "id": "intent.gripper", "index": 3, "name": "Gripper bias", "units": "norm", "rateHz": 5, "range": [0, 1], "group": "task-bias" },
+      { "id": "intent.inhibition", "index": 4, "name": "Inhibition bias", "units": "norm", "rateHz": 5, "range": [0, 1], "group": "task-bias" }
+    ],
+    "summary": [
+      { "id": "summary.salience", "index": 0, "name": "Salience", "units": "norm", "rateHz": 10, "range": [0, 1], "group": "upward-summary" },
+      { "id": "summary.risk", "index": 1, "name": "Risk", "units": "norm", "rateHz": 10, "range": [0, 1], "group": "upward-summary" },
+      { "id": "summary.uncertainty", "index": 2, "name": "Uncertainty", "units": "norm", "rateHz": 10, "range": [0, 1], "group": "upward-summary" },
+      { "id": "summary.constraint_pressure", "index": 3, "name": "Constraint pressure", "units": "norm", "rateHz": 10, "range": [0, 1], "group": "upward-summary" },
+      { "id": "summary.recovery_state", "index": 4, "name": "Recovery state", "units": "norm", "rateHz": 10, "range": [0, 1], "group": "upward-summary" }
+    ],
+    "motorNerve": []
+  },
+  "sensors": [
+    {
+      "id": "joint_encoder_bus",
+      "type": "servo-position-feedback",
+      "frameID": "base",
+      "channels": ["joint_angle_1", "joint_angle_2", "joint_angle_3", "joint_angle_4", "joint_angle_5"],
+      "rateHz": 50,
+      "latencySeconds": 0.02,
+      "noise": {
+        "bias": 0,
+        "standardDeviation": 0.002,
+        "randomWalkStandardDeviation": 0.0002
+      }
+    }
+  ],
+  "actuators": [
+    { "id": "servo_1", "type": "serial-bus-servo", "channels": ["joint_1"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 1.8 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 1.4, "damping": 0.025, "coulombFriction": 0.018 } },
+    { "id": "servo_2", "type": "serial-bus-servo", "channels": ["joint_2"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 1.8 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 1.4, "damping": 0.025, "coulombFriction": 0.018 } },
+    { "id": "servo_3", "type": "serial-bus-servo", "channels": ["joint_3"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 1.8 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 1.2, "damping": 0.022, "coulombFriction": 0.016 } },
+    { "id": "servo_4", "type": "serial-bus-servo", "channels": ["joint_4"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 2.0 }, "dynamics": { "timeConstantSeconds": 0.07, "deadzone": 0.002, "torqueLimit": 0.9, "damping": 0.018, "coulombFriction": 0.012 } },
+    { "id": "servo_5", "type": "serial-bus-servo", "channels": ["joint_5"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 2.5 }, "dynamics": { "timeConstantSeconds": 0.06, "deadzone": 0.002, "torqueLimit": 0.55, "damping": 0.015, "coulombFriction": 0.01 } }
+  ],
+  "control": {
+    "driveChannels": ["drive_joint_1", "drive_joint_2", "drive_joint_3", "drive_joint_4", "drive_joint_5"],
+    "reflexChannels": ["reflex_joint_1", "reflex_joint_2", "reflex_joint_3", "reflex_joint_4", "reflex_joint_5"],
+    "descendingChannels": ["intent.end_effector.x", "intent.end_effector.y", "intent.end_effector.z", "intent.gripper", "intent.inhibition"],
+    "summaryChannels": ["summary.salience", "summary.risk", "summary.uncertainty", "summary.constraint_pressure", "summary.recovery_state"],
+    "constraints": {
+      "driveClamp": [-0.261799, 0.261799],
+      "reflexClamp": [-0.034907, 0.034907]
+    },
+    "latencyBudgets": {
+      "reflexPathSeconds": 0.005,
+      "corePathSeconds": 0.02,
+      "descendingApplySeconds": 0.1,
+      "summaryExportSeconds": 0.1
+    }
+  },
+  "observation": {
+    "clock": {
+      "timebase": "simulation",
+      "maxSkewSeconds": 0.002,
+      "syncPolicy": "hard"
+    },
+    "modalities": [
+      {
+        "id": "joint-state",
+        "type": "state",
+        "channels": ["joint_angle_1", "joint_angle_2", "joint_angle_3", "joint_angle_4", "joint_angle_5"],
+        "timestampSource": "simulation"
+      }
+    ]
+  },
+  "motorNerve": {
+    "stages": [
+      {
+        "id": "joint-direct",
+        "type": "direct",
+        "inputs": ["drive_joint_1", "drive_joint_2", "drive_joint_3", "drive_joint_4", "drive_joint_5"],
+        "outputs": ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5"]
+      }
+    ]
+  }
+}

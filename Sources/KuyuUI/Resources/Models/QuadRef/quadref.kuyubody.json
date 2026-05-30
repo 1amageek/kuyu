@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "kuyu.body.v1",
+  "bodyID": "quadref-body-v0",
+  "name": "Quadrotor Reference Body",
+  "category": "aerial",
+  "provenance": [
+    {
+      "source": "ReferenceQuadrotorParameters.baseline",
+      "format": "native",
+      "notes": "Mass and inertia are the deterministic reference values used by the Kuyu quadrotor plant."
+    }
+  ],
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "angle": "rad",
+    "time": "s",
+    "force": "N",
+    "torque": "N*m"
+  },
+  "frames": [
+    {
+      "id": "base_link",
+      "pose": {
+        "xyz": [0, 0, 0],
+        "rpy": [0, 0, 0]
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "base_link",
+      "mass": 1.0,
+      "centerOfMass": [0, 0, 0],
+      "inertia": {
+        "ixx": 0.004,
+        "ixy": 0,
+        "ixz": 0,
+        "iyy": 0.004,
+        "iyz": 0,
+        "izz": 0.007
+      },
+      "visuals": [
+        {
+          "id": "base-box",
+          "kind": "box",
+          "pose": {
+            "xyz": [0, 0, 0],
+            "rpy": [0, 0, 0]
+          },
+          "size": [0.18, 0.18, 0.04]
+        }
+      ],
+      "collisions": [],
+      "materialID": "carbon"
+    }
+  ],
+  "joints": [],
+  "materials": [
+    {
+      "id": "carbon",
+      "density": 1600,
+      "staticFriction": 0.5,
+      "dynamicFriction": 0.4,
+      "restitution": 0.05
+    }
+  ],
+  "actuatorAttachments": [],
+  "sensorMounts": [
+    {
+      "sensorID": "imu",
+      "frameID": "base_link",
+      "pose": {
+        "xyz": [0, 0, 0],
+        "rpy": [0, 0, 0]
+      }
+    }
+  ]
+}

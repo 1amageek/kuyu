@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "kuyu.robot.v1",
+  "robotID": "singleprop-v0",
+  "name": "Single Prop Reference",
+  "category": "aerial",
+  "tags": ["reference", "single-prop"],
+  "bodyModel": {
+    "path": "singleprop.kuyubody.json"
+  },
+  "defaultWorldModel": {
+    "path": "../Common/earth-dynamic.kuyuworld.json"
+  },
+  "embodimentContract": {
+    "path": "singleprop.embodiment.json"
+  },
+  "renderAssets": [
+    {
+      "id": "quadref-render",
+      "name": "SingleProp Reference Render",
+      "format": "urdf",
+      "path": "../QuadRef/quadref.urdf",
+      "frameID": "base_link",
+      "scale": [1, 1, 1]
+    }
+  ]
+}

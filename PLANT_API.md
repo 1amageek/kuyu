@@ -40,6 +40,15 @@ Contract:
 - No hidden time sources are allowed in deterministic runs.
 - The execution order is defined in `WORLD_SPEC.md` and MUST be followed.
 
-## Descriptor Binding
-The `RobotDescriptor` binds the plant model to signals and MotorNerve mapping.
-The plant implementation MUST honor signal definitions and units from the descriptor.
+## Body/World/Embodiment Binding
+Plant construction is bound by three native contracts:
+
+| Contract | Plant responsibility |
+|---|---|
+| `KuyuBodyModel` | Build morphology-specific plant state from declared links, joints, mass, inertia, limits, damping, friction, and actuator attachments. |
+| `KuyuWorldModel` | Use declared gravity, fixed timestep, solver policy, and enabled contact/friction capabilities. |
+| `EmbodimentContract` | Honor signal units, actuator ranges, latency budgets, and MotorNerve output channels. |
+
+The plant implementation MUST fail closed when a required physical value is
+missing for the requested `ReadinessLevel`. It MUST NOT use render assets or
+external import files as hidden physics authority.

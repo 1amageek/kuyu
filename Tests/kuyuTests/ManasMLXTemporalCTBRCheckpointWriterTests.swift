@@ -23,7 +23,7 @@ import Testing
         checkpointURL: checkpoint,
         name: "ctbr-starter",
         policyContract: .referenceQuadrotorTemporalCTBR(),
-        descriptor: nil,
+        embodiment: nil,
         starterCollectiveThrustScale: scale
     ))
 
@@ -101,7 +101,7 @@ import Testing
             checkpointURL: checkpoint,
             name: "ctbr-starter",
             policyContract: .referenceQuadrotorTemporalCTBR(),
-            descriptor: nil,
+            embodiment: nil,
             starterCollectiveThrustScale: 0
         ))
     }

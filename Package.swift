@@ -17,9 +17,14 @@ let package = Package(
             name: "kuyu",
             targets: ["KuyuCLI"]
         ),
+        .executable(
+            name: "kuyu-model-preview",
+            targets: ["KuyuModelPreview"]
+        ),
     ],
     dependencies: [
         .package(path: "../kuyu-core"),
+        .package(path: "../embodiment-contract"),
         .package(path: "../kuyu-physics"),
         .package(path: "../kuyu-scenarios"),
         .package(path: "../kuyu-training"),
@@ -33,6 +38,7 @@ let package = Package(
             name: "KuyuUI",
             dependencies: [
                 .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "EmbodimentContract", package: "embodiment-contract"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),
@@ -53,7 +59,9 @@ let package = Package(
         .executableTarget(
             name: "KuyuCLI",
             dependencies: [
+                "KuyuUI",
                 .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "EmbodimentContract", package: "embodiment-contract"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),
@@ -61,10 +69,17 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .executableTarget(
+            name: "KuyuModelPreview",
+            dependencies: [
+                "KuyuUI"
+            ]
+        ),
         .testTarget(
             name: "kuyuTests",
             dependencies: [
                 .product(name: "KuyuCore", package: "kuyu-core"),
+                .product(name: "EmbodimentContract", package: "embodiment-contract"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),

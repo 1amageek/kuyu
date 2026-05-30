@@ -5,12 +5,12 @@ import KuyuScenarios
 import KuyuTraining
 
 @MainActor
-@Test func coreConfigWithoutDescriptorUsesLegacyMode() {
+@Test func coreConfigWithoutEmbodimentUsesUntypedMode() {
     let config = ManasMLXModelStore.makeCoreConfig(
         inputSize: 12,
         driveCount: 4,
         auxEnabled: true,
-        descriptor: nil
+        embodiment: nil
     )
 
     #expect(config.useSharedEncoder == false)
@@ -22,13 +22,13 @@ import KuyuTraining
 }
 
 @MainActor
-@Test func coreConfigWithDescriptorUsesSharedTypedMode() {
-    let descriptor = makeDescriptor(includeDescending: false)
+@Test func coreConfigWithEmbodimentUsesSharedTypedMode() {
+    let embodiment = makeEmbodiment(includeDescending: false)
     let config = ManasMLXModelStore.makeCoreConfig(
         inputSize: 8,
         driveCount: 2,
         auxEnabled: false,
-        descriptor: descriptor
+        embodiment: embodiment
     )
 
     #expect(config.useSharedEncoder == true)
@@ -41,12 +41,12 @@ import KuyuTraining
 
 @MainActor
 @Test func coreConfigWithDescendingChannelsSetsDescendingConfig() {
-    let descriptor = makeDescriptor(includeDescending: true)
+    let embodiment = makeEmbodiment(includeDescending: true)
     let config = ManasMLXModelStore.makeCoreConfig(
         inputSize: 8,
         driveCount: 2,
         auxEnabled: false,
-        descriptor: descriptor
+        embodiment: embodiment
     )
 
     #expect(config.descendingSize == 2)
@@ -56,16 +56,16 @@ import KuyuTraining
     #expect(config.typeEmbeddingCount == 8)
 }
 
-private func makeDescriptor(includeDescending: Bool) -> RobotDescriptor {
-    let descendingSignals: [RobotDescriptor.SignalDefinition]? = includeDescending ? [
-        RobotDescriptor.SignalDefinition(
+private func makeEmbodiment(includeDescending: Bool) -> EmbodimentContract {
+    let descendingSignals: [SignalDefinition]? = includeDescending ? [
+        SignalDefinition(
             id: "intent.thrust",
             index: 0,
             name: "intent.thrust",
             units: "norm",
             group: "intent.thrust"
         ),
-        RobotDescriptor.SignalDefinition(
+        SignalDefinition(
             id: "intent.yaw",
             index: 1,
             name: "intent.yaw",
@@ -74,62 +74,60 @@ private func makeDescriptor(includeDescending: Bool) -> RobotDescriptor {
         ),
     ] : nil
 
-    let signals = RobotDescriptor.Signals(
+    let signals = SignalCatalog(
         sensor: [
-            RobotDescriptor.SignalDefinition(id: "imu.ax", index: 0, name: "imu.ax", units: "m/s2"),
-            RobotDescriptor.SignalDefinition(id: "imu.ay", index: 1, name: "imu.ay", units: "m/s2"),
+            SignalDefinition(id: "imu.ax", index: 0, name: "imu.ax", units: "m/s2"),
+            SignalDefinition(id: "imu.ay", index: 1, name: "imu.ay", units: "m/s2"),
         ],
         actuator: [
-            RobotDescriptor.SignalDefinition(id: "motor.0", index: 0, name: "motor.0", units: "norm"),
-            RobotDescriptor.SignalDefinition(id: "motor.1", index: 1, name: "motor.1", units: "norm"),
+            SignalDefinition(id: "motor.0", index: 0, name: "motor.0", units: "norm"),
+            SignalDefinition(id: "motor.1", index: 1, name: "motor.1", units: "norm"),
         ],
         drive: [
-            RobotDescriptor.SignalDefinition(id: "drive.thrust", index: 0, name: "drive.thrust", units: "norm", group: "thrust"),
-            RobotDescriptor.SignalDefinition(id: "drive.yaw", index: 1, name: "drive.yaw", units: "norm", group: "yaw"),
+            SignalDefinition(id: "drive.thrust", index: 0, name: "drive.thrust", units: "norm", group: "thrust"),
+            SignalDefinition(id: "drive.yaw", index: 1, name: "drive.yaw", units: "norm", group: "yaw"),
         ],
         reflex: [
-            RobotDescriptor.SignalDefinition(id: "reflex.0", index: 0, name: "reflex.0", units: "norm"),
+            SignalDefinition(id: "reflex.0", index: 0, name: "reflex.0", units: "norm"),
         ],
         descending: descendingSignals
     )
 
-    return RobotDescriptor(
-        robot: RobotDescriptor.Robot(robotID: "test", name: "Test", category: "aerial"),
-        physics: RobotDescriptor.Physics(
-            model: RobotDescriptor.PhysicsModel(format: .urdf, path: "test.urdf"),
-            engine: RobotDescriptor.EngineBinding(id: "kuyu.physics")
-        ),
+    return EmbodimentContract(
+        schemaVersion: "kuyu.embodiment.v1",
+        contractID: "test-embodiment",
+        bodyID: "test-body",
         signals: signals,
         sensors: [
-            RobotDescriptor.SensorDefinition(
+            SensorDefinition(
                 id: "imu",
                 type: "imu6",
                 channels: ["imu.ax", "imu.ay"],
                 rateHz: 200,
-                latencyMs: 1.0
+                latencySeconds: 0.001
             ),
         ],
         actuators: [
-            RobotDescriptor.ActuatorDefinition(
+            ActuatorDefinition(
                 id: "motor.0",
                 type: "rotor",
                 channels: ["motor.0"],
-                limits: RobotDescriptor.ActuatorLimits(min: 0, max: 1, rateLimit: 10)
+                limits: ActuatorLimits(min: 0, max: 1, rateLimitPerSecond: 10)
             ),
-            RobotDescriptor.ActuatorDefinition(
+            ActuatorDefinition(
                 id: "motor.1",
                 type: "rotor",
                 channels: ["motor.1"],
-                limits: RobotDescriptor.ActuatorLimits(min: 0, max: 1, rateLimit: 10)
+                limits: ActuatorLimits(min: 0, max: 1, rateLimitPerSecond: 10)
             ),
         ],
-        control: RobotDescriptor.Control(
+        control: ControlContract(
             driveChannels: ["drive.thrust", "drive.yaw"],
             reflexChannels: ["reflex.0"],
             descendingChannels: includeDescending ? ["intent.thrust", "intent.yaw"] : nil
         ),
-        motorNerve: RobotDescriptor.MotorNerveDescriptor(stages: [
-            RobotDescriptor.MotorNerveStage(
+        motorNerve: MotorNerveContract(stages: [
+            MotorNerveStageDefinition(
                 id: "direct",
                 type: .direct,
                 inputs: ["drive.thrust", "drive.yaw"],

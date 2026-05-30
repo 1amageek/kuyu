@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "kuyu.embodiment.v1",
+  "contractID": "singleprop-embodiment-v0",
+  "bodyID": "singleprop-body-v0",
+  "signals": {
+    "sensor": [
+      { "id": "imu_accel_z", "index": 0, "name": "Accel Z", "units": "m/s^2", "rateHz": 1000, "group": "imu" }
+    ],
+    "actuator": [
+      { "id": "motor_1", "index": 0, "name": "Motor thrust", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "motor" }
+    ],
+    "drive": [
+      { "id": "drive_lift", "index": 0, "name": "Lift drive", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "drive" }
+    ],
+    "reflex": [
+      { "id": "reflex_lift", "index": 0, "name": "Lift reflex", "units": "N", "rateHz": 1000, "range": [-2, 2], "group": "reflex" }
+    ],
+    "descending": [
+      { "id": "intent.lift_bias", "index": 0, "name": "Lift bias", "units": "N", "rateHz": 20, "range": [-2, 2], "group": "intent" }
+    ],
+    "summary": [
+      { "id": "summary.risk", "index": 0, "name": "Risk", "units": "norm", "rateHz": 20, "range": [0, 1], "group": "summary" }
+    ],
+    "motorNerve": []
+  },
+  "sensors": [
+    {
+      "id": "imu",
+      "type": "imu1",
+      "frameID": "base_link",
+      "channels": ["imu_accel_z"],
+      "rateHz": 1000,
+      "latencySeconds": 0.001
+    }
+  ],
+  "actuators": [
+    {
+      "id": "motor_1",
+      "type": "rotor",
+      "channels": ["motor_1"],
+      "limits": {
+        "min": 0,
+        "max": 12,
+        "rateLimitPerSecond": 200
+      },
+      "dynamics": {
+        "timeConstantSeconds": 0.04,
+        "deadzone": 0,
+        "torqueLimit": 0.4,
+        "damping": 0.01,
+        "coulombFriction": 0
+      }
+    }
+  ],
+  "control": {
+    "driveChannels": ["drive_lift"],
+    "reflexChannels": ["reflex_lift"],
+    "descendingChannels": ["intent.lift_bias"],
+    "summaryChannels": ["summary.risk"],
+    "constraints": {
+      "driveClamp": [0, 12],
+      "reflexClamp": [-2, 2]
+    },
+    "latencyBudgets": {
+      "reflexPathSeconds": 0.002,
+      "corePathSeconds": 0.02,
+      "descendingApplySeconds": 0.05,
+      "summaryExportSeconds": 0.05
+    }
+  },
+  "observation": {
+    "clock": {
+      "timebase": "simulation",
+      "maxSkewSeconds": 0.001,
+      "syncPolicy": "hard"
+    },
+    "modalities": [
+      {
+        "id": "state",
+        "type": "state",
+        "channels": ["imu_accel_z"],
+        "timestampSource": "simulation"
+      }
+    ]
+  },
+  "motorNerve": {
+    "stages": [
+      {
+        "id": "direct-lift",
+        "type": "direct",
+        "inputs": ["drive_lift"],
+        "outputs": ["motor_1"]
+      }
+    ]
+  }
+}

@@ -138,8 +138,9 @@ Kuyu exports a training dataset as a directory containing:
 - `meta.json`: dataset metadata (scenario, seed, dt, driveCount, channelCount)
 - `records.jsonl`: one JSON object per time step
 
-`TrainingDatasetMetadata.currentSchemaVersion` is `2` for M1.6. Readers MUST
-continue to decode schema version 1 by defaulting absent optional fields.
+`TrainingDatasetMetadata.currentSchemaVersion` is `3` for M1.6. Readers MUST
+require the current schema because provenance now records `robotManifestHash`;
+schema version 1/2 datasets are not accepted by the current training loaders.
 
 Record fields:
 - `time`: simulation time (seconds)

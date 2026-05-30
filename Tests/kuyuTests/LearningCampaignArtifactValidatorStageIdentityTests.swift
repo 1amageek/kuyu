@@ -93,7 +93,7 @@ private func makePlan(
         candidateEvaluationConcurrency: 100,
         seeds: ["1"],
         sourceCheckpoint: nil,
-        modelDescriptor: nil,
+        robotManifest: nil,
         variation: "gaussian",
         searchStrategy: "qualityDiversity",
         mutationRate: 0.14,

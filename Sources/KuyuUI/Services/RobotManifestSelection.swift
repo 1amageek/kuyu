@@ -1,19 +1,19 @@
 import Foundation
 import KuyuScenarios
 
-struct DescriptorSelection {
+struct RobotManifestSelection {
     struct Resolution: Equatable {
         let path: String
         let didSwitch: Bool
         let reason: String?
     }
 
-    static func desiredDescriptorPath(for task: SimulationTaskMode) -> String {
+    static func desiredRobotManifestPath(for task: SimulationTaskMode) -> String {
         switch task {
         case .singleLift:
-            return KuyuUIModelPaths.defaultSinglePropDescriptorPath()
+            return KuyuUIModelPaths.defaultSinglePropRobotManifestPath()
         case .attitude, .lift:
-            return KuyuUIModelPaths.defaultDescriptorPath()
+            return KuyuUIModelPaths.defaultRobotManifestPath()
         }
     }
 
@@ -22,26 +22,34 @@ struct DescriptorSelection {
         taskMode: SimulationTaskMode
     ) -> Resolution {
         let trimmed = configuredPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let desired = desiredDescriptorPath(for: taskMode)
+        let desired = desiredRobotManifestPath(for: taskMode)
         if trimmed.isEmpty {
             return Resolution(path: desired, didSwitch: true, reason: "emptyPath")
         }
-        if taskMode == .singleLift, isQuadDescriptorPath(trimmed) {
+        if isRoArmM1RobotManifestPath(trimmed) {
+            return Resolution(path: trimmed, didSwitch: false, reason: nil)
+        }
+        if taskMode == .singleLift, isQuadRobotManifestPath(trimmed) {
             return Resolution(path: desired, didSwitch: true, reason: "singleLiftUsesQuad")
         }
-        if taskMode != .singleLift, isSinglePropDescriptorPath(trimmed) {
+        if taskMode != .singleLift, isSinglePropRobotManifestPath(trimmed) {
             return Resolution(path: desired, didSwitch: true, reason: "quadUsesSingleProp")
         }
         return Resolution(path: trimmed, didSwitch: false, reason: nil)
     }
 
-    static func isQuadDescriptorPath(_ path: String) -> Bool {
+    static func isQuadRobotManifestPath(_ path: String) -> Bool {
         let lower = path.lowercased()
         return lower.contains("quad") || lower.contains("quadref")
     }
 
-    static func isSinglePropDescriptorPath(_ path: String) -> Bool {
+    static func isSinglePropRobotManifestPath(_ path: String) -> Bool {
         let lower = path.lowercased()
         return lower.contains("singleprop") || lower.contains("single-prop") || lower.contains("slift")
+    }
+
+    static func isRoArmM1RobotManifestPath(_ path: String) -> Bool {
+        let lower = path.lowercased()
+        return lower.contains("roarm-m1") || lower.contains("roarmm1")
     }
 }

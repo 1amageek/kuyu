@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "kuyu.body.v1",
+  "bodyID": "singleprop-body-v0",
+  "name": "Single Prop Reference Body",
+  "category": "aerial",
+  "provenance": [
+    {
+      "source": "SingleProp reference plant",
+      "format": "native",
+      "notes": "Mass and inertia are sufficient for deterministic lift-task parameterization."
+    }
+  ],
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "angle": "rad",
+    "time": "s",
+    "force": "N",
+    "torque": "N*m"
+  },
+  "frames": [
+    {
+      "id": "base_link",
+      "pose": {
+        "xyz": [0, 0, 0],
+        "rpy": [0, 0, 0]
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "base_link",
+      "mass": 0.25,
+      "centerOfMass": [0, 0, 0],
+      "inertia": {
+        "ixx": 0.001,
+        "ixy": 0,
+        "ixz": 0,
+        "iyy": 0.001,
+        "iyz": 0,
+        "izz": 0.0015
+      },
+      "visuals": [
+        {
+          "id": "body",
+          "kind": "cylinder",
+          "pose": {
+            "xyz": [0, 0, 0],
+            "rpy": [0, 0, 0]
+          },
+          "radius": 0.04,
+          "length": 0.06
+        }
+      ],
+      "collisions": [],
+      "materialID": "carbon"
+    }
+  ],
+  "joints": [],
+  "materials": [
+    {
+      "id": "carbon",
+      "density": 1600,
+      "staticFriction": 0.5,
+      "dynamicFriction": 0.4,
+      "restitution": 0.05
+    }
+  ],
+  "actuatorAttachments": [],
+  "sensorMounts": [
+    {
+      "sensorID": "imu",
+      "frameID": "base_link",
+      "pose": {
+        "xyz": [0, 0, 0],
+        "rpy": [0, 0, 0]
+      }
+    }
+  ]
+}

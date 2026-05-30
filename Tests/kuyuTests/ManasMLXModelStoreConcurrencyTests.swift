@@ -111,7 +111,7 @@ func modelStoreInitializesSingleDriveStarterCheckpoint() throws {
         driveCount: 1,
         auxEnabled: true,
         useQualityGating: true,
-        descriptor: nil
+        embodiment: nil
     )
     let manifest = try store.saveModel(to: directory, name: "single-drive-starter")
 
@@ -149,7 +149,7 @@ func trainedCoreCheckpointIncludesReflexSnapshotForRollout() async throws {
         cutPeriodSteps: 2,
         noise: .zero,
         determinism: try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline),
-        modelDescriptorPath: "",
+        robotManifestPath: "",
         overrideParameters: nil,
         useAux: false,
         useQualityGating: true

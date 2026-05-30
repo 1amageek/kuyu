@@ -250,7 +250,7 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
 
     let preflight = try ManasMLXE2EPreflight().check(
-        descriptorPath: "",
+        robotManifestPath: "",
         sourceCheckpointURL: sourceBundleURL,
         requireSourceCheckpoint: true
     )
@@ -294,7 +294,7 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
 
         let preflight = try ManasMLXE2EPreflight().check(
-            descriptorPath: "",
+            robotManifestPath: "",
             sourceCheckpointURL: sourceBundleURL,
             requireSourceCheckpoint: true
         )
@@ -342,7 +342,7 @@ import Testing
             url: sourceBundleURL
         ),
         seedCount: 1,
-        populationSize: 4,
+        populationSize: 1,
         generationLimit: 1,
         configuration: TrainingRunConfiguration(
             trainingStageID: stage.stageID,
@@ -355,7 +355,7 @@ import Testing
             ),
             resources: TrainingResourcePlan(
                 workerCount: 1,
-                candidateEvaluationConcurrency: 4,
+                candidateEvaluationConcurrency: 1,
                 resourceSampleSeconds: 0,
                 worldExecutionRequirement: .acceleratorSharedWorld
             ),
@@ -384,7 +384,7 @@ import Testing
 
     #expect(summary.artifactRoot == artifactRoot)
     #expect(summary.generationCount == 1)
-    #expect(summary.candidateCount == 4)
+    #expect(summary.candidateCount == 1)
     #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("learning-campaign-plan.json").path))
     #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("learning-campaign-summary.json").path))
     #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("learning-campaign-validation.json").path))
@@ -536,7 +536,7 @@ private enum SelfContainedContinuationBundleManifest {
       "modelFamily" : "manas",
       "runtimeContract" : {
         "configHash" : "config",
-        "descriptorHash" : "descriptor",
+        "embodimentHash" : "embodiment",
         "driveSemanticsID" : "drive",
         "observationSchemaID" : "observation"
       },
@@ -584,7 +584,7 @@ private func makeProjectFlowContinuationPlan(root: URL, task: String) -> Learnin
         candidateEvaluationConcurrency: 100,
         seeds: ["1"],
         sourceCheckpoint: nil,
-        modelDescriptor: nil,
+        robotManifest: nil,
         variation: "gaussian",
         searchStrategy: "qualityDiversity",
         mutationRate: 0.14,

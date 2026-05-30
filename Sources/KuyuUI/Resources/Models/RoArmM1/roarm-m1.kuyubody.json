@@ -1,0 +1,201 @@
+{
+  "schemaVersion": "kuyu.body.v1",
+  "bodyID": "roarm-m1-body-v0",
+  "name": "RoArm M1 Fixed-Base Body",
+  "category": "manipulator",
+  "provenance": [
+    {
+      "source": "Waveshare RoArm M1 public dimensions and local commissioning estimates",
+      "format": "native",
+      "notes": "Missing masses, inertias, damping, and Coulomb friction are explicit supplemented values for dynamicSimulation readiness only."
+    }
+  ],
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "angle": "rad",
+    "time": "s",
+    "force": "N",
+    "torque": "N*m"
+  },
+  "frames": [
+    { "id": "base", "pose": { "xyz": [0, 0, 0], "rpy": [0, 0, 0] } },
+    { "id": "tool0", "parentID": "wrist_link", "pose": { "xyz": [0.08, 0, 0], "rpy": [0, 0, 0] } }
+  ],
+  "links": [
+    {
+      "id": "base_link",
+      "mass": 0.34,
+      "centerOfMass": [0, 0, 0.025],
+      "inertia": { "ixx": 0.00042, "ixy": 0, "ixz": 0, "iyy": 0.00042, "iyz": 0, "izz": 0.00055 },
+      "visuals": [
+        { "id": "base-visual", "kind": "cylinder", "pose": { "xyz": [0, 0, 0.025], "rpy": [0, 0, 0] }, "radius": 0.055, "length": 0.05 }
+      ],
+      "collisions": [],
+      "materialID": "aluminum"
+    },
+    {
+      "id": "shoulder_link",
+      "mass": 0.12,
+      "centerOfMass": [0, 0, 0.04],
+      "inertia": { "ixx": 0.00016, "ixy": 0, "ixz": 0, "iyy": 0.00015, "iyz": 0, "izz": 0.00007 },
+      "visuals": [
+        { "id": "shoulder-visual", "kind": "box", "pose": { "xyz": [0, 0, 0.04], "rpy": [0, 0, 0] }, "size": [0.055, 0.05, 0.08] }
+      ],
+      "collisions": [],
+      "materialID": "aluminum"
+    },
+    {
+      "id": "upper_arm_link",
+      "mass": 0.16,
+      "centerOfMass": [0.055, 0, 0],
+      "inertia": { "ixx": 0.00008, "ixy": 0, "ixz": 0, "iyy": 0.00034, "iyz": 0, "izz": 0.00034 },
+      "visuals": [
+        { "id": "upper-arm-visual", "kind": "box", "pose": { "xyz": [0.055, 0, 0], "rpy": [0, 0, 0] }, "size": [0.11, 0.035, 0.035] }
+      ],
+      "collisions": [],
+      "materialID": "aluminum"
+    },
+    {
+      "id": "forearm_link",
+      "mass": 0.14,
+      "centerOfMass": [0.052, 0, 0],
+      "inertia": { "ixx": 0.00007, "ixy": 0, "ixz": 0, "iyy": 0.00027, "iyz": 0, "izz": 0.00027 },
+      "visuals": [
+        { "id": "forearm-visual", "kind": "box", "pose": { "xyz": [0.052, 0, 0], "rpy": [0, 0, 0] }, "size": [0.104, 0.03, 0.03] }
+      ],
+      "collisions": [],
+      "materialID": "aluminum"
+    },
+    {
+      "id": "wrist_link",
+      "mass": 0.08,
+      "centerOfMass": [0.03, 0, 0],
+      "inertia": { "ixx": 0.000035, "ixy": 0, "ixz": 0, "iyy": 0.00008, "iyz": 0, "izz": 0.00008 },
+      "visuals": [
+        { "id": "wrist-visual", "kind": "box", "pose": { "xyz": [0.03, 0, 0], "rpy": [0, 0, 0] }, "size": [0.06, 0.03, 0.03] }
+      ],
+      "collisions": [],
+      "materialID": "aluminum"
+    },
+    {
+      "id": "gripper_link",
+      "mass": 0.07,
+      "centerOfMass": [0.035, 0, 0],
+      "inertia": { "ixx": 0.00003, "ixy": 0, "ixz": 0, "iyy": 0.00006, "iyz": 0, "izz": 0.00006 },
+      "visuals": [
+        { "id": "gripper-visual", "kind": "box", "pose": { "xyz": [0.035, 0, 0], "rpy": [0, 0, 0] }, "size": [0.07, 0.055, 0.025] }
+      ],
+      "collisions": [],
+      "materialID": "plastic"
+    }
+  ],
+  "joints": [
+    {
+      "id": "joint_1",
+      "kind": "revolute",
+      "parentLinkID": "base_link",
+      "childLinkID": "shoulder_link",
+      "origin": { "xyz": [0, 0, 0.055], "rpy": [0, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -0.261799,
+      "upperLimit": 0.261799,
+      "effortLimit": 1.4,
+      "velocityLimit": 1.8,
+      "damping": 0.025,
+      "coulombFriction": 0.018,
+      "stiction": 0.015,
+      "backlash": 0.001
+    },
+    {
+      "id": "joint_2",
+      "kind": "revolute",
+      "parentLinkID": "shoulder_link",
+      "childLinkID": "upper_arm_link",
+      "origin": { "xyz": [0, 0, 0.075], "rpy": [0, 0, 0] },
+      "axis": [0, 1, 0],
+      "lowerLimit": -0.261799,
+      "upperLimit": 0.261799,
+      "effortLimit": 1.4,
+      "velocityLimit": 1.8,
+      "damping": 0.025,
+      "coulombFriction": 0.018,
+      "stiction": 0.015,
+      "backlash": 0.001
+    },
+    {
+      "id": "joint_3",
+      "kind": "revolute",
+      "parentLinkID": "upper_arm_link",
+      "childLinkID": "forearm_link",
+      "origin": { "xyz": [0.11, 0, 0], "rpy": [0, 0, 0] },
+      "axis": [0, 1, 0],
+      "lowerLimit": -0.261799,
+      "upperLimit": 0.261799,
+      "effortLimit": 1.2,
+      "velocityLimit": 1.8,
+      "damping": 0.022,
+      "coulombFriction": 0.016,
+      "stiction": 0.014,
+      "backlash": 0.001
+    },
+    {
+      "id": "joint_4",
+      "kind": "revolute",
+      "parentLinkID": "forearm_link",
+      "childLinkID": "wrist_link",
+      "origin": { "xyz": [0.104, 0, 0], "rpy": [0, 0, 0] },
+      "axis": [0, 1, 0],
+      "lowerLimit": -0.261799,
+      "upperLimit": 0.261799,
+      "effortLimit": 0.9,
+      "velocityLimit": 2.0,
+      "damping": 0.018,
+      "coulombFriction": 0.012,
+      "stiction": 0.01,
+      "backlash": 0.001
+    },
+    {
+      "id": "joint_5",
+      "kind": "revolute",
+      "parentLinkID": "wrist_link",
+      "childLinkID": "gripper_link",
+      "origin": { "xyz": [0.06, 0, 0], "rpy": [0, 0, 0] },
+      "axis": [1, 0, 0],
+      "lowerLimit": -0.261799,
+      "upperLimit": 0.261799,
+      "effortLimit": 0.55,
+      "velocityLimit": 2.5,
+      "damping": 0.015,
+      "coulombFriction": 0.01,
+      "stiction": 0.008,
+      "backlash": 0.001
+    }
+  ],
+  "materials": [
+    {
+      "id": "aluminum",
+      "density": 2700,
+      "staticFriction": 0.6,
+      "dynamicFriction": 0.45,
+      "restitution": 0.05
+    },
+    {
+      "id": "plastic",
+      "density": 1200,
+      "staticFriction": 0.5,
+      "dynamicFriction": 0.35,
+      "restitution": 0.08
+    }
+  ],
+  "actuatorAttachments": [
+    { "actuatorID": "servo_1", "jointID": "joint_1", "transmissionRatio": 1, "torqueLimit": 1.4 },
+    { "actuatorID": "servo_2", "jointID": "joint_2", "transmissionRatio": 1, "torqueLimit": 1.4 },
+    { "actuatorID": "servo_3", "jointID": "joint_3", "transmissionRatio": 1, "torqueLimit": 1.2 },
+    { "actuatorID": "servo_4", "jointID": "joint_4", "transmissionRatio": 1, "torqueLimit": 0.9 },
+    { "actuatorID": "servo_5", "jointID": "joint_5", "transmissionRatio": 1, "torqueLimit": 0.55 }
+  ],
+  "sensorMounts": [
+    { "sensorID": "joint_encoder_bus", "frameID": "base", "pose": { "xyz": [0, 0, 0], "rpy": [0, 0, 0] } }
+  ]
+}

@@ -26,7 +26,7 @@ import Testing
             cutPeriodSteps: 2,
             noise: .zero,
             determinism: try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline),
-            modelDescriptorPath: "",
+            robotManifestPath: "",
             overrideParameters: nil,
             useAux: true,
             useQualityGating: true

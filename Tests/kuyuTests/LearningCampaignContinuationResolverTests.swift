@@ -235,7 +235,7 @@ private func makeContinuationResolverPlan(
         candidateEvaluationConcurrency: 100,
         seeds: ["1"],
         sourceCheckpoint: sourceCheckpoint,
-        modelDescriptor: nil,
+        robotManifest: nil,
         variation: "gaussian",
         searchStrategy: "qualityDiversity",
         mutationRate: 0.14,
@@ -382,7 +382,7 @@ private enum ContinuationBundleManifestFixture {
       "modelFamily" : "manas",
       "runtimeContract" : {
         "configHash" : "config",
-        "descriptorHash" : "descriptor",
+        "embodimentHash" : "embodiment",
         "driveSemanticsID" : "drive",
         "observationSchemaID" : "observation"
       },
@@ -413,7 +413,7 @@ private enum ContinuationCTBRBundleManifestFixture {
       "modelFamily" : "manas-temporal-ctbr",
       "runtimeContract" : {
         "configHash" : "config",
-        "descriptorHash" : "descriptor",
+        "embodimentHash" : "embodiment",
         "driveSemanticsID" : "ctbr",
         "observationSchemaID" : "temporal-ctbr"
       },

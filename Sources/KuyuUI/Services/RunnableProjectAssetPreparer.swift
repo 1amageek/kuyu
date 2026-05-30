@@ -7,8 +7,8 @@ import KuyuTraining
 public struct RunnableProjectAssetPreparationRequest {
     public let checkpointURL: URL
     public let displayName: String
-    public let descriptorPath: String
-    public let descriptor: RobotDescriptor?
+    public let robotManifestPath: String
+    public let embodiment: EmbodimentContract?
     public let taskMode: SimulationTaskMode
     public let driveCount: Int?
     public let expectedDriveCount: Int
@@ -20,8 +20,8 @@ public struct RunnableProjectAssetPreparationRequest {
     public init(
         checkpointURL: URL,
         displayName: String,
-        descriptorPath: String,
-        descriptor: RobotDescriptor?,
+        robotManifestPath: String,
+        embodiment: EmbodimentContract?,
         taskMode: SimulationTaskMode,
         driveCount: Int?,
         expectedDriveCount: Int,
@@ -32,8 +32,8 @@ public struct RunnableProjectAssetPreparationRequest {
     ) {
         self.checkpointURL = checkpointURL
         self.displayName = displayName
-        self.descriptorPath = descriptorPath
-        self.descriptor = descriptor
+        self.robotManifestPath = robotManifestPath
+        self.embodiment = embodiment
         self.taskMode = taskMode
         self.driveCount = driveCount
         self.expectedDriveCount = expectedDriveCount
@@ -72,7 +72,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 checkpointURL: request.checkpointURL,
                 name: request.displayName,
                 policyContract: request.policyContract,
-                descriptor: request.descriptor,
+                embodiment: request.embodiment,
                 starterCollectiveThrustScale: starterCollectiveThrustScale(taskMode: request.taskMode),
                 createdAt: Date(),
                 lastTrainedAt: nil
@@ -84,7 +84,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 driveCount: request.driveCount,
                 auxEnabled: request.auxEnabled,
                 useQualityGating: request.qualityGatingEnabled,
-                descriptor: request.descriptor
+                embodiment: request.embodiment
             )
             try modelStore.saveModel(
                 to: request.checkpointURL,
@@ -109,7 +109,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
 
     private func validateCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
         _ = try ManasMLXE2EPreflight().check(
-            descriptorPath: request.descriptorPath,
+            robotManifestPath: request.robotManifestPath,
             sourceCheckpointURL: request.checkpointURL,
             requireSourceCheckpoint: true
         )

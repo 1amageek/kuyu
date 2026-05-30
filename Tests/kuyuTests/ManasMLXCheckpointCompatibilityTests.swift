@@ -125,7 +125,7 @@ private func makeCheckpointRoot(
             bundleID: "compatibility-smoke",
             createdAt: Date(timeIntervalSince1970: 0),
             manifest: manifest,
-            descriptor: nil,
+            embodiment: nil,
             checkpointRoot: root
         )
         try ManasModelBundleWriter().write(bundleManifest, to: root)

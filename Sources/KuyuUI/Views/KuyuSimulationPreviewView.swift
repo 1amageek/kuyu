@@ -9,6 +9,28 @@ struct KuyuSimulationPreviewView: View {
     let yaw: Double
     let position: Axis3
     let renderInfo: RenderAssetInfo?
+    let jointAngles: [Double]
+    let jointValues: [String: Double]
+
+    init(
+        model: SimulationViewModel,
+        roll: Double,
+        pitch: Double,
+        yaw: Double,
+        position: Axis3,
+        renderInfo: RenderAssetInfo?,
+        jointAngles: [Double] = [],
+        jointValues: [String: Double] = [:]
+    ) {
+        self.model = model
+        self.roll = roll
+        self.pitch = pitch
+        self.yaw = yaw
+        self.position = position
+        self.renderInfo = renderInfo
+        self.jointAngles = jointAngles
+        self.jointValues = jointValues
+    }
 
     var body: some View {
         GroupBox {
@@ -16,10 +38,16 @@ struct KuyuSimulationPreviewView: View {
                 ZStack(alignment: .topLeading) {
                     previewCanvas
                     VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
-                        PreviewStatusView(label: "Task", value: model.taskMode.rawValue)
-                        PreviewStatusView(label: "z", value: String(format: "%.3f", position.z))
-                        PreviewStatusView(label: "roll", value: String(format: "%.2f", roll))
-                        PreviewStatusView(label: "pitch", value: String(format: "%.2f", pitch))
+                        PreviewStatusView(label: "Task", value: model.currentRobotManifest()?.name ?? model.taskMode.rawValue)
+                        if !jointAngles.isEmpty {
+                            PreviewStatusView(label: "j1", value: String(format: "%.2f", jointValue(0)))
+                            PreviewStatusView(label: "j2", value: String(format: "%.2f", jointValue(1)))
+                            PreviewStatusView(label: "j3", value: String(format: "%.2f", jointValue(2)))
+                        } else {
+                            PreviewStatusView(label: "z", value: String(format: "%.3f", position.z))
+                            PreviewStatusView(label: "roll", value: String(format: "%.2f", roll))
+                            PreviewStatusView(label: "pitch", value: String(format: "%.2f", pitch))
+                        }
                     }
                     .padding(KuyuSpacing.sm)
                     .frame(width: 128)
@@ -59,16 +87,19 @@ struct KuyuSimulationPreviewView: View {
     /// Canonical label for an observation channel index (8-channel lift/single-lift
     /// schema: ch0..5 IMU, ch6 altitude z, ch7 vertical velocity z).
     private func channelLabel(_ index: UInt32) -> String {
+        if !jointAngles.isEmpty {
+            return "joint\(index + 1)"
+        }
         switch index {
-        case 0: "gyroX"
-        case 1: "gyroY"
-        case 2: "gyroZ"
-        case 3: "accX"
-        case 4: "accY"
-        case 5: "accZ"
-        case 6: "alt"
-        case 7: "vz"
-        default: "ch\(index)"
+        case 0: return "gyroX"
+        case 1: return "gyroY"
+        case 2: return "gyroZ"
+        case 3: return "accX"
+        case 4: return "accY"
+        case 5: return "accZ"
+        case 6: return "alt"
+        case 7: return "vz"
+        default: return "ch\(index)"
         }
     }
 
@@ -145,6 +176,10 @@ struct KuyuSimulationPreviewView: View {
     }
 
     private func drawRobot(context: inout GraphicsContext, size: CGSize) {
+        if !jointAngles.isEmpty {
+            drawJointChain(context: &context, size: size)
+            return
+        }
         let x = size.width * 0.46 + CGFloat(position.x) * 16
         let y = size.height * 0.58 - CGFloat(position.z) * 30
         let center = CGPoint(x: x, y: y)
@@ -158,5 +193,43 @@ struct KuyuSimulationPreviewView: View {
         arm.move(to: CGPoint(x: center.x, y: center.y - 24))
         arm.addLine(to: CGPoint(x: center.x, y: center.y + 24))
         context.stroke(arm, with: .color(.white.opacity(0.44)), lineWidth: 5)
+    }
+
+    private func drawJointChain(context: inout GraphicsContext, size: CGSize) {
+        let base = CGPoint(x: size.width * 0.28, y: size.height * 0.68)
+        let lengths: [CGFloat] = [68, 56, 38]
+        var angle = -CGFloat.pi * 0.22 + CGFloat(jointValue(1))
+        var points = [base]
+        for index in 0..<lengths.count {
+            if index > 0 {
+                angle += CGFloat(jointValue(index + 1))
+            }
+            let previous = points[points.count - 1]
+            let next = CGPoint(
+                x: previous.x + cos(angle) * lengths[index],
+                y: previous.y + sin(angle) * lengths[index]
+            )
+            points.append(next)
+        }
+
+        let baseRect = CGRect(x: base.x - 18, y: base.y - 10, width: 36, height: 20)
+        context.fill(Path(roundedRect: baseRect, cornerRadius: 6), with: .color(.white.opacity(0.82)))
+
+        var path = Path()
+        path.move(to: points[0])
+        for point in points.dropFirst() {
+            path.addLine(to: point)
+        }
+        context.stroke(path, with: .color(.cyan.opacity(0.9)), style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
+
+        for point in points {
+            let jointRect = CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)
+            context.fill(Path(ellipseIn: jointRect), with: .color(.white.opacity(0.95)))
+            context.stroke(Path(ellipseIn: jointRect), with: .color(.black.opacity(0.45)), lineWidth: 1)
+        }
+    }
+
+    private func jointValue(_ index: Int) -> Double {
+        jointAngles.indices.contains(index) ? jointAngles[index] : 0.0
     }
 }

@@ -1,15 +1,13 @@
 import Testing
 import KuyuPhysics
-import KuyuScenarios
-import KuyuTraining
 @testable import KuyuCore
 
 @Test func motorNerveChainDirectMapsDriveToActuator() async throws {
-    let descriptor = try makeDescriptor(
+    let contract = try makeContract(
         driveCount: 1,
         motorNerveSignals: [],
         motorNerveStages: [
-            RobotDescriptor.MotorNerveStage(
+            MotorNerveStageDefinition(
                 id: "direct",
                 type: .direct,
                 inputs: ["drive0"],
@@ -19,7 +17,7 @@ import KuyuTraining
         actuatorMax: 10.0
     )
 
-    var chain = try MotorNerveChain(descriptor: descriptor)
+    var chain = try MotorNerveChain(contract: contract)
     let drives = [try DriveIntent(index: DriveIndex(0), activation: 0.3)]
     let outputs = try chain.update(
         input: drives,
@@ -33,28 +31,28 @@ import KuyuTraining
 }
 
 @Test func motorNerveChainSupportsMultiStageRouting() async throws {
-    let descriptor = try makeDescriptor(
+    let contract = try makeContract(
         driveCount: 1,
         motorNerveSignals: ["mn0"],
         motorNerveStages: [
-            RobotDescriptor.MotorNerveStage(
+            MotorNerveStageDefinition(
                 id: "stage-1",
                 type: .direct,
                 inputs: ["drive0"],
                 outputs: ["mn0"]
             ),
-            RobotDescriptor.MotorNerveStage(
+            MotorNerveStageDefinition(
                 id: "stage-2",
                 type: .matrix,
                 inputs: ["mn0"],
                 outputs: ["motor1"],
-                mapping: RobotDescriptor.MotorNerveMapping(matrix: [[2.0]])
+                mapping: MotorNerveMapping(matrix: [[2.0]])
             )
         ],
         actuatorMax: 10.0
     )
 
-    var chain = try MotorNerveChain(descriptor: descriptor)
+    var chain = try MotorNerveChain(contract: contract)
     let drives = [try DriveIntent(index: DriveIndex(0), activation: 0.4)]
     let outputs = try chain.update(
         input: drives,
@@ -68,11 +66,11 @@ import KuyuTraining
 }
 
 @Test func motorNerveChainMixerScalesByActuatorLimits() async throws {
-    let descriptor = try makeDescriptor(
+    let contract = try makeContract(
         driveCount: 4,
         motorNerveSignals: [],
         motorNerveStages: [
-            RobotDescriptor.MotorNerveStage(
+            MotorNerveStageDefinition(
                 id: "mixer",
                 type: .mixer,
                 inputs: ["drive0", "drive1", "drive2", "drive3"],
@@ -83,7 +81,7 @@ import KuyuTraining
         actuatorMax: 10.0
     )
 
-    var chain = try MotorNerveChain(descriptor: descriptor)
+    var chain = try MotorNerveChain(contract: contract)
     let drives = [
         try DriveIntent(index: DriveIndex(0), activation: 0.5),
         try DriveIntent(index: DriveIndex(1), activation: 0.0),
@@ -103,24 +101,24 @@ import KuyuTraining
     }
 }
 
-private func makeDescriptor(
+private func makeContract(
     driveCount: Int,
     motorNerveSignals: [String],
-    motorNerveStages: [RobotDescriptor.MotorNerveStage],
+    motorNerveStages: [MotorNerveStageDefinition],
     actuatorMax: Double
-) throws -> RobotDescriptor {
+) throws -> EmbodimentContract {
     let driveSignals = (0..<driveCount).map { index in
-        RobotDescriptor.SignalDefinition(
+        SignalDefinition(
             id: "drive\(index)",
             index: index,
             name: "drive\(index)",
             units: "norm",
             rateHz: 100.0,
-            range: RobotDescriptor.Range(min: 0.0, max: 1.0)
+            range: ScalarRange(min: 0.0, max: 1.0)
         )
     }
     let actuatorSignals = (0..<max(1, driveCount)).map { index in
-        RobotDescriptor.SignalDefinition(
+        SignalDefinition(
             id: "motor\(index + 1)",
             index: index,
             name: "motor\(index + 1)",
@@ -128,7 +126,7 @@ private func makeDescriptor(
         )
     }
     let reflexSignals = (0..<driveCount).map { index in
-        RobotDescriptor.SignalDefinition(
+        SignalDefinition(
             id: "reflex\(index)",
             index: index,
             name: "reflex\(index)",
@@ -136,7 +134,7 @@ private func makeDescriptor(
         )
     }
     let motorSignals = motorNerveSignals.enumerated().map { idx, id in
-        RobotDescriptor.SignalDefinition(
+        SignalDefinition(
             id: id,
             index: idx,
             name: id,
@@ -144,7 +142,7 @@ private func makeDescriptor(
         )
     }
 
-    let signals = RobotDescriptor.Signals(
+    let signals = SignalCatalog(
         sensor: [],
         actuator: actuatorSignals,
         drive: driveSignals,
@@ -152,29 +150,29 @@ private func makeDescriptor(
         motorNerve: motorSignals.isEmpty ? nil : motorSignals
     )
 
-    let actuator = RobotDescriptor.ActuatorDefinition(
+    let actuator = ActuatorDefinition(
         id: "actuator",
         type: "generic",
         channels: actuatorSignals.map(\.id),
-        limits: RobotDescriptor.ActuatorLimits(min: 0.0, max: actuatorMax, rateLimit: 100.0)
+        limits: ActuatorLimits(min: 0.0, max: actuatorMax, rateLimitPerSecond: 100.0)
     )
 
-    let control = RobotDescriptor.Control(
+    let control = ControlContract(
         driveChannels: driveSignals.map(\.id),
         reflexChannels: reflexSignals.map(\.id),
-        constraints: RobotDescriptor.ControlConstraints(driveClamp: RobotDescriptor.Range(min: 0.0, max: 1.0))
+        constraints: ControlConstraints(driveClamp: ScalarRange(min: 0.0, max: 1.0))
     )
 
-    return RobotDescriptor(
-        robot: RobotDescriptor.Robot(robotID: "test", name: "test", category: "test"),
-        physics: RobotDescriptor.Physics(
-            model: RobotDescriptor.PhysicsModel(format: .urdf, path: "test.urdf"),
-            engine: RobotDescriptor.EngineBinding(id: "test")
-        ),
+    let contract = EmbodimentContract(
+        schemaVersion: "kuyu.embodiment.v1",
+        contractID: "test-contract",
+        bodyID: "test-body",
         signals: signals,
         sensors: [],
         actuators: [actuator],
         control: control,
-        motorNerve: RobotDescriptor.MotorNerveDescriptor(stages: motorNerveStages)
+        motorNerve: MotorNerveContract(stages: motorNerveStages)
     )
+    try contract.validate()
+    return contract
 }

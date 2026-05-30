@@ -18,8 +18,11 @@ public struct SimulationWindowContentView: View {
                     position: pose.position,
                     label: pose.renderInfo?.name ?? "Robot proxy",
                     renderInfo: pose.renderInfo,
+                    jointAngles: pose.jointAngles,
+                    jointValues: pose.jointValues,
                     actuatorChannels: model.lastActuatorTelemetry?.channels ?? []
                 )
+                .id(pose.renderInfo?.url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 playbackControls
@@ -35,7 +38,9 @@ public struct SimulationWindowContentView: View {
                         pitch: pose.pitch,
                         yaw: pose.yaw,
                         position: pose.position,
-                        renderInfo: pose.renderInfo
+                        renderInfo: pose.renderInfo,
+                        jointAngles: pose.jointAngles,
+                        jointValues: pose.jointValues
                     )
                     rewardEvents
                     collisionLog

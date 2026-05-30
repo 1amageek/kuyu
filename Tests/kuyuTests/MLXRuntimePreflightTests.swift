@@ -28,7 +28,7 @@ import Testing
 @Test(.timeLimit(.minutes(1))) func manasE2EPreflightRejectsMissingRequiredSourceCheckpoint() throws {
     #expect(throws: ManasMLXE2EPreflightError.missingCheckpointFile("source checkpoint URL")) {
         try ManasMLXE2EPreflight().check(
-            descriptorPath: "",
+            robotManifestPath: "",
             sourceCheckpointURL: nil,
             requireSourceCheckpoint: true,
             executablePath: "/Applications/Kuyu.app/Contents/MacOS/kuyu"
@@ -51,7 +51,7 @@ import Testing
 
     #expect(throws: ManasMLXE2EPreflightError.missingCheckpointFile(root.appendingPathComponent("model.json").path)) {
         try ManasMLXE2EPreflight().check(
-            descriptorPath: "",
+            robotManifestPath: "",
             sourceCheckpointURL: root,
             executablePath: "/Applications/Kuyu.app/Contents/MacOS/kuyu"
         )

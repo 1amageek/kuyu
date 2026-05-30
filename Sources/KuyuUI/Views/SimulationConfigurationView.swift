@@ -108,43 +108,49 @@ public struct SimulationConfigurationView: View {
             GroupBox("Model") {
                 VStack(alignment: .leading, spacing: 8) {
                     TextField(
-                        "Descriptor path",
+                        "Robot manifest path",
                         text: Binding(
-                            get: { model.modelDescriptorPath },
-                            set: { model.setModelDescriptorPath($0, source: "textField", emitLog: false) }
+                            get: { model.robotManifestPath },
+                            set: { model.setRobotManifestPath($0, source: "textField", emitLog: false) }
                         )
                     )
                         .textFieldStyle(.roundedBorder)
                         .onSubmit {
-                            model.setModelDescriptorPath(model.modelDescriptorPath, source: "textField")
+                            model.setRobotManifestPath(model.robotManifestPath, source: "textField")
                         }
                     HStack(spacing: 8) {
                         Button("Use Bundled") {
-                            if let path = KuyuUIModelPaths.bundledDescriptorPath() {
-                                model.setModelDescriptorPath(path, source: "bundled")
+                            if let path = KuyuUIModelPaths.bundledRobotManifestPath() {
+                                model.setRobotManifestPath(path, source: "bundled")
                             } else {
-                                model.emitUIAction(level: .warning, message: "Bundled model not found", action: "setDescriptorPath", metadata: [
+                                model.emitUIAction(level: .warning, message: "Bundled model not found", action: "setRobotManifestPath", metadata: [
                                     "source": "bundled",
                                     "reason": "notFound"
                                 ])
                             }
                         }
                         Button("Use Local") {
-                            if let path = KuyuUIModelPaths.localDescriptorPath() {
-                                model.setModelDescriptorPath(path, source: "local")
-                            } else if let source = KuyuUIModelPaths.sourceRootDescriptorPath() {
-                                model.setModelDescriptorPath(source, source: "source")
+                            if let path = KuyuUIModelPaths.localRobotManifestPath() {
+                                model.setRobotManifestPath(path, source: "local")
+                            } else if let source = KuyuUIModelPaths.sourceRootRobotManifestPath() {
+                                model.setRobotManifestPath(source, source: "source")
                             } else {
-                                model.emitUIAction(level: .warning, message: "Local model not found", action: "setDescriptorPath", metadata: [
+                                model.emitUIAction(level: .warning, message: "Local model not found", action: "setRobotManifestPath", metadata: [
                                     "source": "local",
                                     "reason": "notFound"
                                 ])
                             }
                         }
+                        Button("Use RoArm M1") {
+                            model.setRobotManifestPath(
+                                KuyuUIModelPaths.defaultRoArmM1RobotManifestPath(),
+                                source: "roarm-m1"
+                            )
+                        }
                     }
                     .font(.callout)
                     Toggle("Render asset", isOn: $model.useRenderAssets)
-                    Text("RobotDescriptor (e.g. Models/Robot/robot.robot.json)")
+                    Text("Robot manifest (e.g. Models/Robot/robot.kuyurobot.json)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -169,9 +175,9 @@ public struct SimulationConfigurationView: View {
                             ])
                         }
 
-                    let descendingChannels = model.descriptorDescendingChannelIDs()
+                    let descendingChannels = model.embodimentDescendingChannelIDs()
                     if descendingChannels.isEmpty {
-                        Text("Current descriptor does not define control.descendingChannels. Input is ignored.")
+                        Text("Current embodiment does not define control.descendingChannels. Input is ignored.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -186,22 +192,22 @@ public struct SimulationConfigurationView: View {
                 .padding(.top, 6)
             }
 
-            GroupBox("Descriptor Summary") {
+            GroupBox("Robot Summary") {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let descriptor = model.currentDescriptor() {
-                        SummaryLine(label: "robotID", value: descriptor.robot.robotID)
-                        SummaryLine(label: "name", value: descriptor.robot.name)
-                        SummaryLine(label: "category", value: descriptor.robot.category)
-                        SummaryLine(label: "engine", value: descriptor.physics.engine.id)
-                        SummaryLine(label: "motorNerve stages", value: "\(descriptor.motorNerve.stages.count)")
-                        SummaryLine(label: "descending signals", value: "\((descriptor.signals.descending ?? []).count)")
-                        SummaryLine(label: "descending channels", value: "\((descriptor.control.descendingChannels ?? []).count)")
-                    } else if let error = model.currentDescriptorError() {
-                        Text("Descriptor error: \(error)")
+                    if let manifest = model.currentRobotManifest(), let embodiment = model.currentEmbodiment() {
+                        SummaryLine(label: "robotID", value: manifest.robotID)
+                        SummaryLine(label: "name", value: manifest.name)
+                        SummaryLine(label: "category", value: manifest.category)
+                        SummaryLine(label: "contract", value: embodiment.contractID)
+                        SummaryLine(label: "motorNerve stages", value: "\(embodiment.motorNerve.stages.count)")
+                        SummaryLine(label: "descending signals", value: "\((embodiment.signals.descending ?? []).count)")
+                        SummaryLine(label: "descending channels", value: "\((embodiment.control.descendingChannels ?? []).count)")
+                    } else if let error = model.currentRobotLoadError() {
+                        Text("Robot contract error: \(error)")
                             .font(.caption)
                             .foregroundStyle(.orange)
                     } else {
-                        Text("Descriptor not loaded")
+                        Text("Robot manifest not loaded")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

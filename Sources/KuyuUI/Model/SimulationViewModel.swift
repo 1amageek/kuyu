@@ -60,11 +60,11 @@ public final class SimulationViewModel {
     var logDirectory: String = ""
     var trainingDatasetDirectory: String = ""
     var trainingInputDirectory: String = ""
-    private(set) var modelDescriptorPath: String = KuyuUIModelPaths.defaultDescriptorPath() {
+    private(set) var robotManifestPath: String = KuyuUIModelPaths.defaultRobotManifestPath() {
         didSet {
-            descriptorCachePath = nil
-            descriptorCache = nil
-            descriptorCacheError = nil
+            robotCachePath = nil
+            robotCache = nil
+            robotCacheError = nil
         }
     }
     var descendingVectorText: String = ""
@@ -96,9 +96,9 @@ public final class SimulationViewModel {
     private var autoStridePending = true
     private var lastLiveStepTime: Double?
     private var activeLoopController: ControllerSelection?
-    private var descriptorCachePath: String?
-    private var descriptorCache: LoadedRobotDescriptor?
-    private var descriptorCacheError: String?
+    private var robotCachePath: String?
+    private var robotCache: LoadedKuyuRobot?
+    private var robotCacheError: String?
     private var lastTelemetryLogTime: Double?
     var lastActuatorValues: [ActuatorValue] = []
     var lastDriveIntents: [DriveIntent] = []
@@ -474,6 +474,13 @@ public final class SimulationViewModel {
 
     private func taskProfileMetadata() -> [String: String] {
         let motorNerveProfile = currentMotorNerveProfile()
+        if currentRobotIsArticulatedDynamic() {
+            let robotID = robotCache?.manifest.robotID ?? "articulated"
+            return [
+                "suite": "\(robotID.uppercased())-DYN-1",
+                "motorNerveProfile": motorNerveProfile
+            ]
+        }
         switch taskMode {
         case .attitude:
             return [
@@ -495,68 +502,83 @@ public final class SimulationViewModel {
 
     private func emitTaskMismatchWarnings(modelPath: String?) {
         guard let modelPath else { return }
-        if taskMode == .singleLift && DescriptorSelection.isQuadDescriptorPath(modelPath) {
-            emitUIAction(level: .warning, message: "Single Lift task using quad model descriptor", action: "taskDescriptorMismatch", metadata: [
+        guard !currentRobotIsArticulatedDynamic() else { return }
+        guard !RobotManifestSelection.isRoArmM1RobotManifestPath(modelPath) else { return }
+        if taskMode == .singleLift && RobotManifestSelection.isQuadRobotManifestPath(modelPath) {
+            emitUIAction(level: .warning, message: "Single Lift task using quad robot manifest", action: "taskRobotManifestMismatch", metadata: [
                 "path": modelPath,
                 "reason": "singleLiftUsesQuad"
             ])
         }
-        if taskMode != .singleLift && DescriptorSelection.isSinglePropDescriptorPath(modelPath) {
-            emitUIAction(level: .warning, message: "Quad task using single-prop model descriptor", action: "taskDescriptorMismatch", metadata: [
+        if taskMode != .singleLift && RobotManifestSelection.isSinglePropRobotManifestPath(modelPath) {
+            emitUIAction(level: .warning, message: "Quad task using single-prop robot manifest", action: "taskRobotManifestMismatch", metadata: [
                 "path": modelPath,
                 "reason": "quadUsesSingleProp"
             ])
         }
     }
 
-    private func isQuadDescriptorPath(_ path: String) -> Bool {
-        DescriptorSelection.isQuadDescriptorPath(path)
+    private func isQuadRobotManifestPath(_ path: String) -> Bool {
+        RobotManifestSelection.isQuadRobotManifestPath(path)
     }
 
-    private func isSinglePropDescriptorPath(_ path: String) -> Bool {
-        DescriptorSelection.isSinglePropDescriptorPath(path)
+    private func isSinglePropRobotManifestPath(_ path: String) -> Bool {
+        RobotManifestSelection.isSinglePropRobotManifestPath(path)
     }
 
-    private func desiredDescriptorPath(for task: SimulationTaskMode) -> String {
-        DescriptorSelection.desiredDescriptorPath(for: task)
+    private func currentRobotIsArticulatedDynamic() -> Bool {
+        if RobotManifestSelection.isRoArmM1RobotManifestPath(robotManifestPath) {
+            return true
+        }
+        guard let loaded = robotCache else { return false }
+        let movableJointCount = loaded.body.joints.filter {
+            $0.kind == .revolute || $0.kind == .continuous || $0.kind == .prismatic
+        }.count
+        return (loaded.manifest.category == "manipulator" || loaded.body.category == "manipulator")
+            && movableJointCount > 0
     }
 
-    private func ensureDescriptorForTask(reason: String) -> String {
-        let resolution = DescriptorSelection.resolveForTask(
-            configuredPath: modelDescriptorPath,
+    private func desiredRobotManifestPath(for task: SimulationTaskMode) -> String {
+        RobotManifestSelection.desiredRobotManifestPath(for: task)
+    }
+
+    private func ensureRobotManifestForTask(reason: String) -> String {
+        let resolution = RobotManifestSelection.resolveForTask(
+            configuredPath: robotManifestPath,
             taskMode: taskMode
         )
         if resolution.didSwitch && resolution.reason == "emptyPath" {
-            modelDescriptorPath = resolution.path
-            emitUIAction(level: .info, message: "Model descriptor set for task", action: "descriptorAutoSet", metadata: [
+            robotManifestPath = resolution.path
+            emitUIAction(level: .info, message: "Robot manifest set for task", action: "robotManifestAutoSet", metadata: [
                 "reason": reason,
                 "path": resolution.path
             ])
-            return resolvedDescriptorPath()
+            return resolvedRobotManifestPath()
         }
 
         if resolution.didSwitch && resolution.reason == "singleLiftUsesQuad" {
-            let previous = modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            modelDescriptorPath = resolution.path
-            emitUIAction(level: .warning, message: "Model descriptor auto-switched for Single Lift task", action: "descriptorAutoSwitch", metadata: [
+            let previous = robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            robotManifestPath = resolution.path
+            emitUIAction(level: .warning, message: "Robot manifest auto-switched for Single Lift task", action: "robotManifestAutoSwitch", metadata: [
                 "reason": reason,
                 "from": previous,
                 "to": resolution.path
             ])
         } else if resolution.didSwitch && resolution.reason == "quadUsesSingleProp" {
-            let previous = modelDescriptorPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            modelDescriptorPath = resolution.path
-            emitUIAction(level: .warning, message: "Model descriptor auto-switched for quad task", action: "descriptorAutoSwitch", metadata: [
+            let previous = robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            robotManifestPath = resolution.path
+            emitUIAction(level: .warning, message: "Robot manifest auto-switched for quad task", action: "robotManifestAutoSwitch", metadata: [
                 "reason": reason,
                 "from": previous,
                 "to": resolution.path
             ])
         }
 
-        return resolvedDescriptorPath()
+        return resolvedRobotManifestPath()
     }
 
     private func emitObjectiveWarningIfNeeded() {
+        guard !currentRobotIsArticulatedDynamic() else { return }
         if taskMode != .singleLift {
             emitUIAction(level: .warning, message: "Objective mismatch: expected Single Lift task", action: "objectiveMismatch", metadata: [
                 "expected": SimulationTaskMode.singleLift.rawValue
@@ -695,7 +717,7 @@ public final class SimulationViewModel {
             return
         }
         resetLiveStride()
-        if taskMode != .singleLift {
+        if taskMode != .singleLift && !currentRobotIsArticulatedDynamic() {
             emitUIAction(level: .warning, message: "Run auto-switched to Single Lift task", action: "runBaseline", metadata: [
                 "fromTask": taskMode.rawValue,
                 "toTask": SimulationTaskMode.singleLift.rawValue,
@@ -703,7 +725,7 @@ public final class SimulationViewModel {
             ])
             taskMode = .singleLift
         }
-        let resolvedPath = ensureDescriptorForTask(reason: "runBaseline")
+        let resolvedPath = ensureRobotManifestForTask(reason: "runBaseline")
         runError = nil
         isRunning = true
         isPaused = false
@@ -772,7 +794,7 @@ public final class SimulationViewModel {
             cutPeriodSteps: cutPeriodSteps,
             noise: .zero,
             determinism: determinism,
-            modelDescriptorPath: resolvedPath,
+            robotManifestPath: resolvedPath,
             overrideParameters: overrideParameters,
             useAux: trainingUseAux,
             useQualityGating: trainingUseQualityGating,
@@ -1015,7 +1037,7 @@ public final class SimulationViewModel {
             ])
         }
 
-        let resolvedPath = ensureDescriptorForTask(reason: "startTrainingLoop")
+        let resolvedPath = ensureRobotManifestForTask(reason: "startTrainingLoop")
         let descendingIntent: ResolvedDescendingIntent
         do {
             descendingIntent = try resolvedDescendingIntent(
@@ -1046,7 +1068,7 @@ public final class SimulationViewModel {
                 hoverThrustScale: hoverThrustScale,
                 cutPeriodSteps: cutPeriodSteps,
                 determinismSelection: determinismSelection,
-                modelDescriptorPath: resolvedPath,
+                robotManifestPath: resolvedPath,
                 overrideParameters: overrideParameters,
                 descendingIntent: descendingIntent,
                 datasetDirectory: trainingDatasetDirectory,
@@ -1610,7 +1632,7 @@ public final class SimulationViewModel {
         )
         let sourceIsValidForTemplate = sourceIsCompleteForTemplate && starterSourceCheckpointIsValid(
             at: sourceURL,
-            descriptorPath: ensureDescriptorForTask(reason: "kuyuProjectOpen"),
+            robotManifestPath: ensureRobotManifestForTask(reason: "kuyuProjectOpen"),
             policyContract: package.selectedTemplate.policy
         )
 
@@ -1645,13 +1667,13 @@ public final class SimulationViewModel {
             package.sourceBundleReference.url,
             isDirectory: true
         )
-        let descriptorPath = ensureDescriptorForTask(reason: "kuyuProject")
+        let robotManifestPath = ensureRobotManifestForTask(reason: "kuyuProject")
         let observationTaskMode = taskMode
         try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
             checkpointURL: sourceURL,
             displayName: package.manifest.name,
-            descriptorPath: descriptorPath,
-            descriptor: currentDescriptor(),
+            robotManifestPath: robotManifestPath,
+            embodiment: currentEmbodiment(),
             taskMode: observationTaskMode,
             driveCount: package.selectedTemplate.action.driveCount,
             expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
@@ -1700,7 +1722,7 @@ public final class SimulationViewModel {
             learningCampaignLaunchEstimate = makeLearningCampaignLaunchEstimate(
                 suites: request.configuration.scenarioSelection.suiteIDs
             )
-            learningCampaignReadiness = .ready(message: "Source checkpoint, descriptor, suites, and artifact root are valid.")
+            learningCampaignReadiness = .ready(message: "Source checkpoint, embodiment, suites, and artifact root are valid.")
             learningCampaignError = nil
             emitUIAction(level: .notice, message: "Learning campaign dry validation passed", action: "validateLearningCampaign", metadata: [
                 "task": request.taskProfileID,
@@ -2580,7 +2602,7 @@ public final class SimulationViewModel {
     private func prepareStarterLearningProjectIfNeeded(forceNewArtifactRoot: Bool) throws -> LearningStarterProject {
         let sourcePath = learningCampaignSourceCheckpointPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let artifactPath = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let descriptorPath = ensureDescriptorForTask(reason: "starterProject")
+        let robotManifestPath = ensureRobotManifestForTask(reason: "starterProject")
         let sourceURL = URL(fileURLWithPath: sourcePath, isDirectory: true)
         let sourceIsComplete = !sourcePath.isEmpty
             && learningStarterProjectStore.checkpointIsComplete(
@@ -2590,7 +2612,7 @@ public final class SimulationViewModel {
         let sourceIsValid = sourceIsComplete
             && starterSourceCheckpointIsValid(
                 at: sourceURL,
-                descriptorPath: descriptorPath,
+                robotManifestPath: robotManifestPath,
                 policyContract: learningCampaignPolicyContract
             )
         let artifactURL = URL(fileURLWithPath: artifactPath, isDirectory: true)
@@ -2628,8 +2650,8 @@ public final class SimulationViewModel {
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
                 checkpointURL: sourceURL,
                 displayName: learningCampaignExperimentName,
-                descriptorPath: descriptorPath,
-                descriptor: currentDescriptor(),
+                robotManifestPath: robotManifestPath,
+                embodiment: currentEmbodiment(),
                 taskMode: observationTaskMode,
                 driveCount: driveCount,
                 expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
@@ -2640,7 +2662,7 @@ public final class SimulationViewModel {
             ))
             try validateStarterSourceCheckpoint(
                 at: sourceURL,
-                descriptorPath: descriptorPath,
+                robotManifestPath: robotManifestPath,
                 policyContract: policyContract
             )
             let nextArtifactURL: URL
@@ -2668,8 +2690,8 @@ public final class SimulationViewModel {
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
                 checkpointURL: checkpointURL,
                 displayName: "Bounded Drone Autonomy Starter",
-                descriptorPath: descriptorPath,
-                descriptor: currentDescriptor(),
+                robotManifestPath: robotManifestPath,
+                embodiment: currentEmbodiment(),
                 taskMode: observationTaskMode,
                 driveCount: driveCount,
                 expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
@@ -2681,7 +2703,7 @@ public final class SimulationViewModel {
         }
         try validateStarterSourceCheckpoint(
             at: project.sourceCheckpoint,
-            descriptorPath: descriptorPath,
+            robotManifestPath: robotManifestPath,
             policyContract: learningCampaignPolicyContract
         )
 
@@ -2799,13 +2821,13 @@ public final class SimulationViewModel {
 
     private func starterSourceCheckpointIsValid(
         at url: URL,
-        descriptorPath: String,
+        robotManifestPath: String,
         policyContract: LearningProjectPolicyContract
     ) -> Bool {
         do {
             try validateStarterSourceCheckpoint(
                 at: url,
-                descriptorPath: descriptorPath,
+                robotManifestPath: robotManifestPath,
                 policyContract: policyContract
             )
             return true
@@ -2828,11 +2850,11 @@ public final class SimulationViewModel {
 
     private func validateStarterSourceCheckpoint(
         at url: URL,
-        descriptorPath: String,
+        robotManifestPath: String,
         policyContract: LearningProjectPolicyContract
     ) throws {
         _ = try ManasMLXE2EPreflight().check(
-            descriptorPath: descriptorPath,
+            robotManifestPath: robotManifestPath,
             sourceCheckpointURL: url,
             requireSourceCheckpoint: true
         )
@@ -2953,7 +2975,7 @@ public final class SimulationViewModel {
                 minimumIncumbentImprovement: learningCampaignMinimumIncumbentImprovement
             ),
             control: TrainingControlSettings(
-                modelDescriptorPath: ensureDescriptorForTask(reason: "learningCampaignConfig"),
+                robotManifestPath: ensureRobotManifestForTask(reason: "learningCampaignConfig"),
                 kp: kp,
                 kd: kd,
                 yawDamping: yawDamping,
@@ -3310,15 +3332,15 @@ public final class SimulationViewModel {
         selectedScenarioKey = run.scenarios.first?.id
     }
 
-    func setModelDescriptorPath(_ path: String, source: String, emitLog: Bool = true) {
-        modelDescriptorPath = path
-        descriptorCachePath = nil
-        descriptorCache = nil
-        descriptorCacheError = nil
+    func setRobotManifestPath(_ path: String, source: String, emitLog: Bool = true) {
+        robotManifestPath = path
+        robotCachePath = nil
+        robotCache = nil
+        robotCacheError = nil
         refreshManualActuatorLayout()
-        invalidateLearningStarterProject(reason: "descriptorChanged")
+        invalidateLearningStarterProject(reason: "robotManifestChanged")
         guard emitLog else { return }
-        emitUIAction(level: .info, message: "Model descriptor set", action: "setDescriptorPath", metadata: [
+        emitUIAction(level: .info, message: "Robot manifest set", action: "setRobotManifestPath", metadata: [
             "source": source,
             "path": path
         ])
@@ -3344,16 +3366,16 @@ public final class SimulationViewModel {
         return levelIndex > errorIndex ? .error : level
     }
 
-    private func resolvedDescriptorPathForCache() -> String {
-        KuyuUIModelPaths.resolveDescriptorPath(modelDescriptorPath)
+    private func resolvedRobotManifestPathForCache() -> String {
+        KuyuUIModelPaths.resolveRobotManifestPath(robotManifestPath)
     }
 
-    private func resolvedDescriptorPath() -> String {
-        let resolved = resolvedDescriptorPathForCache()
-        if resolved != modelDescriptorPath {
-            let previous = modelDescriptorPath
-            modelDescriptorPath = resolved
-            emitUIAction(level: .info, message: "Model descriptor path resolved", action: "descriptorPathResolved", metadata: [
+    private func resolvedRobotManifestPath() -> String {
+        let resolved = resolvedRobotManifestPathForCache()
+        if resolved != robotManifestPath {
+            let previous = robotManifestPath
+            robotManifestPath = resolved
+            emitUIAction(level: .info, message: "Robot manifest path resolved", action: "robotManifestPathResolved", metadata: [
                 "from": previous,
                 "to": resolved,
                 "reason": "defaultPath"
@@ -3362,37 +3384,37 @@ public final class SimulationViewModel {
         return resolved
     }
 
-    private func descriptorSnapshot() -> LoadedRobotDescriptor? {
-        let resolved = resolvedDescriptorPathForCache().trimmingCharacters(in: .whitespacesAndNewlines)
+    private func robotSnapshot() -> LoadedKuyuRobot? {
+        let resolved = resolvedRobotManifestPathForCache().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolved.isEmpty else {
-            descriptorCachePath = nil
-            descriptorCache = nil
-            descriptorCacheError = nil
+            robotCachePath = nil
+            robotCache = nil
+            robotCacheError = nil
             return nil
         }
 
-        if descriptorCachePath == resolved {
-            return descriptorCache
+        if robotCachePath == resolved {
+            return robotCache
         }
 
-        descriptorCachePath = resolved
+        robotCachePath = resolved
         do {
-            let loader = RobotDescriptorLoader()
-            let loaded = try loader.loadDescriptor(path: resolved)
-            descriptorCache = loaded
-            descriptorCacheError = nil
+            let loader = KuyuModelLoader()
+            let loaded = try loader.loadRobot(path: resolved)
+            robotCache = loaded
+            robotCacheError = nil
             refreshManualActuatorLayout()
             return loaded
         } catch {
-            descriptorCache = nil
-            descriptorCacheError = "\(error)"
+            robotCache = nil
+            robotCacheError = "\(error)"
             refreshManualActuatorLayout()
             return nil
         }
     }
 
     private func trainingObservationMetadata() -> TrainingObservationMetadata? {
-        guard let observation = descriptorSnapshot()?.descriptor.observation else { return nil }
+        guard let observation = robotSnapshot()?.embodiment.observation else { return nil }
         return TrainingObservationMetadata(observation: observation)
     }
 
@@ -3408,8 +3430,11 @@ public final class SimulationViewModel {
 
     private func expectedManualActuatorChannelCount() -> Int {
         let defaultCount = taskMode == .singleLift ? 1 : 4
-        if let descriptor = descriptorCache?.descriptor {
-            let count = descriptor.signals.actuator.count
+        if let embodiment = robotCache?.embodiment {
+            let count = embodiment.signals.actuator.count
+            if currentRobotIsArticulatedDynamic(), count > 0 {
+                return count
+            }
             if count == defaultCount {
                 return count
             }
@@ -3418,16 +3443,20 @@ public final class SimulationViewModel {
     }
 
     private func currentMotorNerveProfile() -> String {
-        let fallback = taskMode == .singleLift ? "fixed-single-prop" : "fixed-quad"
-        guard let descriptor = descriptorSnapshot()?.descriptor else { return fallback }
-        let expectedDriveCount = taskMode == .singleLift ? 1 : 4
-        if descriptor.control.driveChannels.count != expectedDriveCount {
+        let fallback = currentRobotIsArticulatedDynamic()
+            ? "articulated-dynamic"
+            : (taskMode == .singleLift ? "fixed-single-prop" : "fixed-quad")
+        guard let embodiment = robotSnapshot()?.embodiment else { return fallback }
+        let expectedDriveCount = currentRobotIsArticulatedDynamic()
+            ? embodiment.signals.actuator.count
+            : (taskMode == .singleLift ? 1 : 4)
+        if embodiment.control.driveChannels.count != expectedDriveCount {
             return fallback
         }
-        if descriptor.motorNerve.stages.contains(where: { $0.type == .custom }) {
+        if embodiment.motorNerve.stages.contains(where: { $0.type == .custom }) {
             return fallback
         }
-        return "descriptor-chain"
+        return "embodiment-contract"
     }
 
     private func preflightParameters(modelPath: String) throws -> ReferenceQuadrotorParameters? {
@@ -3437,12 +3466,12 @@ public final class SimulationViewModel {
         }
 
         do {
-            let loader = RobotDescriptorLoader()
-            let loaded = try loader.loadDescriptor(path: trimmed)
-            let inertial = try loader.loadPlantInertialProperties(descriptor: loaded)
+            let loader = KuyuModelLoader()
+            let loaded = try loader.loadRobot(path: trimmed)
+            let inertial = try loader.loadPlantInertialProperties(robot: loaded)
             let parameters = try ReferenceQuadrotorParameters.reference(
                 from: inertial,
-                robotID: loaded.descriptor.robot.robotID
+                robotID: loaded.manifest.robotID
             )
             emitUIAction(level: .info, message: "Model loaded", action: "modelPreflight", metadata: [
                 "path": trimmed
@@ -3459,7 +3488,7 @@ public final class SimulationViewModel {
     }
 
     private func preflightParameters() throws -> ReferenceQuadrotorParameters? {
-        try preflightParameters(modelPath: resolvedDescriptorPath())
+        try preflightParameters(modelPath: resolvedRobotManifestPath())
     }
 
     private func resolvedTrainingInputURL() -> URL? {
@@ -3634,15 +3663,15 @@ public final class SimulationViewModel {
         metadata["action"] = action
         metadata["task"] = taskMode.rawValue
         metadata["model"] = selectedModel?.name ?? "default"
-        metadata["modelDescriptor"] = resolvedDescriptorPathForCache()
+        metadata["robotManifest"] = resolvedRobotManifestPathForCache()
 
         let profileMeta = taskProfileMetadata()
         for (key, value) in profileMeta {
             metadata[key] = value
         }
 
-        if let descriptor = descriptorSnapshot()?.descriptor {
-            metadata["robotID"] = descriptor.robot.robotID
+        if let loaded = robotSnapshot() {
+            metadata["robotID"] = loaded.manifest.robotID
         }
         return metadata
     }
@@ -3743,62 +3772,70 @@ public final class SimulationViewModel {
 
     func renderAssetInfo() -> RenderAssetInfo? {
         guard useRenderAssets else { return nil }
-        guard let loaded = descriptorSnapshot() else { return nil }
-        let loader = RobotDescriptorLoader()
-        guard let asset = loader.primaryRenderAsset(descriptor: loaded) else { return nil }
-        let url = loader.loadRenderURL(asset: asset, baseURL: loaded.baseURL)
-        return RenderAssetInfo(
-            name: asset.name,
-            url: url,
-            format: asset.format
-        )
+        guard let loaded = robotSnapshot() else { return nil }
+        let loader = KuyuModelLoader()
+        if let asset = loader.primaryRenderAsset(robot: loaded) {
+            let url = loader.resolveRenderAsset(asset, baseURL: loaded.baseURL)
+            return RenderAssetInfo(
+                name: asset.name,
+                url: url,
+                format: asset.format,
+                scale: asset.scale
+            )
+        }
+
+        return nil
     }
 
-    func currentDescriptor() -> RobotDescriptor? {
-        descriptorSnapshot()?.descriptor
+    func currentEmbodiment() -> EmbodimentContract? {
+        robotSnapshot()?.embodiment
     }
 
-    func currentDescriptorError() -> String? {
-        _ = descriptorSnapshot()
-        return descriptorCacheError
+    func currentRobotManifest() -> KuyuRobotManifest? {
+        robotSnapshot()?.manifest
     }
 
-    func motorNerveStages() -> [RobotDescriptor.MotorNerveStage] {
-        descriptorSnapshot()?.descriptor.motorNerve.stages ?? []
+    func currentRobotLoadError() -> String? {
+        _ = robotSnapshot()
+        return robotCacheError
     }
 
-    func driveSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
-        guard let descriptor = descriptorSnapshot()?.descriptor else { return [] }
-        return orderedSignals(ids: descriptor.control.driveChannels, from: descriptor.signals.drive)
+    func motorNerveStages() -> [MotorNerveStageDefinition] {
+        robotSnapshot()?.embodiment.motorNerve.stages ?? []
     }
 
-    func reflexSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
-        guard let descriptor = descriptorSnapshot()?.descriptor else { return [] }
-        return orderedSignals(ids: descriptor.control.reflexChannels, from: descriptor.signals.reflex)
+    func driveSignalDefinitions() -> [SignalDefinition] {
+        guard let embodiment = robotSnapshot()?.embodiment else { return [] }
+        return orderedSignals(ids: embodiment.control.driveChannels, from: embodiment.signals.drive)
     }
 
-    func descriptorDescendingChannelIDs() -> [String] {
-        guard let descriptor = descriptorSnapshot()?.descriptor else { return [] }
-        return descriptor.control.descendingChannels ?? []
+    func reflexSignalDefinitions() -> [SignalDefinition] {
+        guard let embodiment = robotSnapshot()?.embodiment else { return [] }
+        return orderedSignals(ids: embodiment.control.reflexChannels, from: embodiment.signals.reflex)
     }
 
-    func descendingSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
-        guard let descriptor = descriptorSnapshot()?.descriptor else { return [] }
-        let definitions = descriptor.signals.descending ?? []
-        guard let descendingChannels = descriptor.control.descendingChannels,
+    func embodimentDescendingChannelIDs() -> [String] {
+        guard let embodiment = robotSnapshot()?.embodiment else { return [] }
+        return embodiment.control.descendingChannels ?? []
+    }
+
+    func descendingSignalDefinitions() -> [SignalDefinition] {
+        guard let embodiment = robotSnapshot()?.embodiment else { return [] }
+        let definitions = embodiment.signals.descending ?? []
+        guard let descendingChannels = embodiment.control.descendingChannels,
               !descendingChannels.isEmpty else {
             return definitions.sorted { $0.index < $1.index }
         }
         return orderedSignals(ids: descendingChannels, from: definitions)
     }
 
-    func actuatorSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
-        let definitions = descriptorSnapshot()?.descriptor.signals.actuator ?? []
+    func actuatorSignalDefinitions() -> [SignalDefinition] {
+        let definitions = robotSnapshot()?.embodiment.signals.actuator ?? []
         return definitions.sorted { $0.index < $1.index }
     }
 
-    func motorNerveSignalDefinitions() -> [RobotDescriptor.SignalDefinition] {
-        descriptorSnapshot()?.descriptor.signals.motorNerve ?? []
+    func motorNerveSignalDefinitions() -> [SignalDefinition] {
+        robotSnapshot()?.embodiment.signals.motorNerve ?? []
     }
 
     func manualActuatorChannelLabels() -> [String] {
@@ -3826,13 +3863,13 @@ public final class SimulationViewModel {
         let fallbackUpper = defaultManualActuatorUpperBound()
         var ranges = Array(repeating: (0.0...fallbackUpper), count: channelCount)
 
-        guard let descriptor = descriptorCache?.descriptor else {
+        guard let embodiment = robotCache?.embodiment else {
             return ranges
         }
 
-        let sortedSignals = descriptor.signals.actuator.sorted { $0.index < $1.index }
+        let sortedSignals = embodiment.signals.actuator.sorted { $0.index < $1.index }
         var limitsBySignalID: [String: ClosedRange<Double>] = [:]
-        for actuator in descriptor.actuators {
+        for actuator in embodiment.actuators {
             for channelID in actuator.channels {
                 let minValue = actuator.limits.min
                 let maxValue = actuator.limits.max
@@ -3880,7 +3917,7 @@ public final class SimulationViewModel {
     ) throws -> ResolvedDescendingIntent {
         let resolution = try descendingIntentResolver.resolve(
             controller: controller,
-            channelIDs: descriptorDescendingChannelIDs(),
+            channelIDs: embodimentDescendingChannelIDs(),
             vectorText: descendingVectorText,
             programText: descendingProgramText
         )
@@ -3898,8 +3935,8 @@ public final class SimulationViewModel {
 
     private func orderedSignals(
         ids: [String],
-        from definitions: [RobotDescriptor.SignalDefinition]
-    ) -> [RobotDescriptor.SignalDefinition] {
+        from definitions: [SignalDefinition]
+    ) -> [SignalDefinition] {
         let map = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0) })
         return ids.compactMap { map[$0] }
     }

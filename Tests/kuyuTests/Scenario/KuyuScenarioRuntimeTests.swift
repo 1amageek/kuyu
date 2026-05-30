@@ -14,14 +14,14 @@ import Testing
             cutPeriodSteps: 2,
             noise: .zero,
             determinism: try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline),
-            modelDescriptorPath: "",
+            robotManifestPath: "",
             overrideParameters: nil,
             useAux: true,
             useQualityGating: true
         ),
         parameters: .baseline,
         schedule: try SimulationSchedule.baseline(cutPeriodSteps: 2),
-        descriptor: nil
+        embodiment: nil
     )
 
     #expect(!output.logs.isEmpty)
@@ -41,14 +41,14 @@ import Testing
             cutPeriodSteps: 2,
             noise: .zero,
             determinism: try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline),
-            modelDescriptorPath: "",
+            robotManifestPath: "",
             overrideParameters: nil,
             useAux: true,
             useQualityGating: true
         ),
         parameters: .baseline,
         schedule: try SimulationSchedule.baseline(cutPeriodSteps: 2),
-        descriptor: nil
+        embodiment: nil
     )
 
     #expect(!output.logs.isEmpty)

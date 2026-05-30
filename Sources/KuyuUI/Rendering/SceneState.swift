@@ -14,10 +14,22 @@ public struct BodySceneState: Sendable, Equatable, Identifiable {
 public struct SceneState: Sendable, Equatable {
     let time: Double
     let bodies: [BodySceneState]
+    let scalars: [String: Double]
+
+    public init(
+        time: Double,
+        bodies: [BodySceneState],
+        scalars: [String: Double] = [:]
+    ) {
+        self.time = time
+        self.bodies = bodies
+        self.scalars = scalars
+    }
 }
 
 public struct RenderAssetInfo: Sendable, Equatable {
     let name: String
     let url: URL
     let format: RenderMeshFormat
+    let scale: KuyuVector3?
 }

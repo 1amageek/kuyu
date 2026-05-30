@@ -134,15 +134,38 @@ safety or decision module.
 - Time contract: `TIME_CONTRACT.md`.
 - Plant API: `PLANT_API.md`.
 
-## Robot Descriptor (Normative)
-Kuyu loads robots via `RobotDescriptor` (JSON). The descriptor is the canonical
-entry point and MUST reference the physics model (URDF) rather than loading
-URDF directly. This keeps signals, MotorNerve mapping, and plant parameters coherent.
+## Native Body/World/Embodiment Contracts (Normative)
+Kuyu loads robots through a `KuyuRobotManifest` (`.kuyurobot.json`). The
+manifest is an identity and reference envelope only. Physical structure,
+simulation world, and the Manas control boundary are separate authoritative
+contracts:
 
-If a non-empty descriptor path is provided, descriptor load, inertial load, and
-parameter resolution failures MUST fail closed. They MUST NOT fall back to
-`ReferenceQuadrotorParameters.baseline`. Empty descriptor paths may use the
-reference baseline only as a fixture/reference smoke path.
+```mermaid
+flowchart LR
+  M["KuyuRobotManifest"] --> B["KuyuBodyModel"]
+  M --> E["EmbodimentContract"]
+  C["Run configuration"] --> W["KuyuWorldModel"]
+  B --> P["PlantEngine"]
+  W --> P
+  E --> N["MotorNerve"]
+  N --> P
+```
+
+| Contract | Authority |
+|---|---|
+| `KuyuBodyModel` | Robot links, joints, mass, inertia, collision/visual geometry, actuator and sensor mounting. |
+| `KuyuWorldModel` | Gravity, timestep, solver policy, materials, surfaces, and contact/friction declarations. |
+| `EmbodimentContract` | Shared Kuyu/Manas signals, observations, actuators, latency budgets, and MotorNerve stages. |
+| `CompatibilityReport` | Import provenance and readiness evidence for external format conversion. |
+
+URDF and expanded Xacro are body import formats. SDF is a world import format.
+They are adapters, not runtime authority. Kuyu MUST NOT load URDF/STL/RealityKit
+assets as hidden physics sources.
+
+If a non-empty manifest or world path is provided, manifest load, body load,
+world load, embodiment load, compatibility validation, and readiness checks
+MUST fail closed. They MUST NOT fall back to `ReferenceQuadrotorParameters`
+baselines. Reference baselines are test fixtures only.
 
 ## World Engine (Baseline)
 - Fixed Δt, multi‑rate as integer multiples.
@@ -179,7 +202,7 @@ Required semantics:
 - `truncated` means time-limit or resource-limit terminal.
 - rewards must be finite and include a `RewardDescriptor` with identity,
   version, and config hash.
-- rollout artifacts must record scenario id, seed, policy id, descriptor id,
+- rollout artifacts must record scenario id, seed, policy id, robot manifest id,
   config hash, reward sum, terminal reason, failure metadata, worker count, and
   cancellation/limit state where applicable.
 
@@ -302,8 +325,9 @@ World → System order is fixed and versioned in `WORLD_SPEC.md`.
 - Training loop orchestration may live in a controller, but execution must cross
   the Kuyu API boundary defined above.
 - User-visible KuyuUI operations MUST log `kuyu.ui` with `action`, `task`,
-  `modelDescriptor`, and relevant controller/model identifiers. Descriptor
-  load/preflight errors MUST include `reason` and `error`.
+  `robotManifest`, and relevant controller/model identifiers. Manifest, body,
+  world, embodiment, compatibility, and readiness errors MUST include `reason`
+  and `error`.
 
 ## World Model Boundary (M1.6/M2)
 M1.6 runtime source of truth is analytical Kuyu physics. `kuyu-world-model` is

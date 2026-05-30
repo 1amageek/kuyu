@@ -1069,7 +1069,7 @@ public struct LearningCampaignRunStore {
             candidateEvaluationConcurrency: manifest.candidateEvaluationConcurrency,
             seeds: ["evolution"],
             sourceCheckpoint: nil,
-            modelDescriptor: manifest.descriptorID,
+            robotManifest: manifest.robotManifestID,
             variation: "evolution",
             searchStrategy: manifest.searchStrategy.rawValue,
             mutationRate: manifest.mutationRate,

@@ -15,63 +15,87 @@ public enum KuyuUIModelPaths {
         return ""
     }
 
-    public static func defaultDescriptorPath() -> String {
-        if let bundled = bundledDescriptorPath() {
+    public static func defaultRobotManifestPath() -> String {
+        if let bundled = bundledRobotManifestPath() {
             return bundled
         }
-        if let source = sourceRootDescriptorPath() {
+        if let source = sourceRootRobotManifestPath() {
             return source
         }
-        if let local = localDescriptorPath() {
+        if let local = localRobotManifestPath() {
             return local
         }
-        return "Models/QuadRef/quadref.model.json"
+        return "Models/QuadRef/quadref.kuyurobot.json"
     }
 
-    public static func defaultSinglePropDescriptorPath() -> String {
-        if let bundled = bundledSinglePropDescriptorPath() {
+    public static func defaultSinglePropRobotManifestPath() -> String {
+        if let bundled = bundledSinglePropRobotManifestPath() {
             return bundled
         }
-        if let source = sourceRootSinglePropDescriptorPath() {
+        if let source = sourceRootSinglePropRobotManifestPath() {
             return source
         }
-        if let local = localSinglePropDescriptorPath() {
+        if let local = localSinglePropRobotManifestPath() {
             return local
         }
-        return "Models/SingleProp/singleprop.model.json"
+        return "Models/SingleProp/singleprop.kuyurobot.json"
     }
 
-    public static func resolveDescriptorPath(_ path: String) -> String {
+    public static func defaultRoArmM1RobotManifestPath() -> String {
+        if let bundled = bundledRoArmM1RobotManifestPath() {
+            return bundled
+        }
+        if let source = sourceRootRoArmM1RobotManifestPath() {
+            return source
+        }
+        if let local = localRoArmM1RobotManifestPath() {
+            return local
+        }
+        return "Models/RoArmM1/roarm-m1.kuyurobot.json"
+    }
+
+    public static func resolveRobotManifestPath(_ path: String) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return defaultDescriptorPath()
+            return defaultRobotManifestPath()
         }
-        if trimmed == "Models/QuadRef/quadref.model.json" {
-            if let bundled = bundledDescriptorPath() {
+        if trimmed == "Models/QuadRef/quadref.kuyurobot.json" {
+            if let bundled = bundledRobotManifestPath() {
                 return bundled
             }
-            if let source = sourceRootDescriptorPath() {
+            if let source = sourceRootRobotManifestPath() {
                 return source
             }
-            if let local = localDescriptorPath() {
+            if let local = localRobotManifestPath() {
                 return local
             }
         }
-        if trimmed == "Models/SingleProp/singleprop.model.json" {
-            if let bundled = bundledSinglePropDescriptorPath() {
+        if trimmed == "Models/SingleProp/singleprop.kuyurobot.json" {
+            if let bundled = bundledSinglePropRobotManifestPath() {
                 return bundled
             }
-            if let source = sourceRootSinglePropDescriptorPath() {
+            if let source = sourceRootSinglePropRobotManifestPath() {
                 return source
             }
-            if let local = localSinglePropDescriptorPath() {
+            if let local = localSinglePropRobotManifestPath() {
+                return local
+            }
+        }
+        if trimmed == "Models/RoArmM1/roarm-m1.kuyurobot.json" {
+            if let bundled = bundledRoArmM1RobotManifestPath() {
+                return bundled
+            }
+            if let source = sourceRootRoArmM1RobotManifestPath() {
+                return source
+            }
+            if let local = localRoArmM1RobotManifestPath() {
                 return local
             }
         }
         return trimmed
     }
 
-    public static func bundledDescriptorPath() -> String? {
+    public static func bundledRobotManifestPath() -> String? {
         let subdirectories: [String?] = [
             "Models/QuadRef",
             "Resources/Models/QuadRef",
@@ -80,7 +104,7 @@ public enum KuyuUIModelPaths {
         for bundle in [Bundle.module, Bundle.main] {
             for subdir in subdirectories {
                 if let url = bundle.url(
-                    forResource: "quadref.model",
+                    forResource: "quadref.kuyurobot",
                     withExtension: "json",
                     subdirectory: subdir
                 ) {
@@ -91,7 +115,7 @@ public enum KuyuUIModelPaths {
         return nil
     }
 
-    public static func bundledSinglePropDescriptorPath() -> String? {
+    public static func bundledSinglePropRobotManifestPath() -> String? {
         let subdirectories: [String?] = [
             "Models/SingleProp",
             "Resources/Models/SingleProp",
@@ -100,7 +124,7 @@ public enum KuyuUIModelPaths {
         for bundle in [Bundle.module, Bundle.main] {
             for subdir in subdirectories {
                 if let url = bundle.url(
-                    forResource: "singleprop.model",
+                    forResource: "singleprop.kuyurobot",
                     withExtension: "json",
                     subdirectory: subdir
                 ) {
@@ -111,11 +135,31 @@ public enum KuyuUIModelPaths {
         return nil
     }
 
-    public static func localDescriptorPath() -> String? {
+    public static func bundledRoArmM1RobotManifestPath() -> String? {
+        let subdirectories: [String?] = [
+            "Models/RoArmM1",
+            "Resources/Models/RoArmM1",
+            nil
+        ]
+        for bundle in [Bundle.module, Bundle.main] {
+            for subdir in subdirectories {
+                if let url = bundle.url(
+                    forResource: "roarm-m1.kuyurobot",
+                    withExtension: "json",
+                    subdirectory: subdir
+                ) {
+                    return url.path
+                }
+            }
+        }
+        return nil
+    }
+
+    public static func localRobotManifestPath() -> String? {
         let candidates = [
-            "Models/QuadRef/quadref.model.json",
-            "../Models/QuadRef/quadref.model.json",
-            "../../Models/QuadRef/quadref.model.json"
+            "Models/QuadRef/quadref.kuyurobot.json",
+            "../Models/QuadRef/quadref.kuyurobot.json",
+            "../../Models/QuadRef/quadref.kuyurobot.json"
         ]
 
         for candidate in candidates {
@@ -127,11 +171,11 @@ public enum KuyuUIModelPaths {
         return nil
     }
 
-    public static func localSinglePropDescriptorPath() -> String? {
+    public static func localSinglePropRobotManifestPath() -> String? {
         let candidates = [
-            "Models/SingleProp/singleprop.model.json",
-            "../Models/SingleProp/singleprop.model.json",
-            "../../Models/SingleProp/singleprop.model.json"
+            "Models/SingleProp/singleprop.kuyurobot.json",
+            "../Models/SingleProp/singleprop.kuyurobot.json",
+            "../../Models/SingleProp/singleprop.kuyurobot.json"
         ]
 
         for candidate in candidates {
@@ -143,26 +187,55 @@ public enum KuyuUIModelPaths {
         return nil
     }
 
-    public static func sourceRootDescriptorPath() -> String? {
+    public static func localRoArmM1RobotManifestPath() -> String? {
+        let candidates = [
+            "Models/RoArmM1/roarm-m1.kuyurobot.json",
+            "../Models/RoArmM1/roarm-m1.kuyurobot.json",
+            "../../Models/RoArmM1/roarm-m1.kuyurobot.json"
+        ]
+
+        for candidate in candidates {
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+
+        return nil
+    }
+
+    public static func sourceRootRobotManifestPath() -> String? {
         let fileURL = URL(fileURLWithPath: #filePath)
         var base = fileURL.deletingLastPathComponent()
-        for _ in 0..<4 {
+        for _ in 0..<3 {
             base = base.deletingLastPathComponent()
         }
-        let candidate = base.appendingPathComponent("Models/QuadRef/quadref.model.json")
+        let candidate = base.appendingPathComponent("Sources/KuyuUI/Resources/Models/QuadRef/quadref.kuyurobot.json")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate.path
         }
         return nil
     }
 
-    public static func sourceRootSinglePropDescriptorPath() -> String? {
+    public static func sourceRootSinglePropRobotManifestPath() -> String? {
         let fileURL = URL(fileURLWithPath: #filePath)
         var base = fileURL.deletingLastPathComponent()
-        for _ in 0..<4 {
+        for _ in 0..<3 {
             base = base.deletingLastPathComponent()
         }
-        let candidate = base.appendingPathComponent("Models/SingleProp/singleprop.model.json")
+        let candidate = base.appendingPathComponent("Sources/KuyuUI/Resources/Models/SingleProp/singleprop.kuyurobot.json")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate.path
+        }
+        return nil
+    }
+
+    public static func sourceRootRoArmM1RobotManifestPath() -> String? {
+        let fileURL = URL(fileURLWithPath: #filePath)
+        var base = fileURL.deletingLastPathComponent()
+        for _ in 0..<3 {
+            base = base.deletingLastPathComponent()
+        }
+        let candidate = base.appendingPathComponent("Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate.path
         }
@@ -172,7 +245,7 @@ public enum KuyuUIModelPaths {
     public static func sourceRootKuyuExecutablePath() -> String? {
         let fileURL = URL(fileURLWithPath: #filePath)
         var base = fileURL.deletingLastPathComponent()
-        for _ in 0..<4 {
+        for _ in 0..<3 {
             base = base.deletingLastPathComponent()
         }
         let candidates = [

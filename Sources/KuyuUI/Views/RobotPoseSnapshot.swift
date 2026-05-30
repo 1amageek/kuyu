@@ -7,6 +7,8 @@ struct RobotPoseSnapshot {
     let yaw: Double
     let position: Axis3
     let renderInfo: RenderAssetInfo?
+    let jointAngles: [Double]
+    let jointValues: [String: Double]
 
     @MainActor
     static func current(model: SimulationViewModel) -> RobotPoseSnapshot {
@@ -19,12 +21,15 @@ struct RobotPoseSnapshot {
         let scene = model.liveScene
         let robot = scene?.bodies.first
         let angles = robot.map { eulerAngles(from: $0.orientation) } ?? (roll: 0, pitch: 0, yaw: 0)
+        let joints = jointState(from: scene?.scalars ?? [:], model: model)
         return RobotPoseSnapshot(
             roll: angles.roll,
             pitch: angles.pitch,
             yaw: angles.yaw,
             position: robot?.position ?? Axis3(x: 0, y: 0, z: 0),
-            renderInfo: model.renderAssetInfo()
+            renderInfo: model.renderAssetInfo(),
+            jointAngles: joints.ordered,
+            jointValues: joints.byID
         )
     }
 
@@ -37,12 +42,40 @@ struct RobotPoseSnapshot {
         let index = min(events.count - 1, Int((Double(events.count - 1) * clampedFraction).rounded()))
         let root = events[index].plantState.root
         let angles = eulerAngles(from: root.orientation)
+        let joints = jointState(from: events[index].plantState.scalars, model: model)
         return RobotPoseSnapshot(
             roll: angles.roll,
             pitch: angles.pitch,
             yaw: angles.yaw,
             position: root.position,
-            renderInfo: model.renderAssetInfo()
+            renderInfo: model.renderAssetInfo(),
+            jointAngles: joints.ordered,
+            jointValues: joints.byID
+        )
+    }
+
+    @MainActor
+    private static func jointState(
+        from scalars: [String: Double],
+        model: SimulationViewModel
+    ) -> (ordered: [Double], byID: [String: Double]) {
+        if let embodiment = model.currentEmbodiment() {
+            let actuatorSignals = embodiment.signals.actuator.sorted { $0.index < $1.index }
+            let ordered = actuatorSignals.map { scalars[$0.id] ?? 0.0 }
+            let byID = Dictionary(uniqueKeysWithValues: actuatorSignals.compactMap { signal in
+                scalars[signal.id].map { (signal.id, $0) }
+            })
+            if !ordered.isEmpty {
+                return (ordered, byID)
+            }
+        }
+
+        let pairs = scalars
+            .filter { $0.key.hasPrefix("joint_") }
+            .sorted { $0.key < $1.key }
+        return (
+            pairs.map(\.value),
+            Dictionary(uniqueKeysWithValues: pairs)
         )
     }
 

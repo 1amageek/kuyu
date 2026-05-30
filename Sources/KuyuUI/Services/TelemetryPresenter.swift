@@ -43,15 +43,19 @@ struct TelemetryPresenter {
         let stride = autoStridePending ? 1 : max(1, liveSampleStride)
         if (step.time.stepIndex % UInt64(stride)) != 0 { return nil }
 
-        let root = step.plantState.root
-        let body = BodySceneState(
-            id: root.id,
-            position: root.position,
-            velocity: root.velocity,
-            orientation: root.orientation,
-            angularVelocity: root.angularVelocity
+        let scene = SceneState(
+            time: step.time.time,
+            bodies: ([step.plantState.root] + step.plantState.bodies).map { body in
+                BodySceneState(
+                    id: body.id,
+                    position: body.position,
+                    velocity: body.velocity,
+                    orientation: body.orientation,
+                    angularVelocity: body.angularVelocity
+                )
+            },
+            scalars: step.plantState.scalars
         )
-        let scene = SceneState(time: step.time.time, bodies: [body])
         let stepLog = isActive ? stepLogMetadata(
             step: step,
             taskMode: taskMode,

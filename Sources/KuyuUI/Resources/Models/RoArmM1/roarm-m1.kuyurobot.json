@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "kuyu.robot.v1",
+  "robotID": "roarm-m1-v0",
+  "name": "RoArm M1",
+  "category": "manipulator",
+  "manufacturer": "Waveshare",
+  "tags": ["roarm-m1", "fixed-base", "serial-bus-servo"],
+  "bodyModel": {
+    "path": "roarm-m1.kuyubody.json"
+  },
+  "defaultWorldModel": {
+    "path": "../Common/earth-dynamic.kuyuworld.json"
+  },
+  "embodimentContract": {
+    "path": "roarm-m1.embodiment.json"
+  },
+  "compatibilityReport": {
+    "path": "roarm-m1.compatibility.json"
+  },
+  "renderAssets": [
+    {
+      "id": "urdf-render",
+      "name": "RoArm M1 URDF Render",
+      "format": "urdf",
+      "path": "roarm-m1.urdf",
+      "frameID": "base",
+      "scale": [1, 1, 1]
+    }
+  ]
+}

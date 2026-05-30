@@ -22,7 +22,7 @@ import Testing
         sourceCheckpointURL: source,
         workerRootURL: workers,
         policyID: "policy-a",
-        descriptorID: "quadref",
+        robotManifestID: "quadref",
         configHash: "config-a"
     )
     let builder = ParallelTrainingWorkerPlanBuilder()
@@ -34,7 +34,7 @@ import Testing
             snapshotID: "source-a",
             checkpointID: "checkpoint-a",
             checkpointURL: source,
-            descriptorID: "quadref",
+            robotManifestID: "quadref",
             configHash: "config-a"
         ),
         rolloutRoot: root.appendingPathComponent("rollouts", isDirectory: true),
@@ -46,7 +46,7 @@ import Testing
     #expect(plan.assignments[0].snapshot.workerIndex == 0)
     #expect(plan.assignments[1].snapshot.workerIndex == 1)
     #expect(plan.assignments[0].snapshot.identity.policyID == "policy-a")
-    #expect(plan.assignments[0].snapshot.identity.descriptorID == "quadref")
+    #expect(plan.assignments[0].snapshot.identity.robotManifestID == "quadref")
     #expect(plan.assignments[0].snapshot.identity.configHash == "config-a")
     #expect(plan.assignments[0].snapshot.checkpointURL != plan.assignments[1].snapshot.checkpointURL)
 
@@ -127,7 +127,7 @@ private enum SelfContainedBundleManifest {
       "modelFamily" : "manas",
       "runtimeContract" : {
         "configHash" : "config",
-        "descriptorHash" : "descriptor",
+        "embodimentHash" : "embodiment",
         "driveSemanticsID" : "drive",
         "observationSchemaID" : "observation"
       },

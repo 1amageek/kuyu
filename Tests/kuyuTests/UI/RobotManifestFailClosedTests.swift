@@ -7,17 +7,17 @@ import KuyuScenarios
 @testable import KuyuUI
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func uiModelPathResolutionPreservesMissingCustomDescriptorPath() throws {
+@Test(.timeLimit(.minutes(1))) func uiModelPathResolutionPreservesMissingCustomRobotManifestPath() throws {
     let missing = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")
         .path
 
     #expect(!FileManager.default.fileExists(atPath: missing))
-    #expect(KuyuUIModelPaths.resolveDescriptorPath(missing) == missing)
+    #expect(KuyuUIModelPaths.resolveRobotManifestPath(missing) == missing)
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func simulationRunnerRejectsInvalidDescriptorInsteadOfFallingBackToBaseline() async throws {
+@Test(.timeLimit(.minutes(1))) func simulationRunnerRejectsInvalidRobotManifestInsteadOfFallingBackToBaseline() async throws {
     let missing = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")
         .path
@@ -28,7 +28,7 @@ import KuyuScenarios
         cutPeriodSteps: 2,
         noise: .zero,
         determinism: .tier1Baseline,
-        modelDescriptorPath: missing,
+        robotManifestPath: missing,
         overrideParameters: nil,
         useAux: true,
         useQualityGating: true
@@ -37,13 +37,13 @@ import KuyuScenarios
 
     do {
         _ = try await service.run(request: request)
-        Issue.record("Expected invalid descriptor path to fail instead of using baseline parameters")
-    } catch let error as RobotDescriptorLoader.LoaderError {
+        Issue.record("Expected invalid robot manifest path to fail instead of using baseline parameters")
+    } catch let error as KuyuModelLoader.LoaderError {
         switch error {
-        case .descriptorReadFailed, .descriptorNotFound:
+        case .fileNotFound, .readFailed:
             break
         default:
-            Issue.record("Unexpected descriptor loader error: \(error)")
+            Issue.record("Unexpected robot manifest loader error: \(error)")
         }
     } catch {
         Issue.record("Unexpected error type: \(error)")
@@ -59,7 +59,7 @@ import KuyuScenarios
 
     model.controllerSelection = .teacherBaseline
     model.taskMode = .singleLift
-    model.setModelDescriptorPath(missing, source: "test")
+    model.setRobotManifestPath(missing, source: "test")
     model.runBaseline()
 
     #expect(model.isRunning == false)
@@ -77,7 +77,7 @@ import KuyuScenarios
 
     model.controllerSelection = .manasMLX
     model.taskMode = .singleLift
-    model.setModelDescriptorPath(missing, source: "test")
+    model.setRobotManifestPath(missing, source: "test")
     model.startTrainingLoop()
 
     #expect(model.isLoopRunning == false)
@@ -87,7 +87,7 @@ import KuyuScenarios
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func uiActionLogsIncludeRequiredContextForDescriptorAndPreflightFailure() async throws {
+@Test(.timeLimit(.minutes(1))) func uiActionLogsIncludeRequiredContextForRobotManifestAndPreflightFailure() async throws {
     let missing = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")
         .path
@@ -95,29 +95,29 @@ import KuyuScenarios
 
     model.controllerSelection = .teacherBaseline
     model.taskMode = .singleLift
-    model.setModelDescriptorPath(missing, source: "test")
+    model.setRobotManifestPath(missing, source: "test")
     model.runBaseline()
 
     let uiEntries = try await waitForUIEntries(store: store) { entries in
         entries.contains { entry in
-            entry.metadata["action"] == "setDescriptorPath"
+            entry.metadata["action"] == "setRobotManifestPath"
                 && entry.metadata["task"] == SimulationTaskMode.singleLift.rawValue
-                && entry.metadata["modelDescriptor"] == missing
+                && entry.metadata["robotManifest"] == missing
         } && entries.contains { entry in
             entry.metadata["action"] == "modelPreflight"
                 && entry.metadata["reason"] == "loadFailed"
-                && entry.metadata["modelDescriptor"] == missing
+                && entry.metadata["robotManifest"] == missing
         }
     }
     #expect(uiEntries.contains { entry in
-        entry.metadata["action"] == "setDescriptorPath"
+        entry.metadata["action"] == "setRobotManifestPath"
             && entry.metadata["task"] == SimulationTaskMode.singleLift.rawValue
-            && entry.metadata["modelDescriptor"] == missing
+            && entry.metadata["robotManifest"] == missing
     })
     #expect(uiEntries.contains { entry in
         entry.metadata["action"] == "modelPreflight"
             && entry.metadata["reason"] == "loadFailed"
-            && entry.metadata["modelDescriptor"] == missing
+            && entry.metadata["robotManifest"] == missing
     })
 }
 

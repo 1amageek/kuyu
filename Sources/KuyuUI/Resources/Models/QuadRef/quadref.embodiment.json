@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "kuyu.embodiment.v1",
+  "contractID": "quadref-embodiment-v0",
+  "bodyID": "quadref-body-v0",
+  "signals": {
+    "sensor": [
+      { "id": "imu_gyro_x", "index": 0, "name": "Gyro X", "units": "rad/s", "rateHz": 1000, "group": "imu" },
+      { "id": "imu_gyro_y", "index": 1, "name": "Gyro Y", "units": "rad/s", "rateHz": 1000, "group": "imu" },
+      { "id": "imu_gyro_z", "index": 2, "name": "Gyro Z", "units": "rad/s", "rateHz": 1000, "group": "imu" },
+      { "id": "imu_accel_x", "index": 3, "name": "Accel X", "units": "m/s^2", "rateHz": 1000, "group": "imu" },
+      { "id": "imu_accel_y", "index": 4, "name": "Accel Y", "units": "m/s^2", "rateHz": 1000, "group": "imu" },
+      { "id": "imu_accel_z", "index": 5, "name": "Accel Z", "units": "m/s^2", "rateHz": 1000, "group": "imu" }
+    ],
+    "actuator": [
+      { "id": "motor_1", "index": 0, "name": "Motor 1 thrust", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "motor" },
+      { "id": "motor_2", "index": 1, "name": "Motor 2 thrust", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "motor" },
+      { "id": "motor_3", "index": 2, "name": "Motor 3 thrust", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "motor" },
+      { "id": "motor_4", "index": 3, "name": "Motor 4 thrust", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "motor" }
+    ],
+    "drive": [
+      { "id": "drive_motor_1", "index": 0, "name": "Drive motor 1", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "drive" },
+      { "id": "drive_motor_2", "index": 1, "name": "Drive motor 2", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "drive" },
+      { "id": "drive_motor_3", "index": 2, "name": "Drive motor 3", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "drive" },
+      { "id": "drive_motor_4", "index": 3, "name": "Drive motor 4", "units": "N", "rateHz": 1000, "range": [0, 12], "group": "drive" }
+    ],
+    "reflex": [
+      { "id": "reflex_motor_1", "index": 0, "name": "Reflex motor 1", "units": "N", "rateHz": 1000, "range": [-2, 2], "group": "reflex" },
+      { "id": "reflex_motor_2", "index": 1, "name": "Reflex motor 2", "units": "N", "rateHz": 1000, "range": [-2, 2], "group": "reflex" },
+      { "id": "reflex_motor_3", "index": 2, "name": "Reflex motor 3", "units": "N", "rateHz": 1000, "range": [-2, 2], "group": "reflex" },
+      { "id": "reflex_motor_4", "index": 3, "name": "Reflex motor 4", "units": "N", "rateHz": 1000, "range": [-2, 2], "group": "reflex" }
+    ],
+    "descending": [
+      { "id": "intent.roll_bias", "index": 0, "name": "Roll bias", "units": "rad", "rateHz": 20, "range": [-0.5, 0.5], "group": "intent" },
+      { "id": "intent.pitch_bias", "index": 1, "name": "Pitch bias", "units": "rad", "rateHz": 20, "range": [-0.5, 0.5], "group": "intent" },
+      { "id": "intent.yaw_bias", "index": 2, "name": "Yaw bias", "units": "rad/s", "rateHz": 20, "range": [-1, 1], "group": "intent" },
+      { "id": "intent.throttle_bias", "index": 3, "name": "Throttle bias", "units": "N", "rateHz": 20, "range": [-2, 2], "group": "intent" }
+    ],
+    "summary": [
+      { "id": "summary.risk", "index": 0, "name": "Risk", "units": "norm", "rateHz": 20, "range": [0, 1], "group": "summary" },
+      { "id": "summary.uncertainty", "index": 1, "name": "Uncertainty", "units": "norm", "rateHz": 20, "range": [0, 1], "group": "summary" }
+    ],
+    "motorNerve": []
+  },
+  "sensors": [
+    {
+      "id": "imu",
+      "type": "imu6",
+      "frameID": "base_link",
+      "channels": ["imu_gyro_x", "imu_gyro_y", "imu_gyro_z", "imu_accel_x", "imu_accel_y", "imu_accel_z"],
+      "rateHz": 1000,
+      "latencySeconds": 0.001
+    }
+  ],
+  "actuators": [
+    { "id": "motor_1", "type": "rotor", "channels": ["motor_1"], "limits": { "min": 0, "max": 12, "rateLimitPerSecond": 200 }, "dynamics": { "timeConstantSeconds": 0.04, "deadzone": 0, "torqueLimit": 0.8, "damping": 0.01, "coulombFriction": 0 } },
+    { "id": "motor_2", "type": "rotor", "channels": ["motor_2"], "limits": { "min": 0, "max": 12, "rateLimitPerSecond": 200 }, "dynamics": { "timeConstantSeconds": 0.04, "deadzone": 0, "torqueLimit": 0.8, "damping": 0.01, "coulombFriction": 0 } },
+    { "id": "motor_3", "type": "rotor", "channels": ["motor_3"], "limits": { "min": 0, "max": 12, "rateLimitPerSecond": 200 }, "dynamics": { "timeConstantSeconds": 0.04, "deadzone": 0, "torqueLimit": 0.8, "damping": 0.01, "coulombFriction": 0 } },
+    { "id": "motor_4", "type": "rotor", "channels": ["motor_4"], "limits": { "min": 0, "max": 12, "rateLimitPerSecond": 200 }, "dynamics": { "timeConstantSeconds": 0.04, "deadzone": 0, "torqueLimit": 0.8, "damping": 0.01, "coulombFriction": 0 } }
+  ],
+  "control": {
+    "driveChannels": ["drive_motor_1", "drive_motor_2", "drive_motor_3", "drive_motor_4"],
+    "reflexChannels": ["reflex_motor_1", "reflex_motor_2", "reflex_motor_3", "reflex_motor_4"],
+    "descendingChannels": ["intent.roll_bias", "intent.pitch_bias", "intent.yaw_bias", "intent.throttle_bias"],
+    "summaryChannels": ["summary.risk", "summary.uncertainty"],
+    "constraints": {
+      "driveClamp": [0, 12],
+      "reflexClamp": [-2, 2]
+    },
+    "latencyBudgets": {
+      "reflexPathSeconds": 0.002,
+      "corePathSeconds": 0.02,
+      "descendingApplySeconds": 0.05,
+      "summaryExportSeconds": 0.05
+    }
+  },
+  "observation": {
+    "clock": {
+      "timebase": "simulation",
+      "maxSkewSeconds": 0.001,
+      "syncPolicy": "hard"
+    },
+    "modalities": [
+      {
+        "id": "state",
+        "type": "state",
+        "channels": ["imu_gyro_x", "imu_gyro_y", "imu_gyro_z", "imu_accel_x", "imu_accel_y", "imu_accel_z"],
+        "timestampSource": "simulation"
+      }
+    ]
+  },
+  "motorNerve": {
+    "stages": [
+      {
+        "id": "direct-thrust",
+        "type": "direct",
+        "inputs": ["drive_motor_1", "drive_motor_2", "drive_motor_3", "drive_motor_4"],
+        "outputs": ["motor_1", "motor_2", "motor_3", "motor_4"]
+      }
+    ]
+  }
+}

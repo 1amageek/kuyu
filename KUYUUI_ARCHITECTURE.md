@@ -31,9 +31,9 @@ and renders via RenderSystem.
 - Issues commands only through CommandSystem
 - Renders through RenderSystem
 - Displays logs and metrics from SimulationLog
-- Manual actuator override channels are generated from `RobotDescriptor.signals.actuator`
+- Manual actuator override channels are generated from `EmbodimentContract.actuators`
   (fallback: task default count).
-- Manual actuator sliders operate in physical actuator units (descriptor limits/range),
+- Manual actuator sliders operate in physical actuator units (embodiment limits/range),
   not normalized 0..1 UI values.
 
 ---
@@ -77,7 +77,7 @@ WorldEngine -> SimulationLog -> KuyuUI (charts/logs)
 
 ## 4. Command Types
 
-- RunSuite(suiteId, determinism, cutPeriod, modelDescriptor)
+- RunSuite(suiteId, determinism, cutPeriod, robotManifest)
 - ExportLogs(path)
 - ExportDataset(path)
 - TrainCore(datasetPath, epochs, lr, useAux, useQualityGating)

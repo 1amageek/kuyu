@@ -97,7 +97,15 @@ kuyu run-learning-campaign --artifact-root /tmp/kuyu-learning-campaign
 # Validate a completed campaign before using its final checkpoint
 ./scripts/validate-learning-campaign-artifacts.sh /tmp/kuyu-learning-campaign
 kuyu validate-learning-campaign --artifact-root /tmp/kuyu-learning-campaign
+
+# RoArm M1 guarded hardware probe; dry-run by default
+swift run kuyu probe-roarm-m1
+swift run kuyu probe-roarm-m1 --device /dev/cu.usbserial-0001 --enable-motion
 ```
+
+See `ROARM_M1_SIMULATION.md` for the Kuyu/RealityKit simulator path, and
+`ROARM_M1_HARDWARE_PROBE.md` for the manifest, embodiment, MotorNerve, encoder,
+and serial-write boundary used by the first RoArm M1 hardware test.
 
 ### M1.5 RL Environment Acceptance
 
@@ -108,16 +116,16 @@ M1.5 means Kuyu exposes a reinforcement-learning environment contract, not a com
 - Reward and terminal semantics are finite and deterministic for the ATT and lift reference scenarios.
 - Serial and parallel rollout produce deterministic merged artifacts ordered by scenario, seed, and worker index.
 - Parallel rollout uses independent environment and policy instances per worker. Shared `ManasMLXModelStore` execution is intentionally excluded until M2.
-- `kuyu rollout --model <descriptor>` constructs the environment from the descriptor. Invalid descriptor paths fail closed and never fall back to baseline.
+- `kuyu rollout --model <robot-manifest>` constructs the environment from the manifest, body, world, and embodiment contracts. Invalid paths fail closed and never fall back to baseline.
 
 ### M1.6 Runtime Reliability Acceptance
 
-M1.6 fixes the execution boundary around descriptors, UI commands, and MLX/Metal preflight:
+M1.6 fixes the execution boundary around native robot contracts, UI commands, and MLX/Metal preflight:
 
-- A non-empty descriptor path must load successfully; descriptor load, inertial load, and parameter resolution failures are terminal errors.
-- `ReferenceQuadrotorParameters.baseline` is allowed only for tests, empty descriptor reference runs, CLI smoke, and display-only preview fallback.
+- A non-empty robot manifest path must load successfully; manifest, body, world, embodiment, compatibility, and readiness failures are terminal errors.
+- `ReferenceQuadrotorParameters.baseline` is allowed only for tests, CLI smoke, and display-only preview fallback.
 - KuyuUI user operations route through `SimulationViewModel -> CommandSystem -> Service`; views do not mutate simulation state directly.
-- KuyuUI user operations log `kuyu.ui` with action/task/model descriptor context. Descriptor preflight errors include reason and error details.
+- KuyuUI user operations log `kuyu.ui` with action/task/robot manifest context. Preflight errors include reason and error details.
 - `manasMLX` and `kuyu loop` perform MLX metallib preflight before execution and do not fall back to baseline.
 
 Dependency-order verification:
@@ -135,7 +143,7 @@ swift run kuyu rollout --controller teacherBaseline --episodes 8 --workers 4
 
 ### Verification Split
 
-SwiftPM is the default path for non-MLX contracts: CLI parsing, descriptor loading, RL environment types, scenario execution, rollout harnesses, and dataset export.
+SwiftPM is the default path for non-MLX contracts: CLI parsing, manifest/body/world/embodiment loading, RL environment types, scenario execution, rollout harnesses, and dataset export.
 
 Xcode is the authority for MLX and Metal-backed execution. Use it for `ManasMLXModelStore` load/train/save smoke tests, app-level MLX tests, and `kuyu-world-model` validation:
 

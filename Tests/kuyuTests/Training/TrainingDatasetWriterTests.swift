@@ -106,7 +106,7 @@ import KuyuTraining
     let provenance = TrainingProvenanceManifest(
         codeHash: "code-abc",
         configHash: log.configHash,
-        descriptorHash: "desc-123",
+        robotManifestHash: "robot-123",
         suiteVersion: "suite-v2",
         plannerProfileID: "planner-default",
         curriculumPolicyID: "curriculum-v1"
@@ -117,7 +117,7 @@ import KuyuTraining
     let meta = try JSONDecoder().decode(TrainingDatasetMetadata.self, from: metaData)
 
     #expect(meta.provenance?.codeHash == "code-abc")
-    #expect(meta.provenance?.descriptorHash == "desc-123")
+    #expect(meta.provenance?.robotManifestHash == "robot-123")
     #expect(meta.provenance?.suiteVersion == "suite-v2")
     #expect(meta.provenance?.plannerProfileID == "planner-default")
 }
@@ -224,7 +224,7 @@ private func makeLog(firstStepHasDrive: Bool = true) throws -> SimulationLog {
         provenance: TrainingProvenanceManifest(
             codeHash: "code-z",
             configHash: log.configHash,
-            descriptorHash: "desc-z",
+            robotManifestHash: "robot-z",
             suiteVersion: "suite-z"
         )
     )
