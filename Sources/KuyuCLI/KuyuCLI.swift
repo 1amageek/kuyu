@@ -12,7 +12,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
     )
 }
 
@@ -1072,6 +1072,8 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         case outputParentMissing(String)
         case outputParentIsFile(String)
         case invalidHiddenSize(Int)
+        case invalidObservationDimension(Int)
+        case invalidHistoryLength(Int)
         case outputMustBeManasBundle(String)
         case outputAlreadyExists(String)
 
@@ -1085,6 +1087,10 @@ struct WriteCTBRCheckpoint: ParsableCommand {
                 return "output-parent-is-file: \(path)"
             case .invalidHiddenSize(let hiddenSize):
                 return "invalid-hidden-size: \(hiddenSize)"
+            case .invalidObservationDimension(let value):
+                return "invalid-observation-dimension: \(value)"
+            case .invalidHistoryLength(let value):
+                return "invalid-history-length: \(value)"
             case .outputMustBeManasBundle(let path):
                 return "output-must-be-manasbundle: \(path)"
             case .outputAlreadyExists(let path):
@@ -1105,6 +1111,12 @@ struct WriteCTBRCheckpoint: ParsableCommand {
     @Option(name: .customLong("hidden-size"), help: "Temporal actor-critic hidden size.")
     var hiddenSize: Int = 256
 
+    @Option(name: .customLong("observation-dimension"), help: "Actor observation channel count. Size to the task's real channel contract (e.g. 6 for attitude) instead of zero-padding into a wider policy. Default 64 (lift privileged observation).")
+    var observationDimension: Int = 64
+
+    @Option(name: .customLong("history-length"), help: "Temporal window length. Use 1 for reactive tasks like attitude; 32 for the lift privileged-observation profile.")
+    var historyLength: Int = 32
+
     func run() throws {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedOutput.isEmpty else {
@@ -1112,6 +1124,12 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         }
         guard hiddenSize > 0 else {
             throw CommandError.invalidHiddenSize(hiddenSize)
+        }
+        guard observationDimension > 0 else {
+            throw CommandError.invalidObservationDimension(observationDimension)
+        }
+        guard historyLength > 0 else {
+            throw CommandError.invalidHistoryLength(historyLength)
         }
 
         let outputURL = URL(fileURLWithPath: trimmedOutput).standardizedFileURL
@@ -1132,7 +1150,10 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         }
 
         let descriptor = try loadDescriptor(modelPath: model)
-        let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR()
+        let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR(
+            observationDimension: observationDimension,
+            historyLength: historyLength
+        )
         let manifest = try ManasMLXTemporalCTBRCheckpointWriter().write(
             request: ManasMLXTemporalCTBRCheckpointWriteRequest(
                 checkpointURL: outputURL,
