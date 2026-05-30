@@ -4985,6 +4985,16 @@ struct RunLearningCampaign: AsyncParsableCommand {
             generationLimit: generations,
             configuration: configuration
         )
+        // A leftover sentinel from a prior run would stop this one immediately.
+        if let stopSentinelPath {
+            Self.removeStopSentinel(at: stopSentinelPath)
+        }
+        // Ctrl-C / SIGTERM request a graceful, resumable stop at the next generation
+        // boundary by creating the stop sentinel the campaign polls. Per-generation
+        // checkpoints already make a hard kill resumable; this makes an intentional
+        // stop clean (terminal state .paused rather than a crash).
+        let stopSignalSources = Self.installStopSignalHandlers(stopSentinelPath: stopSentinelPath)
+        defer { stopSignalSources.forEach { $0.cancel() } }
         let handle: any TrainingRunHandle
         if trimmedContinuationRoot.isEmpty == false {
             handle = try await executor.resume(TrainingResumeRequest(
@@ -5012,11 +5022,63 @@ struct RunLearningCampaign: AsyncParsableCommand {
             }
         }
         print("[learning-campaign] artifacts path=\(artifactRoot.path)")
+        // A graceful stop was requested (sentinel present): the run paused at a
+        // generation boundary with durable checkpoints. Report cleanly and exit 0.
+        if let stopSentinelPath, FileManager.default.fileExists(atPath: stopSentinelPath) {
+            Self.removeStopSentinel(at: stopSentinelPath)
+            print("[learning-campaign] paused — durable per-generation checkpoints written. Resume with: --resume --artifact-root \(artifactRoot.path)")
+            return
+        }
         guard didComplete else {
             throw ValidationError("learning campaign ended before publishing a terminal TrainingRunEvent.")
         }
         guard didAcceptCheckpoint else {
             throw ValidationError("learning campaign rejected: \(terminalReason ?? "checkpoint-not-accepted")")
+        }
+    }
+
+    /// Removes the stop sentinel file if present (best effort: a leftover sentinel
+    /// only affects graceful-stop detection, not checkpoint durability).
+    static func removeStopSentinel(at path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            print("[learning-campaign] warning: could not clear stop sentinel \(path): \(error)")
+        }
+    }
+
+    /// Creates the stop sentinel (and its RUN_CONTROL directory) to request a
+    /// cooperative graceful stop at the next generation boundary.
+    static func createStopSentinel(at path: String) {
+        let url = URL(fileURLWithPath: path)
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: url)
+        } catch {
+            print("[learning-campaign] warning: could not create stop sentinel \(path): \(error)")
+        }
+    }
+
+    /// Installs SIGINT/SIGTERM handlers that create the stop sentinel on a
+    /// background queue (outside signal context, so file I/O is safe). Returns the
+    /// sources to keep alive for the run's duration.
+    static func installStopSignalHandlers(stopSentinelPath: String?) -> [any DispatchSourceSignal] {
+        guard let stopSentinelPath else { return [] }
+        let queue = DispatchQueue(label: "team.stamp.kuyu.stop-signal")
+        return [SIGINT, SIGTERM].map { sig -> any DispatchSourceSignal in
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
+            source.setEventHandler {
+                createStopSentinel(at: stopSentinelPath)
+                print("\n[learning-campaign] stop requested — finishing the current generation, then pausing (resume with --resume).")
+            }
+            source.resume()
+            return source
         }
     }
 
