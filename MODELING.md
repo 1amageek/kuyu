@@ -33,5 +33,7 @@ supplemented values in the native model and compatibility report.
 | `contactTraining` | Contact/friction/manipulation training. |
 | `hardwareParity` | Calibrated comparison with real hardware. |
 
-RoArm M1 currently targets `dynamicSimulation`. `contactTraining` and
-`hardwareParity` are intentionally gated out.
+RoArm M1 currently passes `dynamicSimulation`. `hardwareParity` requires a
+measured `HardwareCalibrationReport`; inferred or placeholder values are
+rejected. `contactTraining` additionally requires a contact-enabled world and
+calibrated contact/material evidence for the target manipulation task.

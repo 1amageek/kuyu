@@ -28,13 +28,60 @@ struct ProbeRoArmM1: ParsableCommand {
     @Flag(name: .customLong("enable-motion"), help: "Actually write the command to --device.")
     var enableMotion: Bool = false
 
+    @Flag(name: .customLong("use-model-limits"), help: "Use full model joint ranges instead of the safe commissioning clamp.")
+    var useModelLimits: Bool = false
+
+    @Option(name: .customLong("write-calibration-plan"), help: "Write a guarded hardware parity calibration plan JSON and exit.")
+    var calibrationPlanOutput: String?
+
+    @Option(name: .customLong("calibration-amplitude"), help: "Calibration sweep amplitude in radians.")
+    var calibrationAmplitude: Double = 0.174533
+
+    @Option(name: .customLong("calibration-hold"), help: "Hold time per calibration step in seconds.")
+    var calibrationHoldSeconds: Double = 1.0
+
+    @Option(name: .customLong("calibration-repetitions"), help: "Calibration sweep repetitions per joint.")
+    var calibrationRepetitions: Int = 2
+
+    @Option(name: .customLong("validate-calibration-report"), help: "Validate a hardware calibration report JSON against the RoArm M1 model.")
+    var calibrationReportPath: String?
+
     func run() throws {
         let loaded = try KuyuModelLoader().loadRobot(path: model)
         let embodiment = loaded.embodiment
         try validateRoArmM1Manifest(loaded)
 
         let jointTargets = try parseJointTargets(joints)
-        try validateTargets(jointTargets, against: embodiment.signals.drive, field: "--joints")
+        let modelJointLimits = try jointLimits(from: embodiment.signals.actuator)
+        let encoderJointLimits: [ClosedRange<Double>]
+        if useModelLimits {
+            encoderJointLimits = modelJointLimits
+        } else {
+            encoderJointLimits = try safeCommissioningLimits(within: modelJointLimits)
+        }
+
+        if let calibrationReportPath {
+            try validateCalibrationReport(path: calibrationReportPath, loaded: loaded)
+        }
+
+        if let calibrationPlanOutput {
+            let plan = try RoArmM1HardwareCalibrationPlanBuilder().build(
+                robot: loaded,
+                jointLimits: encoderJointLimits,
+                speed: speed,
+                acceleration: acceleration,
+                amplitudeRadians: calibrationAmplitude,
+                holdSeconds: calibrationHoldSeconds,
+                repetitions: calibrationRepetitions
+            )
+            try writeJSON(plan, to: calibrationPlanOutput)
+            print("[roarm-m1] calibrationPlan=\(calibrationPlanOutput)")
+            print("[roarm-m1] calibrationSteps=\(plan.steps.count)")
+            print("[roarm-m1] calibrationMotion=not-executed; send individual reviewed steps with --enable-motion")
+            return
+        }
+
+        try validateTargets(jointTargets, against: encoderJointLimits, field: "--joints")
 
         var motorNerve = try MotorNerveChain(contract: embodiment)
         let drives = try jointTargets.enumerated().map { index, value in
@@ -48,7 +95,7 @@ struct ProbeRoArmM1: ParsableCommand {
         )
 
         let encoder = try RoArmM1ServoCommandEncoder(
-            jointLimits: try jointLimits(from: embodiment.signals.actuator),
+            jointLimits: encoderJointLimits,
             speed: speed,
             acceleration: acceleration
         )
@@ -79,6 +126,7 @@ struct ProbeRoArmM1: ParsableCommand {
 
     private func validateRoArmM1Manifest(_ loaded: LoadedKuyuRobot) throws {
         let embodiment = loaded.embodiment
+        let body = loaded.body
         guard loaded.manifest.robotID == "roarm-m1-v0" else {
             throw ValidationError("Expected roarm-m1-v0 robot, got \(loaded.manifest.robotID).")
         }
@@ -87,6 +135,27 @@ struct ProbeRoArmM1: ParsableCommand {
         }
         guard embodiment.signals.actuator.count == RoArmM1ServoCommandEncoder.jointCount else {
             throw ValidationError("RoARM M1 embodiment must define exactly five actuator channels.")
+        }
+        let attachments = body.actuatorAttachments.sorted { $0.actuatorID < $1.actuatorID }
+        guard attachments.count == RoArmM1ServoCommandEncoder.jointCount else {
+            throw ValidationError("RoARM M1 body must define exactly five actuator attachments.")
+        }
+        for (index, attachment) in attachments.enumerated() {
+            let expectedDirection = RoArmM1ServoCommandEncoder.commandDirections[index]
+            let expectedReduction = RoArmM1ServoCommandEncoder.mechanicalReductionRatios[index]
+            guard attachment.commandDirection == expectedDirection else {
+                throw ValidationError(
+                    "RoARM M1 body command direction for \(attachment.actuatorID) is \(attachment.commandDirection), expected \(expectedDirection)."
+                )
+            }
+            guard attachment.mechanicalReductionRatio == expectedReduction else {
+                throw ValidationError(
+                    "RoARM M1 body reduction for \(attachment.actuatorID) is \(attachment.mechanicalReductionRatio), expected \(expectedReduction)."
+                )
+            }
+            guard attachment.mountFrameID != nil else {
+                throw ValidationError("RoARM M1 actuator attachment \(attachment.actuatorID) is missing mountFrameID.")
+            }
         }
     }
 
@@ -108,22 +177,15 @@ struct ProbeRoArmM1: ParsableCommand {
         return values
     }
 
-    private func validateTargets(
-        _ targets: [Double],
-        against signals: [SignalDefinition],
-        field: String
-    ) throws {
-        let sortedSignals = signals.sorted { $0.index < $1.index }
-        guard sortedSignals.count == targets.count else {
-            throw ValidationError("\(field) count does not match embodiment signal count.")
+    private func validateTargets(_ targets: [Double], against limits: [ClosedRange<Double>], field: String) throws {
+        guard limits.count == targets.count else {
+            throw ValidationError("\(field) count does not match the RoARM M1 joint limit count.")
         }
         for (index, target) in targets.enumerated() {
-            guard let range = sortedSignals[index].range else {
-                throw ValidationError("Embodiment signal \(sortedSignals[index].id) is missing a range.")
-            }
-            guard target >= range.min, target <= range.max else {
+            let limit = limits[index]
+            guard limit.contains(target) else {
                 throw ValidationError(
-                    "\(field)[\(index)] \(target) exceeds embodiment range [\(range.min), \(range.max)]."
+                    "\(field)[\(index)] \(target) exceeds active probe range [\(limit.lowerBound), \(limit.upperBound)]."
                 )
             }
         }
@@ -140,6 +202,62 @@ struct ProbeRoArmM1: ParsableCommand {
             }
             return range.min...range.max
         }
+    }
+
+    private func safeCommissioningLimits(within modelLimits: [ClosedRange<Double>]) throws -> [ClosedRange<Double>] {
+        guard modelLimits.count == RoArmM1ServoCommandEncoder.jointCount else {
+            throw ValidationError("RoARM M1 embodiment must expose five actuator ranges.")
+        }
+        return try zip(RoArmM1ServoCommandEncoder.safeCommissioningJointLimits, modelLimits)
+            .enumerated()
+            .map { index, pair in
+                let lower = max(pair.0.lowerBound, pair.1.lowerBound)
+                let upper = min(pair.0.upperBound, pair.1.upperBound)
+                guard lower <= upper else {
+                    throw ValidationError("Safe commissioning range does not overlap joint \(index + 1) model range.")
+                }
+                return lower...upper
+            }
+    }
+
+    private func validateCalibrationReport(path: String, loaded: LoadedKuyuRobot) throws {
+        let url = URL(fileURLWithPath: path)
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw ValidationError("Failed to read hardware calibration report \(path): \(error)")
+        }
+        let report: HardwareCalibrationReport
+        do {
+            report = try JSONDecoder().decode(HardwareCalibrationReport.self, from: data)
+        } catch {
+            throw ValidationError("Failed to decode hardware calibration report \(path): \(error)")
+        }
+        do {
+            _ = try ReadinessGate().validate(
+                body: loaded.body,
+                world: loaded.world,
+                embodiment: loaded.embodiment,
+                report: loaded.compatibilityReport,
+                requiredLevel: .hardwareParity,
+                hardwareReport: report
+            )
+        } catch {
+            throw ValidationError("Hardware calibration report does not satisfy hardwareParity: \(error)")
+        }
+        print("[roarm-m1] calibrationReport=\(path)")
+        print("[roarm-m1] hardwareParity=validated")
+    }
+
+    private func writeJSON<T: Encodable>(_ value: T, to path: String) throws {
+        let url = URL(fileURLWithPath: path)
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(value)
+        try data.write(to: url, options: [.atomic])
     }
 
     private func format(_ values: [Double]) -> String {

@@ -9,6 +9,10 @@ struct RobotPoseSnapshot {
     let renderInfo: RenderAssetInfo?
     let jointAngles: [Double]
     let jointValues: [String: Double]
+    let actuatorChannels: [ActuatorChannelSnapshot]
+    let sensorSamples: [ChannelSample]
+    let stepIndex: UInt64?
+    let time: Double?
 
     @MainActor
     static func current(model: SimulationViewModel) -> RobotPoseSnapshot {
@@ -29,7 +33,11 @@ struct RobotPoseSnapshot {
             position: robot?.position ?? Axis3(x: 0, y: 0, z: 0),
             renderInfo: model.renderAssetInfo(),
             jointAngles: joints.ordered,
-            jointValues: joints.byID
+            jointValues: joints.byID,
+            actuatorChannels: model.lastActuatorTelemetry?.channels ?? [],
+            sensorSamples: model.lastSensorSamples,
+            stepIndex: nil,
+            time: scene?.time
         )
     }
 
@@ -50,23 +58,24 @@ struct RobotPoseSnapshot {
             position: root.position,
             renderInfo: model.renderAssetInfo(),
             jointAngles: joints.ordered,
-            jointValues: joints.byID
+            jointValues: joints.byID,
+            actuatorChannels: events[index].actuatorTelemetry.channels,
+            sensorSamples: events[index].sensorSamples,
+            stepIndex: events[index].time.stepIndex,
+            time: events[index].time.time
         )
     }
 
     @MainActor
-    private static func jointState(
+    static func jointState(
         from scalars: [String: Double],
         model: SimulationViewModel
     ) -> (ordered: [Double], byID: [String: Double]) {
         if let embodiment = model.currentEmbodiment() {
             let actuatorSignals = embodiment.signals.actuator.sorted { $0.index < $1.index }
             let ordered = actuatorSignals.map { scalars[$0.id] ?? 0.0 }
-            let byID = Dictionary(uniqueKeysWithValues: actuatorSignals.compactMap { signal in
-                scalars[signal.id].map { (signal.id, $0) }
-            })
             if !ordered.isEmpty {
-                return (ordered, byID)
+                return (ordered, scalars)
             }
         }
 

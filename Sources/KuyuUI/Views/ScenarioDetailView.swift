@@ -15,6 +15,7 @@ public struct ScenarioDetailView: View {
                 let angles = robot.map { eulerAngles(from: $0.orientation) } ?? (roll: 0, pitch: 0, yaw: 0)
                 let position = robot?.position ?? Axis3(x: 0, y: 0, z: 0)
                 let renderInfo = model.renderAssetInfo()
+                let joints = RobotPoseSnapshot.jointState(from: scene?.scalars ?? [:], model: model)
 
                 header(scenario: scenario)
                 Divider()
@@ -25,7 +26,9 @@ public struct ScenarioDetailView: View {
                         yaw: angles.yaw,
                         position: position,
                         label: renderInfo?.name ?? "Robot proxy",
-                        renderInfo: renderInfo
+                        renderInfo: renderInfo,
+                        jointAngles: joints.ordered,
+                        jointValues: joints.byID
                     )
                     .frame(minWidth: KuyuLayout.realityMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 

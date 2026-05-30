@@ -20,7 +20,8 @@ public struct SimulationWindowContentView: View {
                     renderInfo: pose.renderInfo,
                     jointAngles: pose.jointAngles,
                     jointValues: pose.jointValues,
-                    actuatorChannels: model.lastActuatorTelemetry?.channels ?? []
+                    actuatorChannels: pose.actuatorChannels,
+                    showsSensorReadouts: model.simulationShowsSensorReadouts
                 )
                 .id(pose.renderInfo?.url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -40,15 +41,20 @@ public struct SimulationWindowContentView: View {
                         position: pose.position,
                         renderInfo: pose.renderInfo,
                         jointAngles: pose.jointAngles,
-                        jointValues: pose.jointValues
+                        jointValues: pose.jointValues,
+                        sensorSamples: pose.sensorSamples,
+                        stepIndex: pose.stepIndex,
+                        snapshotTime: pose.time
                     )
-                    rewardEvents
+                    if model.simulationShowsRewardEvents {
+                        rewardEvents
+                    }
                     collisionLog
                     debugLayers
                 }
                 .padding(KuyuSpacing.md)
             }
-            .frame(width: 360)
+            .frame(width: 420)
         }
         .navigationTitle("Simulation")
     }
@@ -67,9 +73,18 @@ public struct SimulationWindowContentView: View {
             }
             .disabled(!model.isRunning)
             Slider(value: $model.simulationPlaybackFraction, in: 0...1)
-            Text("Step Scrubber")
+                .disabled(model.isRunning || model.isLoopRunning)
+            Text(String(format: "%3.0f%%", model.simulationPlaybackFraction * 100))
+                .font(.system(.caption, design: .monospaced))
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+            Text("Step")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Button { model.resetSimulationPlayback() } label: {
+                Label("Reset", systemImage: "backward.end.fill")
+            }
+            .disabled(model.isRunning || model.isLoopRunning)
         }
         .padding(KuyuSpacing.md)
         .background(.bar)
@@ -77,7 +92,7 @@ public struct SimulationWindowContentView: View {
 
     private var rewardEvents: some View {
         GroupBox {
-            Text(model.simulationShowsRewardEvents ? model.learningCampaignLatestEvent ?? "No reward event selected." : "Reward events are hidden.")
+            Text(model.learningCampaignLatestEvent ?? "No reward event selected.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } label: {

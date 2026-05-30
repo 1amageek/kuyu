@@ -22,7 +22,7 @@
       "id": "urdf-render",
       "name": "RoArm M1 URDF Render",
       "format": "urdf",
-      "path": "roarm-m1.urdf",
+      "path": "urdf/roarm-m1.urdf",
       "frameID": "base",
       "scale": [1, 1, 1]
     }

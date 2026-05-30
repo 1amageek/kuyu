@@ -14,6 +14,7 @@ public struct WorldRealityView: View {
     let jointValues: [String: Double]
     /// Live per-actuator command/thrust values for the forces/actuator debug overlay.
     let actuatorChannels: [ActuatorChannelSnapshot]
+    let showsSensorReadouts: Bool
 
     public init(
         roll: Double,
@@ -24,7 +25,8 @@ public struct WorldRealityView: View {
         renderInfo: RenderAssetInfo?,
         jointAngles: [Double] = [],
         jointValues: [String: Double] = [:],
-        actuatorChannels: [ActuatorChannelSnapshot] = []
+        actuatorChannels: [ActuatorChannelSnapshot] = [],
+        showsSensorReadouts: Bool = true
     ) {
         self.roll = roll
         self.pitch = pitch
@@ -35,9 +37,11 @@ public struct WorldRealityView: View {
         self.jointAngles = jointAngles
         self.jointValues = jointValues
         self.actuatorChannels = actuatorChannels
+        self.showsSensorReadouts = showsSensorReadouts
     }
 
     @State private var rootEntity: Entity?
+    @State private var proxyBodyEntity: Entity?
     @State private var proxyEntity: Entity?
     @State private var loadedEntity: Entity?
     @State private var loadedJointBindings: [RenderJointBinding] = []
@@ -48,8 +52,6 @@ public struct WorldRealityView: View {
     @State private var cameraPitch: Float = 1.1
     @State private var cameraDistance: Float = 3.2
     @State private var cameraTarget = SIMD3<Float>(0, 0.15, 0)
-    @State private var lastDrag: CGSize?
-    @State private var zoomStart: Float?
     private let renderSystem = RenderSystem()
     private static let defaultCameraYaw: Float = 0.6
     private static let defaultCameraPitch: Float = 1.1
@@ -59,7 +61,11 @@ public struct WorldRealityView: View {
 
     public var body: some View {
         renderContent
-            .overlay(alignment: .bottomLeading) { actuatorOverlay }
+            .overlay(alignment: .bottomLeading) {
+                if showsSensorReadouts {
+                    actuatorOverlay
+                }
+            }
     }
 
     @ViewBuilder
@@ -79,28 +85,43 @@ public struct WorldRealityView: View {
         if !actuatorChannels.isEmpty {
             let maxMagnitude = max(actuatorChannels.map { abs($0.value) }.max() ?? 1.0, 1e-6)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Actuator / forces")
+                Text(jointAngles.isEmpty ? "Actuator / forces" : "Joint state")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 ForEach(actuatorChannels, id: \.id) { channel in
                     HStack(spacing: 6) {
-                        Text(channel.id)
+                        Text(displayLabel(for: channel.id))
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .frame(width: 40, alignment: .leading)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(width: 24, alignment: .leading)
                         GeometryReader { proxy in
                             let fraction = CGFloat(abs(channel.value) / maxMagnitude)
-                            Capsule()
-                                .fill(.green.opacity(0.65))
-                                .frame(width: max(2, proxy.size.width * fraction), height: 6)
-                                .frame(maxHeight: .infinity, alignment: .center)
+                            let width = proxy.size.width
+                            let barWidth = max(2, (width * 0.5) * min(fraction, 1))
+                            ZStack {
+                                Capsule()
+                                    .fill(.white.opacity(0.12))
+                                    .frame(height: 2)
+                                Rectangle()
+                                    .fill(.white.opacity(0.28))
+                                    .frame(width: 1, height: 8)
+                                Capsule()
+                                    .fill((channel.value >= 0 ? Color.green : Color.cyan).opacity(0.65))
+                                    .frame(width: barWidth, height: 6)
+                                    .offset(x: channel.value >= 0 ? barWidth * 0.5 : -barWidth * 0.5)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        .frame(width: 80, height: 8)
+                        .frame(width: 88, height: 8)
                         Text(String(format: "%.2f", channel.value))
                             .font(.system(.caption2, design: .monospaced))
                             .monospacedDigit()
                             .foregroundStyle(.primary)
+                            .frame(width: 44, alignment: .trailing)
                     }
+                    .accessibilityLabel("\(channel.id) \(channel.value)")
                 }
             }
             .padding(8)
@@ -118,13 +139,15 @@ public struct WorldRealityView: View {
 
             let root = Entity()
             root.name = "RobotRoot"
-            root.addChild(makeBody())
+            let proxyBody = makeBody()
+            root.addChild(proxyBody)
             let proxy = makeProxy()
             root.addChild(proxy)
             root.position = realityPosition()
 
             content.add(root)
             rootEntity = root
+            proxyBodyEntity = proxyBody
             proxyEntity = proxy
 
             let camera = PerspectiveCamera()
@@ -157,36 +180,15 @@ public struct WorldRealityView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0.0)
-                    .onChanged { value in
-                        if let lastDrag {
-                            let dx = Float(value.translation.width - lastDrag.width)
-                            let dy = Float(value.translation.height - lastDrag.height)
-                            cameraYaw -= dx * 0.01
-                            cameraPitch = max(0.15, min(1.2, cameraPitch - dy * 0.01))
-                        }
-                        lastDrag = value.translation
-                    }
-                    .onEnded { _ in
-                        lastDrag = nil
-                    }
-                )
-                .simultaneousGesture(MagnificationGesture()
-                    .onChanged { value in
-                        if zoomStart == nil {
-                            zoomStart = cameraDistance
-                        }
-                        if let zoomStart {
-                            let target = zoomStart / Float(value)
-                            cameraDistance = max(0.6, min(4.0, target))
-                        }
-                    }
-                    .onEnded { _ in
-                        zoomStart = nil
-                    }
-                )
+            CameraInputOverlay(
+                onDrag: { delta in
+                    orbitCamera(delta: delta)
+                },
+                onMagnify: { magnification in
+                    magnifyCamera(by: magnification)
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 2) {
@@ -311,6 +313,28 @@ public struct WorldRealityView: View {
         updateCamera()
     }
 
+    private func orbitCamera(delta: CGSize) {
+        cameraYaw -= Float(delta.width) * 0.01
+        cameraPitch = max(0.15, min(1.2, cameraPitch - Float(delta.height) * 0.01))
+        updateCamera()
+    }
+
+    private func magnifyCamera(by magnification: CGFloat) {
+        let factor = max(0.2, min(2.0, 1.0 - Float(magnification)))
+        cameraDistance = clampedCameraDistance(cameraDistance * factor)
+        updateCamera()
+    }
+
+    private func clampedCameraDistance(_ value: Float) -> Float {
+        max(0.25, min(8.0, value))
+    }
+
+    private func displayLabel(for id: String) -> String {
+        guard id.hasPrefix("joint_") else { return id }
+        let suffix = id.dropFirst("joint_".count)
+        return "J\(suffix)"
+    }
+
     private func makeBody() -> Entity {
         let mesh = MeshResource.generateBox(size: [0.28, 0.08, 0.28])
         let material = SimpleMaterial(color: .gray, isMetallic: true)
@@ -370,12 +394,9 @@ public struct WorldRealityView: View {
         let grid = makeGrid(size: groundSize, spacing: 0.5)
         world.addChild(grid)
 
-        let axes = makeAxes(length: 1.2)
+        let axes = makeAxes(length: 0.45)
         axes.position = [0, 0.001, 0]
         world.addChild(axes)
-
-        let obstacles = makeObstacles()
-        world.addChild(obstacles)
 
         return world
     }
@@ -431,26 +452,6 @@ public struct WorldRealityView: View {
         return root
     }
 
-    private func makeObstacles() -> Entity {
-        let root = Entity()
-        let material = SimpleMaterial(color: .init(white: 0.25, alpha: 1.0), isMetallic: false)
-
-        let boxMesh = MeshResource.generateBox(size: [0.3, 0.2, 0.3])
-        let box1 = ModelEntity(mesh: boxMesh, materials: [material])
-        box1.position = [1.0, 0.1, -0.8]
-        root.addChild(box1)
-
-        let box2 = ModelEntity(mesh: boxMesh, materials: [material])
-        box2.position = [-0.9, 0.1, 0.9]
-        root.addChild(box2)
-
-        let box3 = ModelEntity(mesh: boxMesh, materials: [material])
-        box3.position = [0.8, 0.1, 0.9]
-        root.addChild(box3)
-
-        return root
-    }
-
     private func loadRenderAssetIfNeeded(info: RenderAssetInfo) {
         guard loadedURL != info.url else { return }
         loadedURL = info.url
@@ -461,8 +462,13 @@ public struct WorldRealityView: View {
                 await MainActor.run {
                     loadedEntity = rendered.entity
                     loadedJointBindings = rendered.jointBindings
+                    if let proxyBodyEntity {
+                        rootEntity?.removeChild(proxyBodyEntity)
+                        self.proxyBodyEntity = nil
+                    }
                     if let proxyEntity {
                         rootEntity?.removeChild(proxyEntity)
+                        self.proxyEntity = nil
                     }
                     rootEntity?.addChild(rendered.entity)
                     updateLoadedJoints()
@@ -506,6 +512,9 @@ public struct WorldRealityView: View {
 
     private var statusLine: String {
         guard let renderInfo else { return "Proxy (no render asset)" }
+        if loadFailed {
+            return "Render failed: proxy fallback"
+        }
         if loadedEntity != nil {
             return "Render: \(renderInfo.format.rawValue.uppercased())"
         }
@@ -524,4 +533,93 @@ public struct WorldRealityView: View {
     )
     .frame(width: 320, height: 240)
     .padding()
+}
+
+private struct CameraInputOverlay: NSViewRepresentable {
+    let onDrag: (CGSize) -> Void
+    let onMagnify: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> CameraInputNSView {
+        let view = CameraInputNSView()
+        view.onDrag = onDrag
+        view.onMagnify = onMagnify
+        return view
+    }
+
+    func updateNSView(_ nsView: CameraInputNSView, context: Context) {
+        nsView.onDrag = onDrag
+        nsView.onMagnify = onMagnify
+    }
+}
+
+private final class CameraInputNSView: NSView {
+    var onDrag: (CGSize) -> Void = { _ in }
+    var onMagnify: (CGFloat) -> Void = { _ in }
+
+    private var lastDragLocation: NSPoint?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        installMagnificationRecognizer()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        installMagnificationRecognizer()
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        lastDragLocation = convert(event.locationInWindow, from: nil)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let current = convert(event.locationInWindow, from: nil)
+        if let lastDragLocation {
+            onDrag(CGSize(
+                width: current.x - lastDragLocation.x,
+                height: current.y - lastDragLocation.y
+            ))
+        }
+        lastDragLocation = current
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        _ = event
+        lastDragLocation = nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
+
+    override func magnify(with event: NSEvent) {
+        onMagnify(event.magnification)
+    }
+
+    private func installMagnificationRecognizer() {
+        let recognizer = NSMagnificationGestureRecognizer(
+            target: self,
+            action: #selector(handleMagnification(_:))
+        )
+        addGestureRecognizer(recognizer)
+    }
+
+    @objc private func handleMagnification(_ recognizer: NSMagnificationGestureRecognizer) {
+        onMagnify(recognizer.magnification)
+        recognizer.magnification = 0
+    }
 }

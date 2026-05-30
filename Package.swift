@@ -21,6 +21,10 @@ let package = Package(
             name: "kuyu-model-preview",
             targets: ["KuyuModelPreview"]
         ),
+        .executable(
+            name: "kuyu-simulator-preview",
+            targets: ["KuyuSimulatorPreview"]
+        ),
     ],
     dependencies: [
         .package(path: "../kuyu-core"),
@@ -71,6 +75,12 @@ let package = Package(
         ),
         .executableTarget(
             name: "KuyuModelPreview",
+            dependencies: [
+                "KuyuUI"
+            ]
+        ),
+        .executableTarget(
+            name: "KuyuSimulatorPreview",
             dependencies: [
                 "KuyuUI"
             ]

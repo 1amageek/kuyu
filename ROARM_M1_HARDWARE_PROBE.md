@@ -25,11 +25,13 @@ flowchart LR
 
 | Layer | Responsibility | Reliability rule |
 |---|---|---|
-| `KuyuRobotManifest` | Selects the RoArm body and embodiment files used for the probe. | Manifest, body, and embodiment validation must pass before any command is generated. |
+| `KuyuRobotManifest` | Selects the RoArm body and embodiment files used for the probe. | Manifest, body, actuator mounts, transmissions, and embodiment validation must pass before any command is generated. |
 | `EmbodimentContract` | Declares five bounded joint drive and actuator channels. | Ranges, units, and MotorNerve stages are validated before hardware encoding. |
 | `MotorNerveChain` | Maps bounded `DriveIntent` values to morphology-specific actuator radians. | Reflex and drive clamps are applied before hardware encoding. |
-| `RoArmM1ServoCommandEncoder` | Converts five actuator radians to Waveshare JSON fields `P1...P5`, `S1...S5`, `A1...A5`. | Invalid shape, non-finite values, unsafe joint targets, and invalid pulse ranges fail closed. |
-| `probe-roarm-m1` | Loads the manifest, produces the payload, and optionally writes USB serial bytes. | Serial output requires both `--enable-motion` and a non-empty `--device`. |
+| `RoArmM1ServoCommandEncoder` | Converts five actuator radians to Waveshare JSON fields `P1...P5`, `S1...S5`, `A1...A5` using the same command directions and joint 2 reduction declared in the body model. | Invalid shape, non-finite values, unsafe joint targets, and invalid pulse ranges fail closed. |
+| `HardwareCalibrationPlan` | Declares the reviewed sweep commands and required observations for parity identification. | Plan generation never moves hardware by itself. |
+| `HardwareCalibrationReport` | Stores measured joint response and optional contact evidence. | `hardwareParity` remains rejected until measured samples cover every active joint within tolerance. |
+| `probe-roarm-m1` | Loads the manifest, produces payloads, writes calibration plans, validates calibration reports, and optionally writes one USB serial command. | Serial output requires both `--enable-motion` and a non-empty `--device`. |
 
 ## Dry Run
 
@@ -61,7 +63,32 @@ For Linux hosts using the vendor default:
 swift run kuyu probe-roarm-m1 --device /dev/ttyUSB0 --enable-motion
 ```
 
-The initial embodiment intentionally uses a conservative safe-commissioning
-range of +/- 0.261799 rad for every joint. Wider motion belongs in a later
-calibrated embodiment revision after neutral and small-command behavior are
-observed on the physical arm.
+The embodiment now carries the manufacturer URDF joint ranges because it is the
+shared Manas/Kuyu contract. The hardware probe still uses the conservative
+safe-commissioning clamp by default. Full model limits require the explicit
+`--use-model-limits` flag in addition to `--enable-motion`.
+
+## Hardware Parity Calibration
+
+Generate a reviewed sweep plan first. This does not write to the serial device:
+
+```bash
+swift run kuyu probe-roarm-m1 --write-calibration-plan /tmp/roarm-m1-hardware-plan.json
+```
+
+The plan contains safe joint targets, generated `T=3` payloads, pulse values,
+and the required measurement fields. Execute only reviewed individual poses with
+the existing guarded `--enable-motion` path, then store measured positions,
+latency, voltage, temperature, and load observations in a
+`HardwareCalibrationReport`.
+
+Validate the measured report before claiming parity:
+
+```bash
+swift run kuyu probe-roarm-m1 --validate-calibration-report /tmp/roarm-m1-hardware-report.json
+```
+
+Validation requires every active joint to have measured samples, identified
+latency/time constant/deadband/backlash/friction terms, and position error below
+the strict Kuyu hardware-parity tolerance. A report with unmeasured placeholders
+is rejected.

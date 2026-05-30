@@ -4,32 +4,32 @@
   "bodyID": "roarm-m1-body-v0",
   "signals": {
     "sensor": [
-      { "id": "joint_angle_1", "index": 0, "name": "Joint 1 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
-      { "id": "joint_angle_2", "index": 1, "name": "Joint 2 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
-      { "id": "joint_angle_3", "index": 2, "name": "Joint 3 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
-      { "id": "joint_angle_4", "index": 3, "name": "Joint 4 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" },
-      { "id": "joint_angle_5", "index": 4, "name": "Joint 5 angle", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "proprioception" }
+      { "id": "joint_angle_1", "index": 0, "name": "base_to_L1 angle", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "proprioception" },
+      { "id": "joint_angle_2", "index": 1, "name": "L1_to_L2 angle", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "proprioception" },
+      { "id": "joint_angle_3", "index": 2, "name": "L2_to_L3 angle", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "proprioception" },
+      { "id": "joint_angle_4", "index": 3, "name": "L3_to_L4 angle", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "proprioception" },
+      { "id": "joint_angle_5", "index": 4, "name": "L4_to_L5_1_A angle", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "proprioception" }
     ],
     "actuator": [
-      { "id": "joint_1", "index": 0, "name": "Joint 1 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
-      { "id": "joint_2", "index": 1, "name": "Joint 2 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
-      { "id": "joint_3", "index": 2, "name": "Joint 3 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
-      { "id": "joint_4", "index": 3, "name": "Joint 4 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" },
-      { "id": "joint_5", "index": 4, "name": "Joint 5 target", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint" }
+      { "id": "joint_1", "index": 0, "name": "base_to_L1 target", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "joint" },
+      { "id": "joint_2", "index": 1, "name": "L1_to_L2 target", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "joint" },
+      { "id": "joint_3", "index": 2, "name": "L2_to_L3 target", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "joint" },
+      { "id": "joint_4", "index": 3, "name": "L3_to_L4 target", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "joint" },
+      { "id": "joint_5", "index": 4, "name": "L4_to_L5_1_A target", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "joint" }
     ],
     "drive": [
-      { "id": "drive_joint_1", "index": 0, "name": "Drive joint 1", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
-      { "id": "drive_joint_2", "index": 1, "name": "Drive joint 2", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
-      { "id": "drive_joint_3", "index": 2, "name": "Drive joint 3", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
-      { "id": "drive_joint_4", "index": 3, "name": "Drive joint 4", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" },
-      { "id": "drive_joint_5", "index": 4, "name": "Drive joint 5", "units": "rad", "rateHz": 50, "range": [-0.261799, 0.261799], "group": "joint-target" }
+      { "id": "drive_joint_1", "index": 0, "name": "Drive base_to_L1", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "joint-target" },
+      { "id": "drive_joint_2", "index": 1, "name": "Drive L1_to_L2", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "joint-target" },
+      { "id": "drive_joint_3", "index": 2, "name": "Drive L2_to_L3", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "joint-target" },
+      { "id": "drive_joint_4", "index": 3, "name": "Drive L3_to_L4", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "joint-target" },
+      { "id": "drive_joint_5", "index": 4, "name": "Drive L4_to_L5_1_A", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "joint-target" }
     ],
     "reflex": [
-      { "id": "reflex_joint_1", "index": 0, "name": "Reflex joint 1 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
-      { "id": "reflex_joint_2", "index": 1, "name": "Reflex joint 2 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
-      { "id": "reflex_joint_3", "index": 2, "name": "Reflex joint 3 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
-      { "id": "reflex_joint_4", "index": 3, "name": "Reflex joint 4 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
-      { "id": "reflex_joint_5", "index": 4, "name": "Reflex joint 5 correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" }
+      { "id": "reflex_joint_1", "index": 0, "name": "base_to_L1 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_2", "index": 1, "name": "L1_to_L2 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_3", "index": 2, "name": "L2_to_L3 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_4", "index": 3, "name": "L3_to_L4 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
+      { "id": "reflex_joint_5", "index": 4, "name": "L4_to_L5_1_A reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" }
     ],
     "descending": [
       { "id": "intent.end_effector.x", "index": 0, "name": "End effector x bias", "units": "m", "rateHz": 5, "range": [-0.1, 0.1], "group": "task-bias" },
@@ -50,7 +50,7 @@
   "sensors": [
     {
       "id": "joint_encoder_bus",
-      "type": "servo-position-feedback",
+      "type": "st3215-position-feedback",
       "frameID": "base",
       "channels": ["joint_angle_1", "joint_angle_2", "joint_angle_3", "joint_angle_4", "joint_angle_5"],
       "rateHz": 50,
@@ -63,11 +63,11 @@
     }
   ],
   "actuators": [
-    { "id": "servo_1", "type": "serial-bus-servo", "channels": ["joint_1"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 1.8 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 1.4, "damping": 0.025, "coulombFriction": 0.018 } },
-    { "id": "servo_2", "type": "serial-bus-servo", "channels": ["joint_2"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 1.8 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 1.4, "damping": 0.025, "coulombFriction": 0.018 } },
-    { "id": "servo_3", "type": "serial-bus-servo", "channels": ["joint_3"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 1.8 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 1.2, "damping": 0.022, "coulombFriction": 0.016 } },
-    { "id": "servo_4", "type": "serial-bus-servo", "channels": ["joint_4"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 2.0 }, "dynamics": { "timeConstantSeconds": 0.07, "deadzone": 0.002, "torqueLimit": 0.9, "damping": 0.018, "coulombFriction": 0.012 } },
-    { "id": "servo_5", "type": "serial-bus-servo", "channels": ["joint_5"], "limits": { "min": -0.261799, "max": 0.261799, "rateLimitPerSecond": 2.5 }, "dynamics": { "timeConstantSeconds": 0.06, "deadzone": 0.002, "torqueLimit": 0.55, "damping": 0.015, "coulombFriction": 0.01 } }
+    { "id": "servo_1", "type": "ST3215 serial-bus-servo", "frameID": "servo_1_output", "channels": ["joint_1"], "limits": { "min": -3.14, "max": 3.14, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.025, "coulombFriction": 0.018 } },
+    { "id": "servo_2", "type": "ST3215 serial-bus-servo with 1:3 joint reduction", "frameID": "servo_2_output", "channels": ["joint_2"], "limits": { "min": -1.0467, "max": 1.0467, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.09, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.025, "coulombFriction": 0.018 } },
+    { "id": "servo_3", "type": "ST3215 serial-bus-servo", "frameID": "servo_3_output", "channels": ["joint_3"], "limits": { "min": -2.7, "max": 2.7, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.022, "coulombFriction": 0.016 } },
+    { "id": "servo_4", "type": "ST3215 serial-bus-servo", "frameID": "servo_4_output", "channels": ["joint_4"], "limits": { "min": -2.1, "max": 2.1, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.07, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.018, "coulombFriction": 0.012 } },
+    { "id": "servo_5", "type": "ST3215 serial-bus-servo gripper drive", "frameID": "servo_5_output", "channels": ["joint_5"], "limits": { "min": -1.57, "max": 0, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.06, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.015, "coulombFriction": 0.01 } }
   ],
   "control": {
     "driveChannels": ["drive_joint_1", "drive_joint_2", "drive_joint_3", "drive_joint_4", "drive_joint_5"],
@@ -75,7 +75,7 @@
     "descendingChannels": ["intent.end_effector.x", "intent.end_effector.y", "intent.end_effector.z", "intent.gripper", "intent.inhibition"],
     "summaryChannels": ["summary.salience", "summary.risk", "summary.uncertainty", "summary.constraint_pressure", "summary.recovery_state"],
     "constraints": {
-      "driveClamp": [-0.261799, 0.261799],
+      "driveClamp": [-3.14, 3.14],
       "reflexClamp": [-0.034907, 0.034907]
     },
     "latencyBudgets": {

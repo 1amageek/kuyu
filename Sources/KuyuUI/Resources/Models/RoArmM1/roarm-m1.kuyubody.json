@@ -5,9 +5,14 @@
   "category": "manipulator",
   "provenance": [
     {
-      "source": "Waveshare RoArm M1 public dimensions and local commissioning estimates",
-      "format": "native",
-      "notes": "Missing masses, inertias, damping, and Coulomb friction are explicit supplemented values for dynamicSimulation readiness only."
+      "source": "Waveshare RoArm-M1 wiki, URDF Open Source Model, STEP Model, and public dimensions drawing",
+      "format": "urdf+step+manufacturer-docs",
+      "notes": "Link names, mesh geometry, joint origins, axes, limits, velocity limits, and mimic couplings follow the manufacturer URDF. Mass, inertia, damping, Coulomb friction, and backlash are explicit Kuyu supplements for dynamicSimulation readiness because the manufacturer URDF declares no inertial blocks."
+    },
+    {
+      "source": "Waveshare ST3215 Servo wiki",
+      "format": "manufacturer-docs",
+      "notes": "Servo torque is treated as 30kg.cm at 12V. Joint 2 torque is multiplied by the manufacturer-described 1:3 timing-pulley reduction used by the big arm."
     }
   ],
   "units": {
@@ -20,180 +25,416 @@
   },
   "frames": [
     { "id": "base", "pose": { "xyz": [0, 0, 0], "rpy": [0, 0, 0] } },
-    { "id": "tool0", "parentID": "wrist_link", "pose": { "xyz": [0.08, 0, 0], "rpy": [0, 0, 0] } }
+    { "id": "servo_1_output", "parentID": "base_link", "pose": { "xyz": [0, 0, 0.062], "rpy": [0, 0, 0] } },
+    { "id": "servo_2_output", "parentID": "l1_link", "pose": { "xyz": [0, 0.041051, 0.0534], "rpy": [0, 0, 0] } },
+    { "id": "servo_3_output", "parentID": "l2_link", "pose": { "xyz": [0, 0.119401, 0.119401], "rpy": [0, 0, 0] } },
+    { "id": "servo_4_output", "parentID": "l3_link", "pose": { "xyz": [0, 0.090485, 0.090455], "rpy": [0, 0, 0] } },
+    { "id": "servo_5_output", "parentID": "l4_link", "pose": { "xyz": [0.003489, 0.0601, 0.033148], "rpy": [0.785, 0, 0] } }
   ],
   "links": [
     {
       "id": "base_link",
-      "mass": 0.34,
-      "centerOfMass": [0, 0, 0.025],
-      "inertia": { "ixx": 0.00042, "ixy": 0, "ixz": 0, "iyy": 0.00042, "iyz": 0, "izz": 0.00055 },
+      "mass": 0.38,
+      "centerOfMass": [0, -0.00226, 0.0313],
+      "inertia": { "ixx": 0.001015409, "ixy": 0, "ixz": 0, "iyy": 0.000968022, "iyz": 0, "izz": 0.001735243 },
       "visuals": [
-        { "id": "base-visual", "kind": "cylinder", "pose": { "xyz": [0, 0, 0.025], "rpy": [0, 0, 0] }, "radius": 0.055, "length": 0.05 }
+        { "id": "base_link-visual-0", "kind": "mesh", "pose": { "xyz": [0, 0, 0], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/base.stl", "meshFormat": "stl" }
       ],
-      "collisions": [],
-      "materialID": "aluminum"
+      "collisions": [
+        { "id": "base_link-collision-0", "kind": "mesh", "pose": { "xyz": [0, 0, 0], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/base.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
     },
     {
-      "id": "shoulder_link",
-      "mass": 0.12,
-      "centerOfMass": [0, 0, 0.04],
-      "inertia": { "ixx": 0.00016, "ixy": 0, "ixz": 0, "iyy": 0.00015, "iyz": 0, "izz": 0.00007 },
+      "id": "l1_link",
+      "mass": 0.17,
+      "centerOfMass": [-0.009531, 0.018915, 0.033017],
+      "inertia": { "ixx": 0.000262025, "ixy": 0, "ixz": 0, "iyy": 0.000207705, "iyz": 0, "izz": 0.000279058 },
       "visuals": [
-        { "id": "shoulder-visual", "kind": "box", "pose": { "xyz": [0, 0, 0.04], "rpy": [0, 0, 0] }, "size": [0.055, 0.05, 0.08] }
+        { "id": "l1_link-visual-0", "kind": "mesh", "pose": { "xyz": [0, 0, -0.062], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L1.stl", "meshFormat": "stl" }
       ],
-      "collisions": [],
-      "materialID": "aluminum"
+      "collisions": [
+        { "id": "l1_link-collision-0", "kind": "mesh", "pose": { "xyz": [0, 0, -0.062], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L1.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
     },
     {
-      "id": "upper_arm_link",
-      "mass": 0.16,
-      "centerOfMass": [0.055, 0, 0],
-      "inertia": { "ixx": 0.00008, "ixy": 0, "ixz": 0, "iyy": 0.00034, "iyz": 0, "izz": 0.00034 },
+      "id": "l2_link",
+      "mass": 0.15,
+      "centerOfMass": [-0.003951, 0.05972, 0.057211],
+      "inertia": { "ixx": 0.000615801, "ixy": 0, "ixz": 0, "iyy": 0.000303028, "iyz": 0, "izz": 0.000322753 },
       "visuals": [
-        { "id": "upper-arm-visual", "kind": "box", "pose": { "xyz": [0.055, 0, 0], "rpy": [0, 0, 0] }, "size": [0.11, 0.035, 0.035] }
+        { "id": "l2_link-visual-0", "kind": "mesh", "pose": { "xyz": [0, -0.041051, -0.11574], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L2.stl", "meshFormat": "stl" }
       ],
-      "collisions": [],
-      "materialID": "aluminum"
+      "collisions": [
+        { "id": "l2_link-collision-0", "kind": "mesh", "pose": { "xyz": [0, -0.041051, -0.11574], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L2.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
     },
     {
-      "id": "forearm_link",
-      "mass": 0.14,
-      "centerOfMass": [0.052, 0, 0],
-      "inertia": { "ixx": 0.00007, "ixy": 0, "ixz": 0, "iyy": 0.00027, "iyz": 0, "izz": 0.00027 },
+      "id": "l3_link",
+      "mass": 0.13,
+      "centerOfMass": [0.014374, 0.030175, 0.035864],
+      "inertia": { "ixx": 0.000443045, "ixy": 0, "ixz": 0, "iyy": 0.000220109, "iyz": 0, "izz": 0.000255336 },
       "visuals": [
-        { "id": "forearm-visual", "kind": "box", "pose": { "xyz": [0.052, 0, 0], "rpy": [0, 0, 0] }, "size": [0.104, 0.03, 0.03] }
+        { "id": "l3_link-visual-0", "kind": "mesh", "pose": { "xyz": [0, -0.160452, -0.235141], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L3.stl", "meshFormat": "stl" }
       ],
-      "collisions": [],
-      "materialID": "aluminum"
+      "collisions": [
+        { "id": "l3_link-collision-0", "kind": "mesh", "pose": { "xyz": [0, -0.160452, -0.235141], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L3.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
     },
     {
-      "id": "wrist_link",
-      "mass": 0.08,
-      "centerOfMass": [0.03, 0, 0],
-      "inertia": { "ixx": 0.000035, "ixy": 0, "ixz": 0, "iyy": 0.00008, "iyz": 0, "izz": 0.00008 },
+      "id": "l4_link",
+      "mass": 0.1,
+      "centerOfMass": [0.013989, 0.025749, 0.032075],
+      "inertia": { "ixx": 0.000114168, "ixy": 0, "ixz": 0, "iyy": 0.000112659, "iyz": 0, "izz": 0.000095258 },
       "visuals": [
-        { "id": "wrist-visual", "kind": "box", "pose": { "xyz": [0.03, 0, 0], "rpy": [0, 0, 0] }, "size": [0.06, 0.03, 0.03] }
+        { "id": "l4_link-visual-0", "kind": "mesh", "pose": { "xyz": [0, -0.250907, -0.325596], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L4.stl", "meshFormat": "stl" }
       ],
-      "collisions": [],
-      "materialID": "aluminum"
+      "collisions": [
+        { "id": "l4_link-collision-0", "kind": "mesh", "pose": { "xyz": [0, -0.250907, -0.325596], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L4.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
     },
     {
-      "id": "gripper_link",
-      "mass": 0.07,
-      "centerOfMass": [0.035, 0, 0],
-      "inertia": { "ixx": 0.00003, "ixy": 0, "ixz": 0, "iyy": 0.00006, "iyz": 0, "izz": 0.00006 },
+      "id": "l5_1_A_link",
+      "mass": 0.018,
+      "centerOfMass": [-0.018856, -0.000041, 0.00344],
+      "inertia": { "ixx": 0.000001131, "ixy": 0, "ixz": 0, "iyy": 0.000005868, "iyz": 0, "izz": 0.000006313 },
       "visuals": [
-        { "id": "gripper-visual", "kind": "box", "pose": { "xyz": [0.035, 0, 0], "rpy": [0, 0, 0] }, "size": [0.07, 0.055, 0.025] }
+        { "id": "l5_1_A_link-visual-0", "kind": "mesh", "pose": { "xyz": [-0.003489, -0.311007, -0.358744], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_1_A.stl", "meshFormat": "stl" }
       ],
-      "collisions": [],
-      "materialID": "plastic"
+      "collisions": [
+        { "id": "l5_1_A_link-collision-0", "kind": "mesh", "pose": { "xyz": [-0.003489, -0.311007, -0.358744], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_1_A.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
+    },
+    {
+      "id": "l5_1_B_link",
+      "mass": 0.018,
+      "centerOfMass": [0.018855, 0.00004, 0.00344],
+      "inertia": { "ixx": 0.000001131, "ixy": 0, "ixz": 0, "iyy": 0.000005868, "iyz": 0, "izz": 0.000006313 },
+      "visuals": [
+        { "id": "l5_1_B_link-visual-0", "kind": "mesh", "pose": { "xyz": [-0.024489, -0.311007, -0.358744], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_1_B.stl", "meshFormat": "stl" }
+      ],
+      "collisions": [
+        { "id": "l5_1_B_link-collision-0", "kind": "mesh", "pose": { "xyz": [-0.024489, -0.311007, -0.358744], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_1_B.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
+    },
+    {
+      "id": "l5_2_A_link",
+      "mass": 0.01,
+      "centerOfMass": [-0.0216, 0, -0.0129],
+      "inertia": { "ixx": 0.000000303, "ixy": 0, "ixz": 0, "iyy": 0.000002722, "iyz": 0, "izz": 0.000002659 },
+      "visuals": [
+        { "id": "l5_2_A_link-visual-0", "kind": "mesh", "pose": { "xyz": [0.017511, -0.285551, -0.362001], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_2_A.stl", "meshFormat": "stl" }
+      ],
+      "collisions": [
+        { "id": "l5_2_A_link-collision-0", "kind": "mesh", "pose": { "xyz": [0.017511, -0.285551, -0.362001], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_2_A.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
+    },
+    {
+      "id": "l5_2_B_link",
+      "mass": 0.01,
+      "centerOfMass": [0.0216, 0, -0.0129],
+      "inertia": { "ixx": 0.000000303, "ixy": 0, "ixz": 0, "iyy": 0.000002722, "iyz": 0, "izz": 0.000002659 },
+      "visuals": [
+        { "id": "l5_2_B_link-visual-0", "kind": "mesh", "pose": { "xyz": [-0.045489, -0.285551, -0.362001], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_2_B.stl", "meshFormat": "stl" }
+      ],
+      "collisions": [
+        { "id": "l5_2_B_link-collision-0", "kind": "mesh", "pose": { "xyz": [-0.045489, -0.285551, -0.362001], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_2_B.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
+    },
+    {
+      "id": "l5_3_A_link",
+      "mass": 0.012,
+      "centerOfMass": [-0.007694, 0.0078, 0.01725],
+      "inertia": { "ixx": 0.000004976, "ixy": 0, "ixz": 0, "iyy": 0.000001623, "iyz": 0, "izz": 0.000006335 },
+      "visuals": [
+        { "id": "l5_3_A_link-visual-0", "kind": "mesh", "pose": { "xyz": [0.039711, -0.304219, -0.347532], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_3_A.stl", "meshFormat": "stl" }
+      ],
+      "collisions": [
+        { "id": "l5_3_A_link-collision-0", "kind": "mesh", "pose": { "xyz": [0.039711, -0.304219, -0.347532], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_3_A.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
+    },
+    {
+      "id": "l5_3_B_link",
+      "mass": 0.012,
+      "centerOfMass": [0.007693, 0.0078, 0.01725],
+      "inertia": { "ixx": 0.000004976, "ixy": 0, "ixz": 0, "iyy": 0.000001623, "iyz": 0, "izz": 0.000006335 },
+      "visuals": [
+        { "id": "l5_3_B_link-visual-0", "kind": "mesh", "pose": { "xyz": [-0.067689, -0.304219, -0.347532], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_3_B.stl", "meshFormat": "stl" }
+      ],
+      "collisions": [
+        { "id": "l5_3_B_link-collision-0", "kind": "mesh", "pose": { "xyz": [-0.067689, -0.304219, -0.347532], "rpy": [0, 0, 0] }, "meshPath": "package://roarm/meshes/L5_3_B.stl", "meshFormat": "stl" }
+      ],
+      "materialID": "roarm-structure"
     }
   ],
   "joints": [
     {
-      "id": "joint_1",
+      "id": "base_to_L1",
       "kind": "revolute",
       "parentLinkID": "base_link",
-      "childLinkID": "shoulder_link",
-      "origin": { "xyz": [0, 0, 0.055], "rpy": [0, 0, 0] },
+      "childLinkID": "l1_link",
+      "origin": { "xyz": [0, 0, 0.062], "rpy": [0, 0, 0] },
       "axis": [0, 0, 1],
-      "lowerLimit": -0.261799,
-      "upperLimit": 0.261799,
-      "effortLimit": 1.4,
-      "velocityLimit": 1.8,
+      "lowerLimit": -3.14,
+      "upperLimit": 3.14,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -3.14,
+      "softUpperLimit": 3.14,
+      "homePosition": 0,
       "damping": 0.025,
       "coulombFriction": 0.018,
       "stiction": 0.015,
       "backlash": 0.001
     },
     {
-      "id": "joint_2",
+      "id": "L1_to_L2",
       "kind": "revolute",
-      "parentLinkID": "shoulder_link",
-      "childLinkID": "upper_arm_link",
-      "origin": { "xyz": [0, 0, 0.075], "rpy": [0, 0, 0] },
-      "axis": [0, 1, 0],
-      "lowerLimit": -0.261799,
-      "upperLimit": 0.261799,
-      "effortLimit": 1.4,
-      "velocityLimit": 1.8,
+      "parentLinkID": "l1_link",
+      "childLinkID": "l2_link",
+      "origin": { "xyz": [0, 0.041051, 0.0534], "rpy": [0, 0, 0] },
+      "axis": [1, 0, 0],
+      "lowerLimit": -1.0467,
+      "upperLimit": 1.0467,
+      "effortLimit": 8.825985,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.0467,
+      "softUpperLimit": 1.0467,
+      "homePosition": 0,
       "damping": 0.025,
       "coulombFriction": 0.018,
       "stiction": 0.015,
       "backlash": 0.001
     },
     {
-      "id": "joint_3",
+      "id": "L2_to_L3",
       "kind": "revolute",
-      "parentLinkID": "upper_arm_link",
-      "childLinkID": "forearm_link",
-      "origin": { "xyz": [0.11, 0, 0], "rpy": [0, 0, 0] },
-      "axis": [0, 1, 0],
-      "lowerLimit": -0.261799,
-      "upperLimit": 0.261799,
-      "effortLimit": 1.2,
-      "velocityLimit": 1.8,
+      "parentLinkID": "l2_link",
+      "childLinkID": "l3_link",
+      "origin": { "xyz": [0, 0.119401, 0.119401], "rpy": [0, 0, 0] },
+      "axis": [1, 0, 0],
+      "lowerLimit": -2.7,
+      "upperLimit": 2.7,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -2.7,
+      "softUpperLimit": 2.7,
+      "homePosition": 0,
       "damping": 0.022,
       "coulombFriction": 0.016,
       "stiction": 0.014,
       "backlash": 0.001
     },
     {
-      "id": "joint_4",
+      "id": "L3_to_L4",
       "kind": "revolute",
-      "parentLinkID": "forearm_link",
-      "childLinkID": "wrist_link",
-      "origin": { "xyz": [0.104, 0, 0], "rpy": [0, 0, 0] },
-      "axis": [0, 1, 0],
-      "lowerLimit": -0.261799,
-      "upperLimit": 0.261799,
-      "effortLimit": 0.9,
-      "velocityLimit": 2.0,
+      "parentLinkID": "l3_link",
+      "childLinkID": "l4_link",
+      "origin": { "xyz": [0, 0.090485, 0.090455], "rpy": [0, 0, 0] },
+      "axis": [1, 0, 0],
+      "lowerLimit": -2.1,
+      "upperLimit": 2.1,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -2.1,
+      "softUpperLimit": 2.1,
+      "homePosition": 0,
       "damping": 0.018,
       "coulombFriction": 0.012,
       "stiction": 0.01,
       "backlash": 0.001
     },
     {
-      "id": "joint_5",
+      "id": "L4_to_L5_1_A",
       "kind": "revolute",
-      "parentLinkID": "wrist_link",
-      "childLinkID": "gripper_link",
-      "origin": { "xyz": [0.06, 0, 0], "rpy": [0, 0, 0] },
-      "axis": [1, 0, 0],
-      "lowerLimit": -0.261799,
-      "upperLimit": 0.261799,
-      "effortLimit": 0.55,
-      "velocityLimit": 2.5,
+      "parentLinkID": "l4_link",
+      "childLinkID": "l5_1_A_link",
+      "origin": { "xyz": [0.003489, 0.0601, 0.033148], "rpy": [0.785, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -1.57,
+      "upperLimit": 0,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.57,
+      "softUpperLimit": 0,
+      "homePosition": 0,
       "damping": 0.015,
       "coulombFriction": 0.01,
       "stiction": 0.008,
       "backlash": 0.001
+    },
+    {
+      "id": "L4_to_L5_1_B",
+      "kind": "revolute",
+      "parentLinkID": "l4_link",
+      "childLinkID": "l5_1_B_link",
+      "origin": { "xyz": [0.024489, 0.0601, 0.033148], "rpy": [0.785, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -1.57,
+      "upperLimit": 1.57,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.57,
+      "softUpperLimit": 1.57,
+      "homePosition": 0,
+      "damping": 0.015,
+      "coulombFriction": 0.01,
+      "stiction": 0.008,
+      "backlash": 0.001,
+      "mimic": { "jointID": "L4_to_L5_1_A", "multiplier": -1, "offset": 0 }
+    },
+    {
+      "id": "L4_to_L5_2_A",
+      "kind": "revolute",
+      "parentLinkID": "l4_link",
+      "childLinkID": "l5_2_A_link",
+      "origin": { "xyz": [-0.017511, 0.028905, 0.034644], "rpy": [0.785, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -1.57,
+      "upperLimit": 1.57,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.57,
+      "softUpperLimit": 1.57,
+      "homePosition": 0,
+      "damping": 0.015,
+      "coulombFriction": 0.01,
+      "stiction": 0.008,
+      "backlash": 0.001,
+      "mimic": { "jointID": "L4_to_L5_1_A", "multiplier": 1, "offset": 0 }
+    },
+    {
+      "id": "L4_to_L5_2_B",
+      "kind": "revolute",
+      "parentLinkID": "l4_link",
+      "childLinkID": "l5_2_B_link",
+      "origin": { "xyz": [0.045489, 0.028905, 0.034644], "rpy": [0.785, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -1.57,
+      "upperLimit": 1.57,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.57,
+      "softUpperLimit": 1.57,
+      "homePosition": 0,
+      "damping": 0.015,
+      "coulombFriction": 0.01,
+      "stiction": 0.008,
+      "backlash": 0.001,
+      "mimic": { "jointID": "L4_to_L5_1_A", "multiplier": -1, "offset": 0 }
+    },
+    {
+      "id": "L5_1_A_to_L5_3_A",
+      "kind": "revolute",
+      "parentLinkID": "l5_1_A_link",
+      "childLinkID": "l5_3_A_link",
+      "origin": { "xyz": [-0.0432, 0, -0.008], "rpy": [0, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -1.57,
+      "upperLimit": 0,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.57,
+      "softUpperLimit": 0,
+      "homePosition": 0,
+      "damping": 0.015,
+      "coulombFriction": 0.01,
+      "stiction": 0.008,
+      "backlash": 0.001,
+      "mimic": { "jointID": "L4_to_L5_1_A", "multiplier": -1, "offset": 0 }
+    },
+    {
+      "id": "L5_1_B_to_L5_3_B",
+      "kind": "revolute",
+      "parentLinkID": "l5_1_B_link",
+      "childLinkID": "l5_3_B_link",
+      "origin": { "xyz": [0.0432, 0, -0.008], "rpy": [0, 0, 0] },
+      "axis": [0, 0, 1],
+      "lowerLimit": -1.57,
+      "upperLimit": 0,
+      "effortLimit": 2.941995,
+      "velocityLimit": 0.5,
+      "softLowerLimit": -1.57,
+      "softUpperLimit": 0,
+      "homePosition": 0,
+      "damping": 0.015,
+      "coulombFriction": 0.01,
+      "stiction": 0.008,
+      "backlash": 0.001,
+      "mimic": { "jointID": "L4_to_L5_1_B", "multiplier": -1, "offset": 0 }
     }
   ],
   "materials": [
     {
-      "id": "aluminum",
-      "density": 2700,
-      "staticFriction": 0.6,
-      "dynamicFriction": 0.45,
+      "id": "roarm-structure",
+      "density": 1600,
+      "staticFriction": 0.55,
+      "dynamicFriction": 0.4,
       "restitution": 0.05
+    }
+  ],
+  "actuatorMounts": [
+    {
+      "actuatorID": "servo_1",
+      "parentLinkID": "base_link",
+      "frameID": "servo_1_output",
+      "pose": { "xyz": [0, 0, 0.062], "rpy": [0, 0, 0] },
+      "outputAxis": [0, 0, 1],
+      "source": "Waveshare RoArm-M1 URDF joint base_to_L1",
+      "notes": "Effective ST3215 output frame for the base yaw joint. The servo housing itself is present in the manufacturer STL mesh."
     },
     {
-      "id": "plastic",
-      "density": 1200,
-      "staticFriction": 0.5,
-      "dynamicFriction": 0.35,
-      "restitution": 0.08
+      "actuatorID": "servo_2",
+      "parentLinkID": "l1_link",
+      "frameID": "servo_2_output",
+      "pose": { "xyz": [0, 0.041051, 0.0534], "rpy": [0, 0, 0] },
+      "outputAxis": [1, 0, 0],
+      "source": "Waveshare RoArm-M1 URDF joint L1_to_L2 and 1:3 big-arm timing-pulley note",
+      "notes": "Effective joint-output frame after the big-arm timing-pulley reduction. The physical belt/pulley hardware is included in the manufacturer STL mesh and represented by the transmission metadata."
+    },
+    {
+      "actuatorID": "servo_3",
+      "parentLinkID": "l2_link",
+      "frameID": "servo_3_output",
+      "pose": { "xyz": [0, 0.119401, 0.119401], "rpy": [0, 0, 0] },
+      "outputAxis": [1, 0, 0],
+      "source": "Waveshare RoArm-M1 URDF joint L2_to_L3",
+      "notes": "Effective ST3215 output frame for the forearm joint."
+    },
+    {
+      "actuatorID": "servo_4",
+      "parentLinkID": "l3_link",
+      "frameID": "servo_4_output",
+      "pose": { "xyz": [0, 0.090485, 0.090455], "rpy": [0, 0, 0] },
+      "outputAxis": [1, 0, 0],
+      "source": "Waveshare RoArm-M1 URDF joint L3_to_L4",
+      "notes": "Effective ST3215 output frame for the wrist pitch joint."
+    },
+    {
+      "actuatorID": "servo_5",
+      "parentLinkID": "l4_link",
+      "frameID": "servo_5_output",
+      "pose": { "xyz": [0.003489, 0.0601, 0.033148], "rpy": [0.785, 0, 0] },
+      "outputAxis": [0, 0, 1],
+      "source": "Waveshare RoArm-M1 URDF joint L4_to_L5_1_A",
+      "notes": "Driven gripper master output frame. Passive gripper links follow the manufacturer mimic graph."
     }
   ],
   "actuatorAttachments": [
-    { "actuatorID": "servo_1", "jointID": "joint_1", "transmissionRatio": 1, "torqueLimit": 1.4 },
-    { "actuatorID": "servo_2", "jointID": "joint_2", "transmissionRatio": 1, "torqueLimit": 1.4 },
-    { "actuatorID": "servo_3", "jointID": "joint_3", "transmissionRatio": 1, "torqueLimit": 1.2 },
-    { "actuatorID": "servo_4", "jointID": "joint_4", "transmissionRatio": 1, "torqueLimit": 0.9 },
-    { "actuatorID": "servo_5", "jointID": "joint_5", "transmissionRatio": 1, "torqueLimit": 0.55 }
+    { "actuatorID": "servo_1", "jointID": "base_to_L1", "transmissionRatio": 1, "torqueLimit": 2.941995, "mountFrameID": "servo_1_output", "transmissionKind": "direct", "mechanicalReductionRatio": 1, "commandDirection": -1, "actuatorZeroOffset": 0, "jointZeroOffset": 0, "efficiency": 1 },
+    { "actuatorID": "servo_2", "jointID": "L1_to_L2", "transmissionRatio": 1, "torqueLimit": 8.825985, "mountFrameID": "servo_2_output", "transmissionKind": "timingPulley", "mechanicalReductionRatio": 3, "commandDirection": -1, "actuatorZeroOffset": 0, "jointZeroOffset": 0, "efficiency": 1 },
+    { "actuatorID": "servo_3", "jointID": "L2_to_L3", "transmissionRatio": 1, "torqueLimit": 2.941995, "mountFrameID": "servo_3_output", "transmissionKind": "direct", "mechanicalReductionRatio": 1, "commandDirection": -1, "actuatorZeroOffset": 0, "jointZeroOffset": 0, "efficiency": 1 },
+    { "actuatorID": "servo_4", "jointID": "L3_to_L4", "transmissionRatio": 1, "torqueLimit": 2.941995, "mountFrameID": "servo_4_output", "transmissionKind": "direct", "mechanicalReductionRatio": 1, "commandDirection": 1, "actuatorZeroOffset": 0, "jointZeroOffset": 0, "efficiency": 1 },
+    { "actuatorID": "servo_5", "jointID": "L4_to_L5_1_A", "transmissionRatio": 1, "torqueLimit": 2.941995, "mountFrameID": "servo_5_output", "transmissionKind": "linkage", "mechanicalReductionRatio": 1, "commandDirection": -1, "actuatorZeroOffset": 0, "jointZeroOffset": 0, "efficiency": 1 }
   ],
   "sensorMounts": [
     { "sensorID": "joint_encoder_bus", "frameID": "base", "pose": { "xyz": [0, 0, 0], "rpy": [0, 0, 0] } }
