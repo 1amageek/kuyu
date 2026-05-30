@@ -1079,6 +1079,9 @@ struct BehaviorCloneCTBR: ParsableCommand {
     @Option(name: .customLong("epochs"), help: "Behavior-cloning epochs.")
     var epochs: Int = 50
 
+    @Option(name: .customLong("actor-lr"), help: "Actor learning rate for behavior cloning (the policy config's 3e-4 is too small for supervised BC).")
+    var actorLearningRate: Double = 0.001
+
     @Option(name: .customLong("name"), help: "Bundle display name.")
     var name: String = "Attitude CTBR BC"
 
@@ -1094,10 +1097,14 @@ struct BehaviorCloneCTBR: ParsableCommand {
             throw ValidationError("--output must be a .manasbundle directory.")
         }
         guard epochs > 0 else { throw ValidationError("--epochs must be > 0.") }
+        guard actorLearningRate.isFinite, actorLearningRate > 0 else {
+            throw ValidationError("--actor-lr must be > 0.")
+        }
         let result = try ManasMLXTemporalCTBRReinforcementWarmupService().behaviorClone(
             sourceCheckpointURL: URL(fileURLWithPath: trimmedSource, isDirectory: true),
             rolloutDatasetURL: URL(fileURLWithPath: trimmedDataset, isDirectory: true),
             epochCount: epochs,
+            actorLearningRate: Float(actorLearningRate),
             outputCheckpointURL: outputURL,
             checkpointName: name
         )
