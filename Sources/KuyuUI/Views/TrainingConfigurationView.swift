@@ -61,7 +61,11 @@ public struct TrainingConfigurationView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    NumberFieldView(label: "lr", value: $model.trainingLearningRate)
+                    NumberFieldView(
+                        label: "lr", value: $model.trainingLearningRate,
+                        range: 0.00001 ... 1.0, step: 0.0005, fractionLength: 5,
+                        help: "Learning rate."
+                    )
                     Toggle("Use aux loss", isOn: $model.trainingUseAux)
                     Toggle("Quality gating", isOn: $model.trainingUseQualityGating)
 
@@ -104,7 +108,11 @@ public struct TrainingConfigurationView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-                    NumberFieldView(label: "minΔ", value: $model.loopMinDelta)
+                    NumberFieldView(
+                        label: "minΔ", value: $model.loopMinDelta,
+                        range: 0.0 ... 1.0, step: 0.001, fractionLength: 4,
+                        help: "Minimum score improvement to count as progress."
+                    )
                     Toggle("Stop on pass", isOn: $model.loopStopOnPass)
                     Toggle("Auto backoff", isOn: $model.loopAllowAutoBackoff)
 

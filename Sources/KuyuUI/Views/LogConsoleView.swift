@@ -4,14 +4,43 @@ public struct LogConsoleView: View {
     let entries: [UILogEntry]
     var filterText: String = ""
     let onClear: () -> Void
+    @State private var search: String = ""
 
     public var body: some View {
-        MonospacedLogOutputView(
-            lines: logLines,
-            emptyMessage: "No logs yet",
-            filterText: filterText
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            HStack(spacing: KuyuSpacing.sm) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Filter", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                Button {
+                    onClear()
+                } label: {
+                    Label("Clear", systemImage: "trash")
+                }
+                .controlSize(.small)
+                .help("Clear the log")
+                .accessibilityLabel("Clear Log")
+            }
+            .padding(.horizontal, KuyuSpacing.sm)
+            .padding(.vertical, KuyuSpacing.xs)
+
+            Divider()
+
+            MonospacedLogOutputView(
+                lines: logLines,
+                emptyMessage: "No logs yet",
+                filterText: effectiveFilter
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The interactive search field takes precedence; otherwise the caller-supplied
+    /// filter (if any) applies.
+    private var effectiveFilter: String {
+        search.isEmpty ? filterText : search
     }
 
     private var logLines: [MonospacedLogLine] {

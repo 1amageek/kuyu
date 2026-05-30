@@ -3294,6 +3294,16 @@ public final class SimulationViewModel {
         runError = nil
     }
 
+    /// Removes a single run, keeping the rest. Selection falls back to the newest
+    /// remaining run when the deleted run was selected.
+    func deleteRun(id: UUID) {
+        runs.removeAll { $0.id == id }
+        if selectedRunID == id {
+            selectedRunID = runs.first?.id
+            selectedScenarioKey = nil
+        }
+    }
+
     func insertRun(_ run: RunRecord) {
         runs.insert(run, at: 0)
         selectedRunID = run.id

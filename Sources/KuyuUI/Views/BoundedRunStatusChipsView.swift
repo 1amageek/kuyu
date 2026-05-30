@@ -5,15 +5,24 @@ struct BoundedRunStatusChipsView: View {
 
     var body: some View {
         HStack(spacing: KuyuSpacing.sm) {
+            if isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Running")
+            }
             StatusPill(statusLabel, tone: statusTone)
-            chip("世代/上限", generationValue)
-            chip("エピソード", episodeValue)
-            chip("平均報酬", rewardValue)
-            chip("最良適応度", fitnessValue)
-            StatusPill("接続済み", tone: .success)
+            chip("Gen/Max", generationValue)
+            chip("Episodes", episodeValue)
+            chip("Avg Reward", rewardValue)
+            chip("Best Fitness", fitnessValue)
+            StatusPill("Connected", tone: .success)
         }
         .font(.caption)
         .lineLimit(1)
+    }
+
+    private var isBusy: Bool {
+        model.isLearningCampaignRunning || model.isRunning || model.isLoopRunning
     }
 
     private func chip(_ label: String, _ value: String) -> some View {
@@ -31,12 +40,12 @@ struct BoundedRunStatusChipsView: View {
     }
 
     private var statusLabel: String {
-        if model.isLearningCampaignRunning { return "実行中" }
-        return model.learningCampaignState?.statusLabel ?? "待機中"
+        if isBusy { return "Running" }
+        return model.learningCampaignState?.statusLabel ?? "Idle"
     }
 
     private var statusTone: StatusPill.Tone {
-        if model.isLearningCampaignRunning { return .success }
+        if isBusy { return .info }
         switch statusLabel.lowercased() {
         case "failed", "invalid": return .danger
         case "cancelled": return .warning
@@ -63,7 +72,7 @@ struct BoundedRunStatusChipsView: View {
     }
 
     private var rewardValue: String {
-        guard let reward = model.rewardAverageSamples.last?.value ?? model.loopScoreSamples.last?.value else {
+        guard let reward = model.rewardAverageSamples.last?.value else {
             return "--"
         }
         return String(format: "%.1f", reward)

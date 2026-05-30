@@ -12,8 +12,8 @@ public struct StatBadgeView: View {
             .font(.system(.caption, design: .monospaced))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(passed ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
-            .foregroundStyle(passed ? .green : .orange)
+            .background(passed ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+            .foregroundStyle(passed ? .green : .red)
             .clipShape(Capsule())
     }
 }

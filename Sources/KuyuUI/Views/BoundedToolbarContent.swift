@@ -88,6 +88,7 @@ private struct TrainingPhaseStepperView: View {
 
 private struct BoundedHeaderControlsView: View {
     @Bindable var model: AppViewModel
+    @State private var isConfirmingReset = false
 
     var body: some View {
         HStack(spacing: KuyuSpacing.xs) {
@@ -96,6 +97,20 @@ private struct BoundedHeaderControlsView: View {
             stopButton
             resetButton
             stepButton
+        }
+        .confirmationDialog(
+            "Reset workspace?",
+            isPresented: $isConfirmingReset,
+            titleVisibility: .visible
+        ) {
+            Button("Clear Runs & Training State", role: .destructive) {
+                model.simulationViewModel.resetSimulationPlayback()
+                model.simulationViewModel.clearRuns()
+                model.simulationViewModel.clearTrainingState()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears all runs and training state from this session. Artifacts on disk are not affected.")
         }
     }
 
@@ -145,15 +160,13 @@ private struct BoundedHeaderControlsView: View {
     }
 
     private var resetButton: some View {
-        Button {
-            model.simulationViewModel.resetSimulationPlayback()
-            model.simulationViewModel.clearRuns()
-            model.simulationViewModel.clearTrainingState()
+        Button(role: .destructive) {
+            isConfirmingReset = true
         } label: {
             Image(systemName: "arrow.counterclockwise")
         }
-        .help("Reset")
-        .accessibilityLabel("Reset")
+        .help("Reset workspace (clears runs and training state)")
+        .accessibilityLabel("Reset workspace")
     }
 
     private var stepButton: some View {

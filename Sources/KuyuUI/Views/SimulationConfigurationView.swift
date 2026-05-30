@@ -38,11 +38,23 @@ public struct SimulationConfigurationView: View {
             }
 
             GroupBox("Controller Gains") {
-                VStack(alignment: .leading, spacing: 8) {
-                    NumberFieldView(label: "kp", value: $model.kp)
-                    NumberFieldView(label: "kd", value: $model.kd)
-                    NumberFieldView(label: "yaw", value: $model.yawDamping)
-                    NumberFieldView(label: "hover", value: $model.hoverThrustScale)
+                VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
+                    NumberFieldView(
+                        label: "kp", value: $model.kp, range: 0 ... 100, step: 0.5,
+                        help: "Proportional attitude gain (rad error → rate)."
+                    )
+                    NumberFieldView(
+                        label: "kd", value: $model.kd, range: 0 ... 50, step: 0.1,
+                        help: "Derivative (rate damping) gain."
+                    )
+                    NumberFieldView(
+                        label: "yaw", value: $model.yawDamping, range: 0 ... 50, step: 0.1,
+                        help: "Yaw-axis damping gain."
+                    )
+                    NumberFieldView(
+                        label: "hover", value: $model.hoverThrustScale, range: 0.1 ... 3.0, step: 0.05,
+                        help: "Hover thrust scale (1.0 = exact weight compensation)."
+                    )
                 }
                 .padding(.top, 6)
             }

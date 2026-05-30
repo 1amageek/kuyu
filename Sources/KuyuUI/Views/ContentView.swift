@@ -49,6 +49,20 @@ public struct ContentView: View {
                 showInspector: $showInspector
             )
         }
+        .alert(
+            "Run Failed",
+            isPresented: Binding(
+                get: { model.simulationViewModel.runError != nil },
+                set: { presented in
+                    if !presented { model.simulationViewModel.runError = nil }
+                }
+            ),
+            presenting: model.simulationViewModel.runError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text(error)
+        }
     }
 }
 

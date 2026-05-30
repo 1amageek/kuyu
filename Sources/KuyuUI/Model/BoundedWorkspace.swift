@@ -18,18 +18,18 @@ public enum BoundedWorkspace: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .dashboard: return "ダッシュボード"
-        case .training: return "トレーニング"
-        case .experimentDesign: return "実験設計"
-        case .reinforcementLearning: return "強化学習"
-        case .geneticLearning: return "遺伝的学習"
-        case .hybridIntegration: return "ハイブリッド統合"
-        case .environment: return "環境"
-        case .analysis: return "分析"
-        case .report: return "レポート"
-        case .monitor: return "モニター"
-        case .settings: return "設定"
-        case .system: return "システム"
+        case .dashboard: return "Dashboard"
+        case .training: return "Training"
+        case .experimentDesign: return "Experiment Design"
+        case .reinforcementLearning: return "Reinforcement Learning"
+        case .geneticLearning: return "Genetic Learning"
+        case .hybridIntegration: return "Hybrid Integration"
+        case .environment: return "Environment"
+        case .analysis: return "Analysis"
+        case .report: return "Report"
+        case .monitor: return "Monitor"
+        case .settings: return "Settings"
+        case .system: return "System"
         }
     }
 

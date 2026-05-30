@@ -24,26 +24,26 @@ public enum BoundedTrainingPhase: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .template:
-            return "テンプレート"
+            return "Template"
         case .environment:
-            return "環境"
+            return "Environment"
         case .strategy:
-            return "学習戦略"
+            return "Strategy"
         case .launch:
-            return "実行"
+            return "Launch"
         }
     }
 
     var subtitle: String {
         switch self {
         case .template:
-            return "Experiment の目的と初期条件"
+            return "Experiment objective and initial conditions"
         case .environment:
-            return "Scenario と観測・実行条件"
+            return "Scenario, observation, and execution conditions"
         case .strategy:
-            return "RL / GA / Hybrid の設計"
+            return "RL / GA / Hybrid design"
         case .launch:
-            return "検証、見積もり、実行"
+            return "Validate, estimate, and run"
         }
     }
 

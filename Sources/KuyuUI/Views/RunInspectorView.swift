@@ -3,6 +3,7 @@ import SwiftUI
 struct RunInspectorView: View {
     @Environment(\.openWindow) private var openWindow
     @Bindable var model: AppViewModel
+    @State private var isConfirmingDelete = false
 
     private var simulationModel: SimulationViewModel {
         model.simulationViewModel
@@ -54,13 +55,28 @@ struct RunInspectorView: View {
                 }
                 .disabled(!simulationModel.canContinueLearningCampaign)
                 Button(role: .destructive) {
-                    simulationModel.clearRuns()
+                    isConfirmingDelete = true
                 } label: {
-                    Text("Delete")
+                    Text("Delete Run")
                 }
+                .disabled(simulationModel.selectedRun == nil)
             }
         } label: {
             Label("Actions", systemImage: "play.circle")
+        }
+        .confirmationDialog(
+            "Delete this run?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Run", role: .destructive) {
+                if let id = simulationModel.selectedRun?.id {
+                    simulationModel.deleteRun(id: id)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes only the selected run from the list. Artifacts on disk are not affected.")
         }
     }
 
@@ -97,7 +113,7 @@ struct RunInspectorView: View {
     }
 
     private var reward: String {
-        guard let value = simulationModel.rewardAverageSamples.last?.value ?? simulationModel.loopScoreSamples.last?.value else { return "--" }
+        guard let value = simulationModel.rewardAverageSamples.last?.value else { return "--" }
         return String(format: "%.2f", value)
     }
 

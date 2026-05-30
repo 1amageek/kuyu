@@ -56,38 +56,58 @@ struct KuyuSimulationPreviewView: View {
         }
     }
 
+    /// Canonical label for an observation channel index (8-channel lift/single-lift
+    /// schema: ch0..5 IMU, ch6 altitude z, ch7 vertical velocity z).
+    private func channelLabel(_ index: UInt32) -> String {
+        switch index {
+        case 0: "gyroX"
+        case 1: "gyroY"
+        case 2: "gyroZ"
+        case 3: "accX"
+        case 4: "accY"
+        case 5: "accZ"
+        case 6: "alt"
+        case 7: "vz"
+        default: "ch\(index)"
+        }
+    }
+
     private var observationChips: some View {
-        let values: [(String, Double)] = [
-            ("imu0", roll),
-            ("imu1", pitch),
-            ("imu2", yaw),
-            ("imu3", position.x),
-            ("imu4", position.y),
-            ("imu5", position.z),
-            ("alt", position.z),
-            ("vz", 0)
-        ]
-        return LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(minimum: 56), spacing: KuyuSpacing.xs), count: 4),
-            spacing: KuyuSpacing.xs
-        ) {
-            ForEach(values, id: \.0) { label, value in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(String(format: "%.2f", value))
-                        .font(.system(.caption2, design: .monospaced))
-                        .monospacedDigit()
+        // Render the real post-emulation sensor stream. No live samples → an explicit
+        // "no data" placeholder rather than fabricated pose values.
+        let samples = model.lastSensorSamples.sorted { $0.channelIndex < $1.channelIndex }
+        return VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
+            Text("Sensor stream (post-emulation)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if samples.isEmpty {
+                Text("No live sensor data — run a simulation to populate channels.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(minimum: 56), spacing: KuyuSpacing.xs), count: 4),
+                    spacing: KuyuSpacing.xs
+                ) {
+                    ForEach(samples, id: \.channelIndex) { sample in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(channelLabel(sample.channelIndex))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(String(format: "%.3f", sample.value))
+                                .font(.system(.caption2, design: .monospaced))
+                                .monospacedDigit()
+                        }
+                        .padding(.horizontal, KuyuSpacing.sm)
+                        .padding(.vertical, KuyuSpacing.xs)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.white.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
+                    }
                 }
-                .padding(.horizontal, KuyuSpacing.sm)
-                .padding(.vertical, KuyuSpacing.xs)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.05))
-                .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
             }
         }
-        .accessibilityLabel("8ch observation")
+        .accessibilityLabel("sensor channel observation")
     }
 
     private func drawGrid(context: inout GraphicsContext, size: CGSize) {

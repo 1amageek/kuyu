@@ -101,16 +101,15 @@ struct KeyTrainingChartsView: View {
     }
 
     private var rewardSamples: [MetricSample] {
+        // Reward-average sources only. Loop score is a different metric and must not be
+        // substituted under the "Reward" label; an empty result yields an empty state.
         if !model.learningCampaignLiveRewardSamples.isEmpty {
             return model.learningCampaignLiveRewardSamples
         }
         if let live = model.learningCampaignState?.liveRewardAverageSamples, !live.isEmpty {
             return live
         }
-        if !model.rewardAverageSamples.isEmpty {
-            return model.rewardAverageSamples
-        }
-        return model.loopScoreSamples
+        return model.rewardAverageSamples
     }
 
     private var fitnessSamples: [MetricSample] {
@@ -121,12 +120,8 @@ struct KeyTrainingChartsView: View {
     }
 
     private var generationSamples: [MetricSample] {
-        if !model.learningCampaignLiveFitnessSamples.isEmpty {
-            return model.learningCampaignLiveFitnessSamples.map {
-                MetricSample(time: $0.time, value: $0.time + 1)
-            }
-        }
-        return model.learningCampaignState?.liveGenerationCountSamples ?? []
+        // Real generation-count series only; no synthetic `time + 1` placeholder.
+        model.learningCampaignState?.liveGenerationCountSamples ?? []
     }
 
     private var episodeSamples: [MetricSample] {

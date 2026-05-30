@@ -54,10 +54,9 @@ struct LearningStudioDashboardView: View {
     }
 
     private var rewardSamples: [MetricSample] {
-        if !model.rewardAverageSamples.isEmpty {
-            return model.rewardAverageSamples
-        }
-        return model.loopScoreSamples
+        // "Reward over time" plots reward average only; loop score is a separate metric
+        // and is not substituted here (empty → the chart shows its own empty state).
+        model.rewardAverageSamples
     }
 
     private func lastValue(_ samples: [MetricSample]) -> Double? {

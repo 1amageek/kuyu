@@ -10,11 +10,11 @@ enum LearningStrategySelection: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .reinforcementLearning:
-            return "強化学習 (RL)"
+            return "Reinforcement Learning (RL)"
         case .geneticLearning:
-            return "遺伝的学習 (GA)"
+            return "Genetic Learning (GA)"
         case .hybrid:
-            return "ハイブリッド"
+            return "Hybrid"
         }
     }
 

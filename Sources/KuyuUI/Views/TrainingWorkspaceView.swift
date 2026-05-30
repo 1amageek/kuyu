@@ -36,8 +36,8 @@ struct TrainingWorkspaceView: View {
     private var templatePhase: some View {
         VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
             phaseHeader(
-                title: "テンプレートを選ぶ",
-                subtitle: "Experiment の目的と初期条件を決定します。"
+                title: "Choose a Template",
+                subtitle: "Set the experiment objective and initial conditions."
             )
             ExperimentDesignView(model: trainingModel)
         }
@@ -46,8 +46,8 @@ struct TrainingWorkspaceView: View {
     private var environmentPhase: some View {
         VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
             phaseHeader(
-                title: "環境を構成する",
-                subtitle: "Scenario と観測・実行条件を設定します。"
+                title: "Configure the Environment",
+                subtitle: "Set the scenario, observation, and execution conditions."
             )
             EnvironmentConfigView(model: trainingModel)
         }
@@ -56,8 +56,8 @@ struct TrainingWorkspaceView: View {
     private var strategyPhase: some View {
         VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
             phaseHeader(
-                title: "学習戦略を設計する",
-                subtitle: "RL・GA・ハイブリッドから 1 つ選び、戦略固有のパラメータを編集します。"
+                title: "Design the Learning Strategy",
+                subtitle: "Pick one of RL / GA / Hybrid and edit its strategy-specific parameters."
             )
             TrainingStrategyChoiceView(model: trainingModel)
             strategyConfiguration
@@ -85,10 +85,11 @@ struct TrainingWorkspaceView: View {
     private var launchPhase: some View {
         VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
             phaseHeader(
-                title: "実行プレビュー",
-                subtitle: "リソース見積もりと受理ポリシーを確認してから起動します。"
+                title: "Launch Preview",
+                subtitle: "Review the resource estimate and acceptance policy before launching."
             )
             TrainingLaunchReviewView(model: trainingModel)
+            TrainingConfigurationView(model: trainingModel)
         }
     }
 
@@ -113,7 +114,7 @@ private struct TrainingPhaseNavigationView: View {
                     selection = previous
                 }
             } label: {
-                Label("戻る", systemImage: "chevron.left")
+                Label("Back", systemImage: "chevron.left")
             }
             .disabled(previous == nil)
 
@@ -124,7 +125,7 @@ private struct TrainingPhaseNavigationView: View {
                     selection = next
                 }
             } label: {
-                Label(selection == .launch ? "実行プレビューへ" : "次へ", systemImage: "chevron.right")
+                Label(selection == .launch ? "Launch Preview" : "Next", systemImage: "chevron.right")
             }
             .disabled(next == nil)
         }
@@ -194,17 +195,17 @@ private struct HybridFlowView: View {
     var body: some View {
         GroupBox {
             HStack(spacing: KuyuSpacing.md) {
-                flowStep("GA 探索", "候補を生成し広く探索", "sparkle.magnifyingglass")
+                flowStep("GA Search", "Generate candidates and explore broadly", "sparkle.magnifyingglass")
                 flowArrow
-                flowStep("RL 微調整", "候補を効率的に改善", "slider.horizontal.3")
+                flowStep("RL Refine", "Improve candidates efficiently", "slider.horizontal.3")
                 flowArrow
-                flowStep("評価 & 選択", "artifact gate で採否", "checkmark.seal")
+                flowStep("Evaluate & Select", "Accept/reject via the artifact gate", "checkmark.seal")
                 flowArrow
-                flowStep("繰り返し", "世代を進める", "arrow.triangle.2.circlepath")
+                flowStep("Iterate", "Advance generations", "arrow.triangle.2.circlepath")
             }
             .padding(.vertical, KuyuSpacing.xs)
         } label: {
-            Label("ハイブリッドの流れ", systemImage: "arrow.triangle.branch")
+            Label("Hybrid Flow", systemImage: "arrow.triangle.branch")
                 .font(.headline)
         }
     }
@@ -233,14 +234,14 @@ private struct RecommendedPresetView: View {
     var body: some View {
         GroupBox {
             HStack(spacing: KuyuSpacing.md) {
-                presetButton("収束重視", preset: .convergence, description: "品質到達または停滞まで継続")
-                presetButton("バランス", preset: .standard, description: "軽めの収束探索と検証")
-                presetButton("探索重視", preset: .full, description: "suite と seed を広げて収束まで探索")
-                presetButton("検証のみ", preset: .smoke, description: "小さく回して問題を早期発見")
+                presetButton("Convergence", preset: .convergence, description: "Run until quality is reached or progress plateaus")
+                presetButton("Balanced", preset: .standard, description: "Light convergence search with validation")
+                presetButton("Exploration", preset: .full, description: "Widen suites and seeds, search to convergence")
+                presetButton("Smoke", preset: .smoke, description: "Small run to catch problems early")
             }
             .padding(.vertical, KuyuSpacing.xs)
         } label: {
-            Label("おすすめプリセット", systemImage: "sparkles")
+            Label("Recommended Presets", systemImage: "sparkles")
                 .font(.headline)
         }
     }
@@ -299,12 +300,12 @@ private struct TrainingLaunchReviewView: View {
     private var launchChecklist: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                checklistRow("テンプレート設定", status: "OK", tone: .success)
-                checklistRow("環境設定", status: "OK", tone: .success)
-                checklistRow("学習戦略設定", status: "OK", tone: .success)
+                checklistRow("Template Configured", status: "OK", tone: .success)
+                checklistRow("Environment Configured", status: "OK", tone: .success)
+                checklistRow("Strategy Configured", status: "OK", tone: .success)
                 checklistRow(
-                    "リソース見積もり",
-                    status: model.learningCampaignLaunchEstimate == nil ? "未実行" : "OK",
+                    "Resource Estimate",
+                    status: model.learningCampaignLaunchEstimate == nil ? "Not run" : "OK",
                     tone: model.learningCampaignLaunchEstimate == nil ? .warning : .success
                 )
                 checklistRow(
@@ -315,7 +316,7 @@ private struct TrainingLaunchReviewView: View {
             }
             .padding(.vertical, KuyuSpacing.xs)
         } label: {
-            Label("チェックリスト", systemImage: "checklist")
+            Label("Checklist", systemImage: "checklist")
                 .font(.headline)
         }
     }
@@ -345,14 +346,14 @@ private struct TrainingLaunchReviewView: View {
                     StatRow(label: "Regression Episodes", value: "\(estimate.regressionEpisodes)")
                     StatRow(label: "Parallelism", value: estimate.parallelismLabel)
                 } else {
-                    Text("Estimate Compute Cost を実行すると、候補数・rollout数・episode数を確認できます。")
+                    Text("Run “Estimate Compute Cost” to see candidate, rollout, and episode counts.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .padding(.vertical, KuyuSpacing.xs)
         } label: {
-            Label("実行規模", systemImage: "ruler")
+            Label("Run Scale", systemImage: "ruler")
                 .font(.headline)
         }
     }
@@ -367,7 +368,7 @@ private struct TrainingLaunchReviewView: View {
             }
             .padding(.vertical, KuyuSpacing.xs)
         } label: {
-            Label("受理ポリシー", systemImage: "checkmark.seal")
+            Label("Acceptance Policy", systemImage: "checkmark.seal")
                 .font(.headline)
         }
     }

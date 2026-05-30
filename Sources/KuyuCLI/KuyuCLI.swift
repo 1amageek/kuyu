@@ -12,7 +12,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
     )
 }
 
@@ -1868,8 +1868,8 @@ private func parseCalibrationSuites(_ raw: String) throws -> [Int] {
     }
     var seenSuites = Set<Int>()
     return try values.map { value in
-        guard let suite = Int(value), [6, 7, 8].contains(suite) else {
-            throw ValidationError("--suites only supports 6, 7, and 8.")
+        guard let suite = Int(value), (0...8).contains(suite) else {
+            throw ValidationError("--suites supports 0–8 (attitude 0–5 = A1 conformance suites, 6–8 = long-horizon tracks).")
         }
         guard seenSuites.insert(suite).inserted else {
             throw ValidationError("--suites contains a duplicate suite: \(suite)")
@@ -2636,7 +2636,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                             )
                             print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) postRegression=\(validatedRegression.allPassed)")
                         } else {
-                            let defaultMinimumRewardAverage = KuyuRegressionQualityGatePolicy
+                            let defaultMinimumRewardAverage = try KuyuRegressionQualityGatePolicy
                                 .defaultMinimumRewardAverage(for: task.rawValue)
                             postRegressionEntry = KuyuPostTrainingRegressionEntry(
                                 attempted: false,
@@ -2904,8 +2904,8 @@ struct CheckKuyuRegression: AsyncParsableCommand {
         }
         var seenSuites = Set<Int>()
         return try values.map { value in
-            guard let suite = Int(value), [6, 7, 8].contains(suite) else {
-                throw ValidationError("--suites only supports 6, 7, and 8.")
+            guard let suite = Int(value), (0...8).contains(suite) else {
+                throw ValidationError("--suites supports 0–8 (attitude 0–5 = A1 conformance suites, 6–8 = long-horizon tracks).")
             }
             guard seenSuites.insert(suite).inserted else {
                 throw ValidationError("--suites contains a duplicate suite: \(suite)")
@@ -2915,6 +2915,9 @@ struct CheckKuyuRegression: AsyncParsableCommand {
     }
 
     private func regressionTrackName(for suite: Int) -> String {
+        if let level = A1ConformanceSuite.Level(rawValue: suite) {
+            return level.suiteID
+        }
         switch suite {
         case 6:
             return LongHorizonBenchmarkTrack.longHorizonTask.rawValue
@@ -3130,7 +3133,7 @@ private func runKuyuRegression(
     let snapshotPath = snapshotURL?.path
     let regressionTask = regressionRolloutTask(selectedTasks)
     let regressionProfile = try TaskEvaluationProfile.profile(task: regressionTask.rawValue)
-    let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+    let effectiveMinimumRewardAverage = try KuyuRegressionQualityGatePolicy.minimumRewardAverage(
         override: minimumRewardAverage,
         task: regressionProfile.task
     )
@@ -3143,7 +3146,7 @@ private func runKuyuRegression(
                 requireSourceCheckpoint: true
             )
         } catch {
-            let gateReport = KuyuRegressionGatePolicy.report(
+            let gateReport = try KuyuRegressionGatePolicy.report(
                 preflightFailure: String(describing: error),
                 environmentTasks: [],
                 rolloutSuites: [],
@@ -3230,7 +3233,7 @@ private func runKuyuRegression(
                 artifactPath: nil
             )
         }
-        let gateReport = KuyuRegressionGatePolicy.report(
+        let gateReport = try KuyuRegressionGatePolicy.report(
             preflightFailure: nil,
             environmentTasks: environmentReport.tasks,
             rolloutSuites: rolloutEntries,
@@ -3362,7 +3365,7 @@ private func runKuyuRegression(
             && entry.taskPassCount == entry.episodeCount
             && (!failOnTruncation || entry.truncatedCount == 0)
     }
-    let gateReport = KuyuRegressionGatePolicy.report(
+    let gateReport = try KuyuRegressionGatePolicy.report(
         preflightFailure: nil,
         environmentTasks: environmentReport.tasks,
         rolloutSuites: rolloutEntries,
@@ -3499,8 +3502,8 @@ private func parseRegressionSuites(_ raw: String) throws -> [Int] {
     }
     var seenSuites = Set<Int>()
     return try values.map { value in
-        guard let suite = Int(value), [6, 7, 8].contains(suite) else {
-            throw ValidationError("--suites only supports 6, 7, and 8.")
+        guard let suite = Int(value), (0...8).contains(suite) else {
+            throw ValidationError("--suites supports 0–8 (attitude 0–5 = A1 conformance suites, 6–8 = long-horizon tracks).")
         }
         guard seenSuites.insert(suite).inserted else {
             throw ValidationError("--suites contains a duplicate suite: \(suite)")
@@ -3646,6 +3649,9 @@ private func rolloutTaskChoice(from task: SimulationTaskMode) -> RolloutTaskChoi
 }
 
 private func regressionTrackName(for suite: Int) -> String {
+    if let level = A1ConformanceSuite.Level(rawValue: suite) {
+        return level.suiteID
+    }
     switch suite {
     case 6:
         return LongHorizonBenchmarkTrack.longHorizonTask.rawValue
@@ -3780,133 +3786,39 @@ private func writeKuyuRegressionSummary(_ summary: KuyuRegressionSummary, to art
     _ = try KuyuRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
 }
 
+// Core harness acceptance logic + thresholds now live in the shared
+// `KuyuTraining.TrainingHarnessPolicy` API (kuyu/SPEC.md "API-First Application
+// Boundary"). This CLI enum is a thin adapter that delegates the gate decision to the
+// shared policy and only composes the CLI-specific post-training-regression step on top.
 private enum TrainingHarnessPolicy {
     static func report(
         result: TrainingProbeResult,
         requireTaskSolved: Bool,
         postRegression: KuyuPostTrainingRegressionEntry?
     ) -> TrainingHarnessGateReport {
-        var reasons = requireTaskSolved
-            ? taskSolvedRejectionReasons(result: result)
-            : harnessRejectionReasons(result: result)
+        let base = KuyuTraining.TrainingHarnessPolicy.report(
+            result: result,
+            requireTaskSolved: requireTaskSolved
+        )
+        var reasons = base.reasons
         if let postRegression, !postRegressionAcceptanceSatisfied(postRegression) {
             reasons.append("post-regression-failed")
             reasons.append(contentsOf: postRegression.failureReasons.map { "post-regression:\($0)" })
         }
+        let requirement = postRegression != nil ? "\(base.requirement)+postRegression" : base.requirement
         return TrainingHarnessGateReport(
-            requirement: requirementName(requireTaskSolved: requireTaskSolved, postRegression: postRegression != nil),
+            requirement: requirement,
             accepted: reasons.isEmpty,
             reasons: reasons
         )
     }
 
     static func taskSolved(result: TrainingProbeResult) -> Bool {
-        taskSolvedRejectionReasons(result: result).isEmpty
+        KuyuTraining.TrainingHarnessPolicy.taskSolved(result: result)
     }
 
     static func satisfied(result: TrainingProbeResult) -> Bool {
-        harnessRejectionReasons(result: result).isEmpty
-    }
-
-    private static func taskSolvedRejectionReasons(result: TrainingProbeResult) -> [String] {
-        var reasons: [String] = []
-        if result.manifest.terminalState != .completed {
-            reasons.append("terminal-not-completed:\(result.manifest.terminalState.rawValue)")
-        }
-        if result.probeCheckpointDecision.state != .accepted {
-            reasons.append("probe-checkpoint-not-accepted:\(result.probeCheckpointDecision.state.rawValue)")
-        }
-        if !result.comparison.reloadSucceeded {
-            reasons.append("reload-failed")
-        }
-        if !result.comparison.policySatisfied {
-            reasons.append("policy-not-satisfied")
-        }
-        reasons.append(contentsOf: result.comparison.probeRejectionReasons.map { "probe:\($0)" })
-        return Array(Set(reasons)).sorted()
-    }
-
-    private static func harnessRejectionReasons(result: TrainingProbeResult) -> [String] {
-        var reasons: [String] = []
-        if !result.training.convergence.accepted {
-            reasons.append("convergence-rejected:\(result.training.convergence.reason)")
-        }
-        if result.comparison.checkpointDecision != .accepted && result.comparison.checkpointDecision != .staged {
-            reasons.append("checkpoint-not-accepted:\(result.comparison.checkpointDecision.rawValue)")
-        }
-        if result.comparison.selectedCheckpointRole != .candidate {
-            reasons.append("selected-checkpoint-not-candidate:\(result.comparison.selectedCheckpointRole.rawValue)")
-        }
-        if result.comparison.selectedCheckpointURL == nil {
-            reasons.append("missing-selected-checkpoint")
-        }
-        if !result.comparison.reloadSucceeded {
-            reasons.append("reload-failed")
-        }
-        if !result.comparison.referenceSatisfied {
-            reasons.append("reference-not-satisfied")
-        }
-        if !result.comparison.meetsMinimumDelta {
-            reasons.append("minimum-delta-not-met")
-        }
-        if !result.comparison.safetyNonRegression {
-            reasons.append("safety-regression")
-        }
-        if !result.comparison.teacherDivergenceNonRegression {
-            reasons.append("teacher-divergence-regression")
-        }
-        guard let trained = result.trained else {
-            reasons.append("missing-trained-run")
-            return Array(Set(reasons)).sorted()
-        }
-        reasons.append(contentsOf: hardSafetyFailures(trained.diagnostics.failureReasons).map { "hard-safety-failure:\($0)" })
-        if !driveActivationCloseEnough(teacher: result.teacher, trained: trained) {
-            reasons.append("drive-activation-diverged")
-        }
-        if !altitudeSmokeSatisfied(trained: trained) {
-            reasons.append("altitude-smoke-failed")
-        }
-        if (result.comparison.scoreDelta ?? -Double.greatestFiniteMagnitude) < 0 {
-            reasons.append("negative-score-delta")
-        }
-        return Array(Set(reasons)).sorted()
-    }
-
-    private static func requirementName(requireTaskSolved: Bool, postRegression: Bool) -> String {
-        let base = requireTaskSolved ? "taskSolved" : "harnessSatisfied"
-        return postRegression ? "\(base)+postRegression" : base
-    }
-
-    private static func hasHardSafetyFailure(_ reasons: [String]) -> Bool {
-        !hardSafetyFailures(reasons).isEmpty
-    }
-
-    private static func hardSafetyFailures(_ reasons: [String]) -> [String] {
-        let hardFailures: Set<String> = ["ground-violation", "sustained-fall", "sustained-violation"]
-        return reasons.filter { hardFailures.contains($0) }.sorted()
-    }
-
-    private static func driveActivationCloseEnough(
-        teacher: TrainingProbeRunSummary,
-        trained: TrainingProbeRunSummary
-    ) -> Bool {
-        guard
-            let teacherAverage = teacher.diagnostics.averageDriveActivation,
-            let trainedAverage = trained.diagnostics.averageDriveActivation
-        else {
-            return false
-        }
-        return abs(teacherAverage - trainedAverage) <= 0.05
-    }
-
-    private static func altitudeSmokeSatisfied(trained: TrainingProbeRunSummary) -> Bool {
-        guard
-            let minAltitude = trained.diagnostics.minAltitudeZ,
-            let finalAltitude = trained.diagnostics.finalAltitudeZ
-        else {
-            return false
-        }
-        return minAltitude >= 0.25 && finalAltitude >= 0.25
+        KuyuTraining.TrainingHarnessPolicy.satisfied(result: result)
     }
 }
 
@@ -4032,12 +3944,6 @@ private struct CheckTrainingHarnessSeedEntry: Codable {
     let finalTrainedScore: Double?
     let finalFailureReasons: [String]
     let probes: [CheckTrainingHarnessProbeEntry]
-}
-
-private struct TrainingHarnessGateReport: Codable {
-    let requirement: String
-    let accepted: Bool
-    let reasons: [String]
 }
 
 private struct CheckTrainingHarnessProbeEntry: Codable {
@@ -4584,7 +4490,7 @@ struct EvolveManas: AsyncParsableCommand {
             throw ValidationError("--min-reward-average must be finite when specified.")
         }
         let evolutionProfile = try TaskEvaluationProfile.profile(task: task.rawValue)
-        let effectiveMinimumRewardAverage = KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+        let effectiveMinimumRewardAverage = try KuyuRegressionQualityGatePolicy.minimumRewardAverage(
             override: minimumRewardAverage,
             task: evolutionProfile.task
         )
@@ -4677,7 +4583,12 @@ struct EvolveManas: AsyncParsableCommand {
                 mutationRate: mutationRate,
                 mutationNoiseScale: mutationNoiseScale,
                 adaptiveMutation: EvolutionAdaptiveMutationConfig(enabled: adaptiveMutation),
-                worldExecutionRequirement: .acceleratorSharedWorld,
+                // attitude (and A1 swap/HF-stress suites) is not tensor-world
+                // capable; allow isolated CPU-world fallback. Hover tasks keep the
+                // strict accelerator contract.
+                worldExecutionRequirement: task == .attitude
+                    ? .preferAcceleratorSharedWorld
+                    : .acceleratorSharedWorld,
                 parentCheckpointID: snapshotURL.lastPathComponent,
                 parentCheckpointURL: snapshotURL
             ),
@@ -4975,7 +4886,13 @@ struct RunLearningCampaign: AsyncParsableCommand {
                 workerCount: resolvedWorkers,
                 candidateEvaluationConcurrency: resolvedCandidateEvaluationConcurrency,
                 resourceSampleSeconds: resourceSampleSeconds,
-                worldExecutionRequirement: .acceleratorSharedWorld
+                // attitude scenarios (and the A1 swap/HF-stress suites) are not
+                // tensor-world capable, so they must be allowed to fall back to
+                // isolated CPU worlds. lift/singleLift hover stays on the strict
+                // accelerator contract to keep GPU-batched evaluation fast.
+                worldExecutionRequirement: task == .attitude
+                    ? .preferAcceleratorSharedWorld
+                    : .acceleratorSharedWorld
             ),
             evolution: TrainingEvolutionSettings(
                 eliteCount: resolvedEliteCount,
@@ -5334,6 +5251,167 @@ struct ImagineTrain: AsyncParsableCommand {
     }
 }
 
+/// Staged self-verification harness. Runs a sequence of checks with per-stage CLI
+/// output so the system can be validated incrementally without the GUI or a trained
+/// checkpoint. Exits non-zero if any check fails.
+struct Verify: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "verify",
+        abstract: "Staged self-verification: MLX preflight, environment readiness, Tier-0 determinism, and A1 conformance suites (0–5), each reported as it runs."
+    )
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: TierChoice = .tier0
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Model descriptor path (optional; empty uses the reference baseline).")
+    var model: String = ""
+
+    @Option(help: "Scenarios per A1 suite stage.")
+    var episodes: Int = 1
+
+    @Option(name: .customLong("max-steps"), help: "Maximum steps per rollout episode. Omit for the full scenario duration (needed to reach mid-run swaps).")
+    var maxSteps: Int?
+
+    @Option(name: .customLong("artifact-root"), help: "Directory for verification artifacts.")
+    var artifactRootPath: String = "/tmp/kuyu-verify"
+
+    @Flag(name: .customLong("skip-mlx"), help: "Skip the MLX runtime preflight stage (pure-physics verification only).")
+    var skipMLX: Bool = false
+
+    @Option(help: "kp gain for the baseline controller.")
+    var kp: Double = 2.0
+    @Option(help: "kd gain for the baseline controller.")
+    var kd: Double = 0.25
+    @Option(name: .customLong("yaw-damping"), help: "Yaw damping gain for the baseline controller.")
+    var yawDamping: Double = 0.2
+    @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
+    var hoverScale: Double = 1.0
+
+    mutating func run() async throws {
+        let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
+
+        let determinism = try makeDeterminism(tier: tier)
+        let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
+        let gains = try ImuRateDampingCutGains(kp: kp, kd: kd, yawDamping: yawDamping, hoverThrustScale: hoverScale)
+        let loadedDescriptor = try loadLoadedDescriptor(modelPath: model)
+        let parameters = try makeRolloutParameters(task: .attitude, loadedDescriptor: loadedDescriptor, hoverThrustScale: hoverScale)
+        let limits = try RolloutRunner.Limits.validated(maxStepsPerEpisode: maxSteps, maxWallTimeSeconds: nil)
+
+        func baselineRollout(_ definitions: [ReferenceQuadrotorScenarioDefinition]) async throws -> RolloutSummary {
+            let runner = RolloutRunner(
+                parameters: parameters,
+                schedule: schedule,
+                determinism: determinism,
+                hoverThrustScale: hoverScale,
+                loadedDescriptor: loadedDescriptor,
+                motorNerveRateLimitPerSecond: 100.0,
+                motorNerveSmoothingTimeConstant: nil,
+                limits: limits
+            )
+            let policy = KuyAtt1BaselinePolicyFactory(parameters: parameters, gains: gains, mode: .teacher)
+            let episodeResults = try await runner.run(definitions: definitions, policyFactory: policy)
+            return RolloutSummary(episodes: episodeResults)
+        }
+
+        var failures = 0
+        let stageCount = skipMLX ? 3 : 4
+        var stageIndex = 0
+        func stage(_ name: String) { stageIndex += 1; print("[verify \(stageIndex)/\(stageCount)] \(name)") }
+        func pass(_ detail: String) { print("[verify]   PASS — \(detail)") }
+        func fail(_ detail: String) { failures += 1; print("[verify]   FAIL — \(detail)") }
+
+        // Stage 1: MLX runtime preflight.
+        if !skipMLX {
+            stage("MLX runtime preflight")
+            do {
+                let report = try ManasMLXE2EPreflight().check(descriptorPath: model)
+                if report.mlxRuntimeReady {
+                    pass("MLX/Metal runtime ready (descriptorLoaded=\(report.descriptorLoaded))")
+                } else {
+                    fail("MLX runtime not ready")
+                }
+            } catch {
+                fail("MLX preflight threw: \(error)")
+            }
+        }
+
+        // Stage 2: environment readiness for the attitude task (teacher baseline).
+        stage("Environment readiness (attitude)")
+        do {
+            let report = try await KuyuEnvironmentReadinessChecker().check(
+                tasks: [.attitude],
+                controller: .teacherBaseline,
+                parameters: parameters,
+                schedule: schedule,
+                determinism: determinism,
+                gains: gains,
+                modelDescriptorPath: model,
+                descriptor: loadedDescriptor?.descriptor,
+                artifactRoot: artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
+            )
+            for task in report.tasks {
+                print("[verify]   env task=\(task.task) ready=\(task.ready) score=\(String(format: "%.3f", task.score))")
+            }
+            if report.allReady {
+                pass("all attitude environments ready")
+            } else {
+                fail("environment not ready")
+            }
+        } catch {
+            fail("readiness threw: \(error)")
+        }
+
+        // Stage 3: Tier-0 determinism — A1 Suite-1 run twice must be bit-exact.
+        stage("Tier-0 determinism (A1 Suite-1, bit-exact replay)")
+        do {
+            let definitions = try makeRolloutDefinitions(task: .attitude, suite: 1, episodes: episodes)
+            let first = try await baselineRollout(definitions)
+            let second = try await baselineRollout(definitions)
+            if first.rewardSum == second.rewardSum {
+                pass("identical rewardSum across two runs (\(String(format: "%.6f", first.rewardSum)))")
+            } else {
+                fail("rewardSum differs: \(first.rewardSum) vs \(second.rewardSum)")
+            }
+        } catch {
+            fail("determinism stage threw: \(error)")
+        }
+
+        // Stage 4: A1 conformance suites 0…5 — verify stressor injection and that each runs.
+        stage("A1 conformance suites (Suite-0 … Suite-5)")
+        for level in A1ConformanceSuite.Level.allCases {
+            do {
+                let definitions = try makeRolloutDefinitions(task: .attitude, suite: level.rawValue, episodes: episodes)
+                let swapCount = definitions.reduce(0) { $0 + $1.swapEvents.count }
+                let hfCount = definitions.reduce(0) { $0 + $1.hfEvents.count }
+                // Warmup must inject no stress; every other suite must inject at least one event.
+                let injectionOK = level == .warmup
+                    ? (swapCount + hfCount == 0)
+                    : (swapCount + hfCount > 0)
+                let summary = try await baselineRollout(definitions)
+                if !definitions.isEmpty && injectionOK {
+                    pass("\(level.suiteID) scenarios=\(definitions.count) swaps=\(swapCount) hf=\(hfCount) ran=\(summary.episodeCount) failures=\(summary.failureCount)")
+                } else {
+                    fail("\(level.suiteID) scenarios=\(definitions.count) swaps=\(swapCount) hf=\(hfCount) (injection mismatch)")
+                }
+            } catch {
+                fail("\(level.suiteID) threw: \(error)")
+            }
+        }
+
+        print("")
+        if failures == 0 {
+            print("[verify] ALL CHECKS PASSED")
+        } else {
+            print("[verify] \(failures) CHECK(S) FAILED")
+            throw ExitCode.failure
+        }
+    }
+}
+
 private func makeDeterminism(tier: TierChoice) throws -> DeterminismConfig {
     switch tier {
     case .tier0:
@@ -5442,27 +5520,11 @@ private func makeRolloutDefinitions(
         return try makeTrainingSuiteDefinitions(task: task, suite: suite, episodes: episodes)
     }
     if let suite {
-        if task == .lift || task == .singleLift {
-            return try makeLiftSuiteDefinitions(task: task, suite: suite, episodes: episodes)
-        }
-        let track: LongHorizonBenchmarkTrack
-        switch suite {
-        case 6:
-            track = .longHorizonTask
-        case 7:
-            track = .morphologyTransfer
-        case 8:
-            track = .disturbanceDelayPartialObservability
-        default:
-            throw ValidationError("--suite must be one of 6, 7, or 8.")
-        }
-        let benchmark = try LongHorizonBenchmarkSuite.makeDefault(
-            scenariosPerTrack: max(episodes, 1),
-            baseSeed: 60_000
+        return try RegressionScenarioCatalog.scenarios(
+            for: learningCampaignRolloutTask(from: task),
+            suite: suite,
+            episodeCount: episodes
         )
-        return benchmark.cases
-            .filter { $0.track == track }
-            .map(\.definition)
     }
 
     switch task {
@@ -5495,7 +5557,11 @@ private func makeTrainingSuiteDefinitions(
             )
         }
     case .lift:
-        return try makeLiftSuiteDefinitions(task: task, suite: suite ?? 6, episodes: episodes)
+        return try RegressionScenarioCatalog.scenarios(
+            for: learningCampaignRolloutTask(from: task),
+            suite: suite ?? 6,
+            episodeCount: episodes
+        )
     case .attitude:
         return try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
     }
@@ -5539,130 +5605,6 @@ private func makeRegressionRolloutDefinitions(
         throw ValidationError("--episodes must be greater than 0.")
     }
     return try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
-}
-
-private func makeLiftSuiteDefinitions(
-    task: RolloutTaskChoice,
-    suite: Int,
-    episodes: Int
-) throws -> [ReferenceQuadrotorScenarioDefinition] {
-    let baseDefinitions = try baseLiftDefinitions(task: task)
-    guard !baseDefinitions.isEmpty else {
-        throw ValidationError("No base lift definitions are available.")
-    }
-    return try (0..<episodes).map { index in
-        try liftRegressionDefinition(
-            task: task,
-            suite: suite,
-            index: index,
-            definition: baseDefinitions[index % baseDefinitions.count]
-        )
-    }
-}
-
-private func baseLiftDefinitions(task: RolloutTaskChoice) throws -> [ReferenceQuadrotorScenarioDefinition] {
-    switch task {
-    case .attitude:
-        return try KuyAtt1Suite().scenarios()
-    case .lift:
-        return try KuyLiftSuite().scenarios()
-    case .singleLift:
-        return try KuySingleLiftSuite().scenarios()
-    }
-}
-
-private func liftRegressionDefinition(
-    task: RolloutTaskChoice,
-    suite: Int,
-    index: Int,
-    definition: ReferenceQuadrotorScenarioDefinition
-) throws -> ReferenceQuadrotorScenarioDefinition {
-    guard let liftEnvelope = definition.liftEnvelope else {
-        return definition
-    }
-
-    let targetOffset: Double
-    let initialOffset: Double
-    let actuatorDegradation: ActuatorDegradation?
-    let torqueEvents: [TorqueDisturbanceEvent]
-    let hfEvents: [HFStressEvent]
-    switch suite {
-    case 6:
-        targetOffset = 0
-        initialOffset = 0
-        actuatorDegradation = definition.actuatorDegradation
-        torqueEvents = definition.torqueEvents
-        hfEvents = definition.hfEvents
-    case 7:
-        targetOffset = task == .singleLift ? 0.02 : 0.05
-        initialOffset = 0
-        actuatorDegradation = definition.actuatorDegradation
-        torqueEvents = definition.torqueEvents
-        hfEvents = definition.hfEvents
-    case 8:
-        targetOffset = task == .singleLift ? -0.01 : -0.02
-        initialOffset = 0
-        actuatorDegradation = definition.actuatorDegradation
-        torqueEvents = definition.torqueEvents + [
-            try TorqueDisturbanceEvent(
-                startTime: max(0.75, definition.config.duration * 0.35),
-                duration: 0.05,
-                torqueBody: Axis3(x: task == .singleLift ? 0.0002 : 0.0005, y: 0, z: 0)
-            ),
-        ]
-        hfEvents = definition.hfEvents + [
-            try HFStressEvent(
-                kind: .latencySpike,
-                startTime: max(1.0, definition.config.duration * 0.50),
-                duration: 0.01,
-                magnitude: 0.01
-            ),
-        ]
-    default:
-        throw ValidationError("--suites only supports 6, 7, and 8.")
-    }
-
-    let targetZ = max(0.05, liftEnvelope.targetZ + targetOffset)
-    let adjustedLiftEnvelope = LiftEnvelope(
-        targetZ: targetZ,
-        tolerance: liftEnvelope.tolerance,
-        maxVelocity: liftEnvelope.maxVelocity,
-        warmupTime: liftEnvelope.warmupTime,
-        requiredHoldTime: liftEnvelope.requiredHoldTime
-    )
-    let prefix: String
-    switch task {
-    case .attitude:
-        prefix = "KUY-ATT-M2-S\(suite)"
-    case .lift:
-        prefix = "KUY-LIFT-M2-S\(suite)"
-    case .singleLift:
-        prefix = "KUY-SLIFT-M2-S\(suite)"
-    }
-
-    return ReferenceQuadrotorScenarioDefinition(
-        config: try ScenarioConfig(
-            id: try ScenarioID("\(prefix)/SCN-\(index + 1)"),
-            seed: ScenarioSeed(definition.config.seed.rawValue &+ UInt64(suite * 10_000 + index)),
-            duration: definition.config.duration,
-            timeStep: definition.config.timeStep
-        ),
-        kind: definition.kind,
-        initialPosition: Axis3(
-            x: definition.initialPosition.x,
-            y: definition.initialPosition.y,
-            z: max(0.05, targetZ + initialOffset)
-        ),
-        initialAttitude: definition.initialAttitude,
-        initialAngularVelocity: definition.initialAngularVelocity,
-        safetyEnvelope: definition.safetyEnvelope,
-        liftEnvelope: adjustedLiftEnvelope,
-        torqueEvents: torqueEvents,
-        actuatorDegradation: actuatorDegradation,
-        gyroDriftScale: suite == 8 ? max(definition.gyroDriftScale, 1.5) : definition.gyroDriftScale,
-        swapEvents: definition.swapEvents,
-        hfEvents: hfEvents
-    )
 }
 
 private func simulationTaskMode(from task: RolloutTaskChoice) -> SimulationTaskMode {

@@ -20,12 +20,14 @@ struct RunListView: View {
                             model.selectedRunID = run.id
                         }
                         .buttonStyle(.plain)
+                        .fontWeight(run.id == model.selectedRunID ? .bold : .regular)
                         StatusPill(run.output.summary.suitePassed ? "passed" : "failed", tone: run.output.summary.suitePassed ? .success : .danger)
-                        Text(model.taskMode.rawValue)
-                        Text(model.controllerSelection.rawValue)
-                        Text(run.output.summary.suitePassed ? "1.00" : "0.00")
+                        Text(passRate(run))
                             .font(.system(.caption, design: .monospaced))
-                        Text("--")
+                        Text(overshoot(run))
+                            .font(.system(.caption, design: .monospaced))
+                        Text(recovery(run))
+                            .font(.system(.caption, design: .monospaced))
                         Text("\(run.scenarios.count)")
                             .font(.system(.caption, design: .monospaced))
                         Text(run.timestamp.formatted(date: .abbreviated, time: .shortened))
@@ -42,14 +44,31 @@ struct RunListView: View {
         GridRow {
             Text("Run ID")
             Text("Status")
-            Text("Experiment")
-            Text("Algorithm")
-            Text("Reward")
-            Text("Fitness")
-            Text("Episodes")
+            Text("Pass")
+            Text("Overshoot")
+            Text("Recovery")
+            Text("Scenarios")
             Text("Updated")
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
+    }
+
+    /// Passed-scenario count over total, from the run's own evaluations.
+    private func passRate(_ run: RunRecord) -> String {
+        let evaluations = run.output.summary.evaluations
+        guard !evaluations.isEmpty else { return "--" }
+        let passed = evaluations.filter(\.passed).count
+        return "\(passed)/\(evaluations.count)"
+    }
+
+    private func overshoot(_ run: RunRecord) -> String {
+        guard let value = run.output.summary.aggregate.worstOvershootDegrees else { return "--" }
+        return String(format: "%.1f°", value)
+    }
+
+    private func recovery(_ run: RunRecord) -> String {
+        guard let value = run.output.summary.aggregate.averageRecoveryTime else { return "--" }
+        return String(format: "%.2fs", value)
     }
 }

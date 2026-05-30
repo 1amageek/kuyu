@@ -25,24 +25,33 @@ public struct MetricChartView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            Chart(samples) { sample in
-                LineMark(
-                    x: .value("Time", sample.time),
-                    y: .value(title, sample.value)
-                )
-                .foregroundStyle(lineColor)
-                .interpolationMethod(.catmullRom)
+            if samples.isEmpty {
+                Text("No data yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: KuyuLayout.chartMinHeight)
+                    .background(.quaternary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
+            } else {
+                Chart(samples) { sample in
+                    LineMark(
+                        x: .value("Time", sample.time),
+                        y: .value(title, sample.value)
+                    )
+                    .foregroundStyle(lineColor)
+                    .interpolationMethod(.catmullRom)
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 5))
+                }
+                .chartYAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4))
+                }
+                .chartPlotStyle { plot in
+                    plot.background(.quaternary.opacity(0.12))
+                }
+                .frame(minHeight: KuyuLayout.chartMinHeight)
             }
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 5))
-            }
-            .chartYAxis {
-                AxisMarks(values: .automatic(desiredCount: 4))
-            }
-            .chartPlotStyle { plot in
-                plot.background(.quaternary.opacity(0.12))
-            }
-            .frame(minHeight: KuyuLayout.chartMinHeight)
         }
         .padding(KuyuSpacing.sm)
         .background(

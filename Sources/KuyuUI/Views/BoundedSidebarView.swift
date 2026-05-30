@@ -6,11 +6,11 @@ struct BoundedSidebarView: View {
 
     var body: some View {
         List(selection: $model.selectedWorkspace) {
-            Section("実行") {
+            Section("Run") {
                 workspaceRow(.dashboard)
             }
 
-            Section("トレーニング") {
+            Section("Training") {
                 workspaceRow(.experimentDesign)
                 workspaceRow(.reinforcementLearning)
                 workspaceRow(.geneticLearning)
@@ -18,7 +18,7 @@ struct BoundedSidebarView: View {
                 workspaceRow(.environment)
             }
 
-            Section("開く") {
+            Section("Open") {
                 windowButton(.simulation)
                 windowButton(.monitor)
                 windowButton(.analysis)

@@ -22,9 +22,9 @@ struct BoundedMainContentView: View {
 private struct AuxiliaryWindowPlaceholderView: View {
     var body: some View {
         ContentUnavailableView(
-            "別ウィンドウで開きます",
+            "Opens in a separate window",
             systemImage: "macwindow.on.rectangle",
-            description: Text("シミュレーション、モニター、分析、レポートはサイドバーの「開く」から別ウィンドウで表示します。")
+            description: Text("Simulation, Monitor, Analysis, and Report open in their own windows from the sidebar's “Open” section.")
         )
     }
 }

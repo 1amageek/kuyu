@@ -14,6 +14,10 @@ struct DashboardWorkspaceView: View {
         CollapsibleSplitView(isExpanded: $showBottomSection) {
             ScrollView {
                 VStack(alignment: .leading, spacing: KuyuSpacing.md) {
+                    if showsFirstRunCTA {
+                        firstRunCTA
+                    }
+
                     KeyTrainingChartsView(model: model)
                         .frame(maxWidth: .infinity)
 
@@ -59,6 +63,39 @@ struct DashboardWorkspaceView: View {
         } header: {
             Label("Runs & Logs", systemImage: "list.bullet.rectangle")
                 .font(.callout.weight(.semibold))
+        }
+    }
+
+    private var showsFirstRunCTA: Bool {
+        model.runs.isEmpty
+            && !model.isLearningCampaignRunning
+            && !model.isRunning
+            && model.learningCampaignState == nil
+    }
+
+    private var firstRunCTA: some View {
+        GroupBox {
+            HStack(spacing: KuyuSpacing.md) {
+                Image(systemName: "play.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Run your first training")
+                        .font(.headline)
+                    Text("Launch a learning campaign now, or design a strategy in the Training workspace first.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    model.startLearningCampaign()
+                } label: {
+                    Label("Start Learning Campaign", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(KuyuSpacing.xs)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

@@ -66,7 +66,6 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
         if fileManager.fileExists(atPath: request.checkpointURL.path) {
             try fileManager.removeItem(at: request.checkpointURL)
         }
-        try fileManager.createDirectory(at: request.checkpointURL, withIntermediateDirectories: true)
 
         if request.policyContract.actionEncoding == .ctbr {
             _ = try ManasMLXTemporalCTBRCheckpointWriter().write(request: ManasMLXTemporalCTBRCheckpointWriteRequest(
@@ -79,6 +78,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 lastTrainedAt: nil
             ))
         } else {
+            try fileManager.createDirectory(at: request.checkpointURL, withIntermediateDirectories: true)
             try modelStore.initializeDefaultModels(
                 observationMode: .runtimeMode(for: request.taskMode),
                 driveCount: request.driveCount,

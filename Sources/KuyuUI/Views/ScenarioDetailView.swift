@@ -36,9 +36,14 @@ public struct ScenarioDetailView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
-                TimelineSliderView(time: $cursorTime, range: metrics.timeRange)
-                    .padding(.horizontal, KuyuSpacing.md)
-                    .padding(.vertical, KuyuSpacing.sm)
+                TimelineSliderView(
+                    time: $cursorTime,
+                    range: metrics.timeRange,
+                    markers: timelineMarkers(for: scenario),
+                    seed: scenario.id.seed.rawValue
+                )
+                .padding(.horizontal, KuyuSpacing.md)
+                .padding(.vertical, KuyuSpacing.sm)
             } else {
                 emptyState
             }
@@ -79,6 +84,28 @@ public struct ScenarioDetailView: View {
         }
         .padding(.horizontal, KuyuSpacing.md)
         .padding(.vertical, KuyuSpacing.sm)
+    }
+
+    private func timelineMarkers(for scenario: ScenarioRunRecord) -> [TimelineMarker] {
+        var markers: [TimelineMarker] = []
+        if let schedule = scenario.log.eventSchedule {
+            for event in schedule.swapEvents {
+                switch event {
+                case .sensor(let s):
+                    markers.append(TimelineMarker(time: s.startTime, kind: .swap, label: "sensor \(s.kind.rawValue)"))
+                case .actuator(let a):
+                    markers.append(TimelineMarker(time: a.startTime, kind: .swap, label: "actuator \(a.kind.rawValue)"))
+                }
+            }
+            for hf in schedule.hfEvents {
+                markers.append(TimelineMarker(time: hf.startTime, kind: .hfStress, label: hf.kind.rawValue))
+            }
+        }
+        if let failureTime = scenario.log.failureTime {
+            let reason = scenario.log.failureReason?.rawValue ?? "failure"
+            markers.append(TimelineMarker(time: failureTime, kind: .fault, label: reason))
+        }
+        return markers
     }
 
     private func metricChip(_ label: String, value: String, systemImage: String) -> some View {

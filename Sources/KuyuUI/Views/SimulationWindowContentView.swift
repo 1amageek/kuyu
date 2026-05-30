@@ -17,7 +17,8 @@ public struct SimulationWindowContentView: View {
                     yaw: pose.yaw,
                     position: pose.position,
                     label: pose.renderInfo?.name ?? "Robot proxy",
-                    renderInfo: pose.renderInfo
+                    renderInfo: pose.renderInfo,
+                    actuatorChannels: model.lastActuatorTelemetry?.channels ?? []
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 

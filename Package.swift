@@ -42,6 +42,12 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/Models")
+            ],
+            swiftSettings: [
+                // Ship the RealityKit 3D inspector as the baseline renderer (kuyu/SPEC.md
+                // "Visual Inspection (Required)"). The `#else` 2D fallback remains for
+                // environments that explicitly undefine this flag (e.g. headless builds).
+                .define("KUYU_USE_REALITYVIEW")
             ]
         ),
         .executableTarget(

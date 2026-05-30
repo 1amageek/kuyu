@@ -14,7 +14,7 @@ public protocol TrainingLoopCommandExecuting: AnyObject {
         datasetRoot: URL,
         observationMetadata: TrainingObservationMetadata?,
         onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
-    ) async -> TrainingRunResult
+    ) async throws -> TrainingRunResult
 
     func pauseActiveTrainingRun() async
     func resumeActiveTrainingRun() async
@@ -111,25 +111,29 @@ public final class TrainingLoopController {
             task = Task { [weak self] in
                 guard let self else { return }
                 onEvent(.started)
-                let result = await self.commandExecutor.runTrainingRunForTrainingLoop(
-                    config: runConfig,
-                    runRequest: runRequest,
-                    trainingTemplate: backendTemplate,
-                    datasetRoot: datasetRoot,
-                    observationMetadata: nil,
-                    onEvent: { event in
-                        TrainingLoopEventAdapter.present(
-                            event: event,
-                            trainingTemplate: backendTemplate,
-                            onEvent: onEvent
-                        )
-                    }
-                )
-                TrainingLoopEventAdapter.presentCompletion(
-                    result: result,
-                    artifactDirectory: datasetRoot,
-                    onEvent: onEvent
-                )
+                do {
+                    let result = try await self.commandExecutor.runTrainingRunForTrainingLoop(
+                        config: runConfig,
+                        runRequest: runRequest,
+                        trainingTemplate: backendTemplate,
+                        datasetRoot: datasetRoot,
+                        observationMetadata: nil,
+                        onEvent: { event in
+                            TrainingLoopEventAdapter.present(
+                                event: event,
+                                trainingTemplate: backendTemplate,
+                                onEvent: onEvent
+                            )
+                        }
+                    )
+                    TrainingLoopEventAdapter.presentCompletion(
+                        result: result,
+                        artifactDirectory: datasetRoot,
+                        onEvent: onEvent
+                    )
+                } catch {
+                    onEvent(.failed(message: String(describing: error)))
+                }
                 self.withLock { self.task = nil }
             }
         }

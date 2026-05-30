@@ -230,8 +230,8 @@ extension CommandSystem: TrainingLoopCommandExecuting {
         datasetRoot: URL,
         observationMetadata: TrainingObservationMetadata?,
         onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
-    ) async -> TrainingRunResult {
-        let backendBundle = ManasMLXTrainingBackendFactory().makeWorkerLocalBackend(
+    ) async throws -> TrainingRunResult {
+        let backendBundle = try ManasMLXTrainingBackendFactory().makeWorkerLocalBackend(
             activeStore: modelStore,
             runID: config.runID,
             runRequest: runRequest,

@@ -183,9 +183,7 @@ public final class AppViewModel {
         let targetURL = parentDirectory
             .appendingPathComponent(projectName, isDirectory: true)
             .appendingPathExtension("kuyu")
-        let temporaryURL = parentDirectory
-            .appendingPathComponent(".\(projectName)-creating-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathExtension("kuyu")
+        let temporaryURL = Self.makeProjectCreationStagingURL(projectName: projectName)
         let parentAccessStarted = parentDirectory.startAccessingSecurityScopedResource()
         defer {
             if parentAccessStarted {
@@ -259,10 +257,12 @@ public final class AppViewModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = trimmed.isEmpty ? "Untitled" : trimmed
         let invalid = CharacterSet(charactersIn: "/:")
-        return fallback
+        let cleaned = fallback
             .components(separatedBy: invalid)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return cleaned.isEmpty ? "Untitled" : cleaned
     }
 
     private func validateProjectSession(_ package: KuyuProjectPackage) throws {
@@ -423,6 +423,16 @@ public final class AppViewModel {
         )
         try KuyuProjectPackageWriter().write(package)
         return package
+    }
+
+    nonisolated static func makeProjectCreationStagingURL(
+        projectName: String,
+        id: UUID = UUID()
+    ) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("BoundedProjectCreation", isDirectory: true)
+            .appendingPathComponent("\(projectName)-creating-\(id.uuidString)", isDirectory: true)
+            .appendingPathExtension("kuyu")
     }
 
     private func cleanupTemporaryProject(at temporaryURL: URL, primaryError: Error) {

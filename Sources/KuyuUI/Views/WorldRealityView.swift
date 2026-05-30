@@ -9,6 +9,26 @@ public struct WorldRealityView: View {
     let position: Axis3
     let label: String
     let renderInfo: RenderAssetInfo?
+    /// Live per-actuator command/thrust values for the forces/actuator debug overlay.
+    let actuatorChannels: [ActuatorChannelSnapshot]
+
+    public init(
+        roll: Double,
+        pitch: Double,
+        yaw: Double,
+        position: Axis3,
+        label: String,
+        renderInfo: RenderAssetInfo?,
+        actuatorChannels: [ActuatorChannelSnapshot] = []
+    ) {
+        self.roll = roll
+        self.pitch = pitch
+        self.yaw = yaw
+        self.position = position
+        self.label = label
+        self.renderInfo = renderInfo
+        self.actuatorChannels = actuatorChannels
+    }
 
     @State private var rootEntity: Entity?
     @State private var proxyEntity: Entity?
@@ -30,11 +50,56 @@ public struct WorldRealityView: View {
     private static let baseHeight: Float = 0.18
 
     public var body: some View {
+        renderContent
+            .overlay(alignment: .bottomLeading) { actuatorOverlay }
+    }
+
+    @ViewBuilder
+    private var renderContent: some View {
         #if KUYU_USE_REALITYVIEW
         realityBody
         #else
         fallbackBody
         #endif
+    }
+
+    /// Forces/actuator debug overlay: per-actuator command magnitude as labeled bars.
+    /// For a quadrotor each channel is a rotor thrust (a body force), so this doubles
+    /// as the forces overlay required by the visual-inspection spec.
+    @ViewBuilder
+    private var actuatorOverlay: some View {
+        if !actuatorChannels.isEmpty {
+            let maxMagnitude = max(actuatorChannels.map { abs($0.value) }.max() ?? 1.0, 1e-6)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Actuator / forces")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                ForEach(actuatorChannels, id: \.id) { channel in
+                    HStack(spacing: 6) {
+                        Text(channel.id)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .leading)
+                        GeometryReader { proxy in
+                            let fraction = CGFloat(abs(channel.value) / maxMagnitude)
+                            Capsule()
+                                .fill(.green.opacity(0.65))
+                                .frame(width: max(2, proxy.size.width * fraction), height: 6)
+                                .frame(maxHeight: .infinity, alignment: .center)
+                        }
+                        .frame(width: 80, height: 8)
+                        Text(String(format: "%.2f", channel.value))
+                            .font(.system(.caption2, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            .padding(8)
+            .background(.black.opacity(0.32))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(8)
+        }
     }
 
     #if KUYU_USE_REALITYVIEW

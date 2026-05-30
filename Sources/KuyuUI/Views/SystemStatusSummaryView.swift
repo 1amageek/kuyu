@@ -7,7 +7,7 @@ struct SystemStatusSummaryView: View {
     @Bindable var model: SimulationViewModel
 
     var body: some View {
-        GroupBox("システムステータス") {
+        GroupBox("System Status") {
             VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
                 Label(primaryStatus, systemImage: primarySystemImage)
                     .foregroundStyle(primaryColor)
@@ -30,18 +30,18 @@ struct SystemStatusSummaryView: View {
 
     private var primaryStatus: String {
         if model.isLearningCampaignRunning {
-            return "学習実行中"
+            return "Learning"
         }
         if model.isRunning || model.isLoopRunning || model.isTraining {
-            return "ジョブ実行中"
+            return "Job running"
         }
         switch model.learningCampaignReadiness.status {
         case .blocked:
-            return "起動前確認が必要"
+            return "Preflight required"
         case .ready:
-            return "実行可能"
+            return "Ready"
         case .idle:
-            return "待機中"
+            return "Idle"
         }
     }
 

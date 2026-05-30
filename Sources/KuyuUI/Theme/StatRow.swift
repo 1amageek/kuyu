@@ -68,7 +68,7 @@ public struct StatusPill: View {
         case .info: return .accentColor
         case .success: return .green
         case .warning: return .yellow
-        case .danger: return .orange
+        case .danger: return .red
         }
     }
 }

@@ -35,6 +35,56 @@ import Testing
 }
 
 @MainActor
+@Test(.timeLimit(.minutes(1))) func appViewModelDoesNotCreateHiddenProjectPackagesFromDottedNames() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-project-hidden-name-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        removeTemporaryDirectory(root)
+    }
+
+    let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.createProject(
+        name: ".HiddenRobot",
+        parentDirectory: root,
+        template: LearningProjectTemplate.groundRobotPointNavigation
+    )
+    await model.waitForProjectCreation()
+
+    let projectURL = root
+        .appendingPathComponent("HiddenRobot", isDirectory: true)
+        .appendingPathExtension("kuyu")
+    let hiddenProjectURL = root
+        .appendingPathComponent(".HiddenRobot", isDirectory: true)
+        .appendingPathExtension("kuyu")
+    let rootContents = try FileManager.default.contentsOfDirectory(
+        at: root,
+        includingPropertiesForKeys: nil
+    )
+    let hiddenCreationPackages = rootContents.filter {
+        $0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent.contains("-creating-")
+    }
+
+    #expect(model.currentProject?.package.rootURL == projectURL)
+    #expect(FileManager.default.fileExists(atPath: projectURL.path))
+    #expect(!FileManager.default.fileExists(atPath: hiddenProjectURL.path))
+    #expect(hiddenCreationPackages.isEmpty)
+    #expect(model.projectCreationError == nil)
+}
+
+@Test(.timeLimit(.minutes(1))) func appViewModelProjectCreationStagingURLIsNotHidden() throws {
+    let id = try #require(UUID(uuidString: "1298D3DD-9A87-40D8-B0D1-E419211CC5B6"))
+    let stagingURL = AppViewModel.makeProjectCreationStagingURL(
+        projectName: "Drone Autonomy Starter",
+        id: id
+    )
+
+    #expect(stagingURL.lastPathComponent == "Drone Autonomy Starter-creating-1298D3DD-9A87-40D8-B0D1-E419211CC5B6.kuyu")
+    #expect(!stagingURL.lastPathComponent.hasPrefix("."))
+    #expect(stagingURL.deletingLastPathComponent().lastPathComponent == "BoundedProjectCreation")
+}
+
+@MainActor
 @Test(.timeLimit(.minutes(1))) func appViewModelRestoresRecentProjectsForWelcomeWindow() async throws {
     let suiteName = "team.stamp.Bounded.tests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -153,6 +203,192 @@ import Testing
     #expect(model.simulationViewModel.learningCampaignSeedCount == 2)
     #expect(model.simulationViewModel.learningCampaignPopulation == 100)
     #expect(model.simulationViewModel.learningCampaignGenerations >= 1_000)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(2))) func appViewModelCreatesRunnableDroneStarterWithLoadableTemplateCheckpoint() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-project-runnable-drone-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        removeTemporaryDirectory(root)
+    }
+
+    let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.createProject(
+        name: "Drone Autonomy Starter",
+        parentDirectory: root,
+        template: .droneAutonomyStarter
+    )
+    await model.waitForProjectCreation()
+
+    let projectURL = root
+        .appendingPathComponent("Drone Autonomy Starter", isDirectory: true)
+        .appendingPathExtension("kuyu")
+    let sourceBundleURL = projectURL
+        .appendingPathComponent("model-bundles", isDirectory: true)
+        .appendingPathComponent("source.manasbundle", isDirectory: true)
+
+    #expect(model.projectCreationError == nil)
+    #expect(model.currentProject?.package.rootURL == projectURL)
+    #expect(model.currentProject?.isRunnable == true)
+    #expect(model.currentProject?.package.selectedTemplate.templateID == LearningProjectTemplate.droneAutonomyStarter.templateID)
+    #expect(model.simulationViewModel.isLearningStarterProjectReady)
+    #expect(model.simulationViewModel.learningCampaignSourceCheckpointPath == sourceBundleURL.path)
+    #expect(model.simulationViewModel.learningCampaignSuites == "6")
+    #expect(model.simulationViewModel.learningCampaignSeedCount == 2)
+    #expect(model.simulationViewModel.learningCampaignPopulation == 100)
+    #expect(model.simulationViewModel.learningCampaignGenerations >= 1_000)
+
+    #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("project.json").path))
+    #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("templates/selected-template.json").path))
+    #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("experiments/default/experiment.json").path))
+    #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("environments/default/environment.json").path))
+    #expect(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("model-bundles/source.bundle-ref.json").path))
+    #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("manas-bundle.json").path))
+    #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("model.json").path))
+    #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
+
+    let preflight = try ManasMLXE2EPreflight().check(
+        descriptorPath: "",
+        sourceCheckpointURL: sourceBundleURL,
+        requireSourceCheckpoint: true
+    )
+    #expect(preflight.mlxRuntimeReady)
+    #expect(preflight.sourceCheckpointLoadable)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(2))) func allRunnableTemplatesCreateLoadableSourceBundles() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-project-runnable-templates-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        removeTemporaryDirectory(root)
+    }
+
+    let runnableTemplates = LearningProjectTemplateCatalog.defaultTemplates.filter(\.isRunnableStarter)
+    #expect(!runnableTemplates.isEmpty)
+
+    for template in runnableTemplates {
+        let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+        model.createProject(
+            name: template.displayName,
+            parentDirectory: root,
+            template: template
+        )
+        await model.waitForProjectCreation()
+
+        let projectURL = root
+            .appendingPathComponent(template.displayName, isDirectory: true)
+            .appendingPathExtension("kuyu")
+        let sourceBundleURL = projectURL
+            .appendingPathComponent("model-bundles", isDirectory: true)
+            .appendingPathComponent("source.manasbundle", isDirectory: true)
+
+        #expect(model.projectCreationError == nil)
+        #expect(model.currentProject?.package.selectedTemplate.templateID == template.templateID)
+        #expect(model.simulationViewModel.isLearningStarterProjectReady)
+        #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("manas-bundle.json").path))
+        #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("model.json").path))
+        #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
+
+        let preflight = try ManasMLXE2EPreflight().check(
+            descriptorPath: "",
+            sourceCheckpointURL: sourceBundleURL,
+            requireSourceCheckpoint: true
+        )
+        #expect(preflight.sourceCheckpointLoadable)
+    }
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(2))) func droneStarterTemplateRunsSmallLearningCampaignEndToEnd() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-project-template-e2e-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        removeTemporaryDirectory(root)
+    }
+
+    let template = LearningProjectTemplate.droneAutonomyStarter
+    let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.createProject(
+        name: "Drone Autonomy Starter",
+        parentDirectory: root,
+        template: template
+    )
+    await model.waitForProjectCreation()
+
+    let projectURL = root
+        .appendingPathComponent("Drone Autonomy Starter", isDirectory: true)
+        .appendingPathExtension("kuyu")
+    let sourceBundleURL = projectURL
+        .appendingPathComponent("model-bundles", isDirectory: true)
+        .appendingPathComponent("source.manasbundle", isDirectory: true)
+    let artifactRoot = projectURL
+        .appendingPathComponent("runs", isDirectory: true)
+        .appendingPathComponent("template-e2e", isDirectory: true)
+    let stage = try #require(template.primaryRunnableTrainingStage)
+    let request = TrainingRunRequest(
+        runID: TrainingRunID("template-e2e"),
+        projectRoot: projectURL,
+        artifactRoot: artifactRoot,
+        taskProfileID: stage.taskProfileID ?? template.taskProfileID ?? "lift",
+        policyContract: template.policy,
+        sourceBundle: ModelBundleReference(
+            bundleID: sourceBundleURL.lastPathComponent,
+            kind: .source,
+            url: sourceBundleURL
+        ),
+        seedCount: 1,
+        populationSize: 4,
+        generationLimit: 1,
+        configuration: TrainingRunConfiguration(
+            trainingStageID: stage.stageID,
+            trainingStageDisplayName: stage.displayName,
+            trainingStageKind: stage.kind,
+            scenarioSelection: TrainingScenarioSelection(
+                suiteIDs: [6],
+                episodesPerSuite: 1,
+                tier: .tier1
+            ),
+            resources: TrainingResourcePlan(
+                workerCount: 1,
+                candidateEvaluationConcurrency: 4,
+                resourceSampleSeconds: 0,
+                worldExecutionRequirement: .acceleratorSharedWorld
+            ),
+            evolution: TrainingEvolutionSettings(
+                eliteCount: 1,
+                mutation: TrainingMutationSchedule(
+                    rate: 0.14,
+                    noiseScale: 0.025,
+                    adaptiveEnabled: false
+                ),
+                minimumIncumbentImprovement: 0
+            ),
+            convergence: TrainingConvergenceSettings(enabled: false),
+            qualityGate: TrainingQualityGateSettings(enabled: true),
+            reinforcement: TrainingReinforcementSettings(warmupEnabled: false),
+            artifacts: TrainingArtifactPolicy(
+                retention: .compact,
+                requiresInitialParentPass: false
+            ),
+            autonomyDomain: template.domain
+        )
+    )
+
+    let handle = try await ManasMLXTrainingRunExecutor().start(request)
+    let summary = try await handle.wait()
+
+    #expect(summary.artifactRoot == artifactRoot)
+    #expect(summary.generationCount == 1)
+    #expect(summary.candidateCount == 4)
+    #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("learning-campaign-plan.json").path))
+    #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("learning-campaign-summary.json").path))
+    #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("learning-campaign-validation.json").path))
+    #expect(FileManager.default.fileExists(atPath: artifactRoot.appendingPathComponent("seeds/seed-1/evolution/fitness.jsonl").path))
 }
 
 @MainActor
