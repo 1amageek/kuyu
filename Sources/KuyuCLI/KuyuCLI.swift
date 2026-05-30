@@ -12,7 +12,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
     )
 }
 
@@ -1058,6 +1058,54 @@ struct ProbeCTBRRollout: ParsableCommand {
         print("minimumStepCount=\(report.minimumStepCount)")
         print("maximumStepCount=\(report.maximumStepCount)")
         print("tensorWorldUsed=\(report.tensorWorldUsed)")
+    }
+}
+
+struct BehaviorCloneCTBR: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "behavior-clone-ctbr",
+        abstract: "Behavior-clone a temporal CTBR policy from a teacher rollout dataset (e.g. attitude teacherBaseline) to seed a stabilization prior before RL/GA."
+    )
+
+    @Option(name: .customLong("source-checkpoint"), help: "Source CTBR .manasbundle providing the policy architecture (obs/history/action dims).")
+    var sourceCheckpoint: String = ""
+
+    @Option(name: .customLong("rollout-dataset"), help: "Teacher rollout dataset directory (from `rollout --export-dataset`).")
+    var rolloutDataset: String = ""
+
+    @Option(name: .customLong("output"), help: "Destination .manasbundle for the behavior-cloned checkpoint.")
+    var output: String = ""
+
+    @Option(name: .customLong("epochs"), help: "Behavior-cloning epochs.")
+    var epochs: Int = 50
+
+    @Option(name: .customLong("name"), help: "Bundle display name.")
+    var name: String = "Attitude CTBR BC"
+
+    func run() throws {
+        let trimmedSource = sourceCheckpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDataset = rolloutDataset.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSource.isEmpty else { throw ValidationError("--source-checkpoint is required.") }
+        guard !trimmedDataset.isEmpty else { throw ValidationError("--rollout-dataset is required.") }
+        guard !trimmedOutput.isEmpty else { throw ValidationError("--output is required.") }
+        let outputURL = URL(fileURLWithPath: trimmedOutput, isDirectory: true)
+        guard outputURL.pathExtension == "manasbundle" else {
+            throw ValidationError("--output must be a .manasbundle directory.")
+        }
+        guard epochs > 0 else { throw ValidationError("--epochs must be > 0.") }
+        let result = try ManasMLXTemporalCTBRReinforcementWarmupService().behaviorClone(
+            sourceCheckpointURL: URL(fileURLWithPath: trimmedSource, isDirectory: true),
+            rolloutDatasetURL: URL(fileURLWithPath: trimmedDataset, isDirectory: true),
+            epochCount: epochs,
+            outputCheckpointURL: outputURL,
+            checkpointName: name
+        )
+        print("behaviorCloneCTBR=true")
+        print("output=\(outputURL.path)")
+        print("epochs=\(epochs)")
+        print("finalActorLoss=\(result.actorLosses.last ?? .nan)")
+        print("finalCriticLoss=\(result.criticLosses.last ?? .nan)")
     }
 }
 
