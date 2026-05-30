@@ -4703,6 +4703,12 @@ struct RunLearningCampaign: AsyncParsableCommand {
     @Option(name: .customLong("continue-from-artifact-root"), help: "Previous learning campaign artifact root to continue from.")
     var continueFromArtifactRoot: String?
 
+    @Flag(name: .customLong("resume"), help: "Resume an interrupted campaign in place from each seed's last committed generation checkpoint.")
+    var resume: Bool = false
+
+    @Option(name: .customLong("resume-from-generation"), help: "When resuming, roll back to this generation index instead of the highest committed one.")
+    var resumeFromGeneration: Int?
+
     @Option(name: .customLong("artifact-root"), help: "Directory where campaign artifacts are written.")
     var artifactRootPath: String
 
@@ -4839,6 +4845,26 @@ struct RunLearningCampaign: AsyncParsableCommand {
         guard !(trimmedSource.isEmpty == false && trimmedContinuationRoot.isEmpty == false) else {
             throw ValidationError("--source-checkpoint and --continue-from-artifact-root cannot both be set.")
         }
+        // In-place resume (--resume) continues the SAME artifact root from durable
+        // per-generation checkpoints; warm restart (--continue-from-artifact-root)
+        // seeds a NEW root from a previous run's best checkpoint. They are distinct.
+        guard !(resume && trimmedContinuationRoot.isEmpty == false) else {
+            throw ValidationError("--resume and --continue-from-artifact-root cannot both be set.")
+        }
+        guard resumeFromGeneration == nil || resume else {
+            throw ValidationError("--resume-from-generation requires --resume.")
+        }
+        if let resumeFromGeneration, resumeFromGeneration < 0 {
+            throw ValidationError("--resume-from-generation must be >= 0.")
+        }
+        // The resume artifact root is non-empty by construction; the stop sentinel
+        // lets an operator request a graceful, resumable stop by creating the file.
+        let stopSentinelPath = artifactRootPath.isEmpty
+            ? nil
+            : URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+                .appendingPathComponent("RUN_CONTROL", isDirectory: true)
+                .appendingPathComponent("STOP", isDirectory: false)
+                .path
         let sourceCheckpointURL: URL
         if trimmedContinuationRoot.isEmpty == false {
             let previousArtifactRoot = URL(fileURLWithPath: trimmedContinuationRoot, isDirectory: true)
@@ -4933,10 +4959,14 @@ struct RunLearningCampaign: AsyncParsableCommand {
             ),
             artifacts: TrainingArtifactPolicy(
                 retention: TrainingArtifactRetentionKind(cliRetention: artifactRetention),
+                allowsNonEmptyArtifactRoot: resume,
                 requiresInitialParentPass: !skipInitialParentPass,
                 reinforcementTrainingArtifactDirectory: reinforcementArtifactPath.map {
                     URL(fileURLWithPath: $0, isDirectory: true)
-                }
+                },
+                resumeInPlace: resume,
+                resumeFromGeneration: resumeFromGeneration,
+                stopSentinelPath: stopSentinelPath
             ),
             autonomyDomain: autonomyDomain
         )
