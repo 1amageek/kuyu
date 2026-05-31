@@ -46,6 +46,7 @@ flowchart LR
 | Manufacturer body definition | Complete for URDF kinematic geometry | Tests parse the bundled Waveshare URDF and compare every native link, STL mesh reference, visual/collision origin, joint parent/child, joint origin, axis, velocity limit, hard/soft limit, and mimic relation directly against it. |
 | Actuator and servo range consistency | Complete for declared joint ranges | Tests require active body joint limits, sensor ranges, drive ranges, actuator ranges, and `RoArmM1ServoCommandEncoder.manufacturerJointLimits` to match. |
 | Dynamic movement inside joint ranges | Complete for smoke motion | The articulated simulator runs a deterministic smoke trajectory through `MotorNerveChain`, checks `motorNerveTrace`, and verifies drive intents, actuator values, plant joint scalars, and Waveshare `T:3` servo pulse encoding stay in range. |
+| Camera-free joint target training artifact | Complete for smoke training | `train-roarm-m1-joint-targets` writes a 25-channel proprioceptive dataset, HER-style achieved-goal relabel records, dense rewards, and an explicit goal report. |
 | Manas manipulator controller | Smoke placeholder | No learned or task-level Manas controller is claimed yet. The dynamic path exercises the Manas/MotorNerve boundary with bounded drive targets until a manipulator controller is implemented. |
 | Hardware parity / contact grasping | Not complete | These remain gated by measured calibration and contact/friction evidence. |
 

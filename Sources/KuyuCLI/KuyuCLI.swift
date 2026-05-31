@@ -13,7 +13,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
     )
 }
 

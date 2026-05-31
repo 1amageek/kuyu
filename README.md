@@ -101,11 +101,15 @@ kuyu validate-learning-campaign --artifact-root /tmp/kuyu-learning-campaign
 # RoArm M1 guarded hardware probe; dry-run by default
 swift run kuyu probe-roarm-m1
 swift run kuyu probe-roarm-m1 --device /dev/cu.usbserial-0001 --enable-motion
+
+# RoArm M1 camera-free joint target tracking smoke training
+swift run kuyu train-roarm-m1-joint-targets --output /tmp/kuyu-roarm-m1-joint-target-training --duration 2.0 --seed 7
 ```
 
 See `ROARM_M1_SIMULATION.md` for the Kuyu/RealityKit simulator path, and
-`ROARM_M1_HARDWARE_PROBE.md` for the manifest, embodiment, MotorNerve, encoder,
-and serial-write boundary used by the first RoArm M1 hardware test.
+`ROARM_M1_TRAINING.md` for the first camera-free joint target training goal.
+`ROARM_M1_HARDWARE_PROBE.md` covers the manifest, embodiment, MotorNerve,
+encoder, and serial-write boundary used by the first RoArm M1 hardware test.
 
 ### M1.5 RL Environment Acceptance
 
