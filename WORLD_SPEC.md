@@ -11,6 +11,37 @@ Define the simulation world rigorously for reproducible verification while allow
 - **Approximate by magnitude**: Effects can be set to zero only when their contribution is provably small under declared thresholds.
 - **Deterministic and reproducible**: All parameters, thresholds, and decisions are logged and hashed.
 - **Cost control without semantic drift**: Zeroing is a controlled approximation, not a different model.
+- **Fidelity is a view**: Lower fidelity is a partition and projection over the canonical physics kernel, not a separate engine.
+
+## Canonical Physics Kernel (Normative)
+Kuyu physics implementations are organized around a single canonical kernel for a
+plant family. A fidelity rung MUST NOT redefine state, force equations, or the
+integrator. It selects a view over the kernel.
+
+```mermaid
+flowchart LR
+  Model["Canonical PhysicsModel"] --> Registry["ForceTerm registry"]
+  Registry --> Fidelity["Fidelity partition"]
+  Fidelity --> RHS["RHS assembly"]
+  RHS --> Integrator["canonical integrator"]
+  Integrator --> State["CanonicalState"]
+  Registry --> Residual["analytical residual target"]
+```
+
+Required invariants:
+
+| Invariant | Requirement |
+|---|---|
+| Canonical state | All fidelity rungs in a plant family share the same state type. Lower fidelity constrains state; it does not shrink it. |
+| Term registry | Each force, torque, or environment effect is defined once as a force term. Fidelity rungs select terms; they do not copy equations. |
+| Fidelity partition | Every term is exactly one of `active`, `worldModelTarget`, or `ignoredByNegligibilityPolicy` for a rung. |
+| Constraint projection | A constrained rung projects both derivatives and post-step state back to the allowed manifold. |
+| Integrator independence | The integrator is chosen by the canonical kernel and does not vary by fidelity rung. Current explicit terms use the fixed-step RK path; implicit terms enter the same integrator boundary rather than a separate engine. |
+| Residual target | The analytical world-model residual target from low to high fidelity is the sum of terms active in high and inactive in low, evaluated by the same registry. |
+
+Single-prop lift is therefore the quadrotor canonical model with the vertical
+constraint projection and a reduced active term set. It MUST NOT have an
+independent plant state, force equation, or integration scheme.
 
 ---
 
@@ -92,7 +123,9 @@ Rotational:
 ω_dot = I^{-1} * (τ_body - ω × (Iω))
 ```
 
-All forces and torques are defined below. Numerical integration uses fixed‑step RK4 and quaternion renormalization after each step.
+All forces and torques are defined below as force terms. Numerical integration
+uses the canonical plant-family integrator with quaternion renormalization after
+each step. The integrator is fidelity-independent.
 
 ---
 

@@ -28,7 +28,7 @@ flowchart LR
 | `KuyuRobotManifest` | Selects the RoArm body and embodiment files used for the probe. | Manifest, body, actuator mounts, transmissions, and embodiment validation must pass before any command is generated. |
 | `EmbodimentContract` | Declares five bounded joint drive and actuator channels. | Ranges, units, and MotorNerve stages are validated before hardware encoding. |
 | `MotorNerveChain` | Maps bounded `DriveIntent` values to morphology-specific actuator radians. | Reflex and drive clamps are applied before hardware encoding. |
-| `RoArmM1ServoCommandEncoder` | Converts five actuator radians to Waveshare JSON fields `P1...P5`, `S1...S5`, `A1...A5` using the same command directions and joint 2 reduction declared in the body model. | Invalid shape, non-finite values, unsafe joint targets, and invalid pulse ranges fail closed. |
+| `RoArmM1ServoCommandEncoder` | Converts four arm actuator radians plus the gripper clamp target to Waveshare JSON fields `P1...P5`, `S1...S5`, `A1...A5` using the same command directions and joint 2 reduction declared in the body model. | Invalid shape, non-finite values, unsafe arm/gripper targets, and invalid pulse ranges fail closed. |
 | `HardwareCalibrationPlan` | Declares the reviewed sweep commands and required observations for parity identification. | Plan generation never moves hardware by itself. |
 | `HardwareCalibrationReport` | Stores measured joint response and optional contact evidence. | `hardwareParity` remains rejected until measured samples cover every active joint within tolerance. |
 | `probe-roarm-m1` | Loads the manifest, produces payloads, writes calibration plans, validates calibration reports, and optionally writes one USB serial command. | Serial output requires both `--enable-motion` and a non-empty `--device`. |
@@ -76,7 +76,7 @@ Generate a reviewed sweep plan first. This does not write to the serial device:
 swift run kuyu probe-roarm-m1 --write-calibration-plan /tmp/roarm-m1-hardware-plan.json
 ```
 
-The plan contains safe joint targets, generated `T=3` payloads, pulse values,
+The plan contains safe arm/gripper targets, generated `T=3` payloads, pulse values,
 and the required measurement fields. Execute only reviewed individual poses with
 the existing guarded `--enable-motion` path, then store measured positions,
 latency, voltage, temperature, and load observations in a

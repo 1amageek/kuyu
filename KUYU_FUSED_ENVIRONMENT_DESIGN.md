@@ -2,11 +2,12 @@
 
 ## 前提: Physics と WorldModel の明確な境界
 
-### 境界 = 解析モデル（ODE）の定義域
+### 境界 = 正準力項レジストリの分割
 
-物理シミュレーションは微分方程式 `ẋ = f(x, u)` を解く。
-**f に含まれるもの**が物理の領域。**f に含まれないもの**が世界モデルの領域。
-これは連続的なグラデーションではなく、**離散的な境界**。
+物理シミュレーションは正準力項レジストリから `ẋ = f(x, u)` を組み立てる。
+**active に含まれる項**が解析物理の領域。**worldModelTarget に含まれる項**が
+世界モデルの residual 学習領域。**ignoredByNegligibilityPolicy に含まれる項**が
+許容以下として落とす領域である。境界はモデル種別ではなく、同じ項集合の分割で決まる。
 
 #### 具体例: クアッドロータ
 
@@ -56,13 +57,23 @@
 
 **境界は離散的**: ある現象は f に入っているか入っていないか。中間はない。
 
-**境界は選択可能**: より精緻な物理モデル（fₐ ⊂ f_b）を使えば境界は外側に広がる。
+**境界は選択可能**: より精緻な fidelity view（fₐ ⊂ f_b）を使えば境界は外側に広がる。
 - 簡素モデル: 剛体 + 重力のみ → 世界モデルが多くを担う
 - 標準モデル: + モーター + ドラッグ → 世界モデルは残差と環境を担う
 - 精密モデル: + 接触 + 弾性 + CFD → 世界モデルは個体差と環境のみ
 
 **境界は設計時に決まる**: 実行時にαで調整するのではなく、
-どの物理モデルを使うかを選んだ時点で境界が決まる。
+どの fidelity partition を使うかを選んだ時点で境界が決まる。
+
+```mermaid
+flowchart LR
+  R["ForceTerm registry"] --> A["active"]
+  R --> W["worldModelTarget"]
+  R --> N["ignoredByNegligibilityPolicy"]
+  A --> P["Physics RHS"]
+  W --> T["Analytical residual target"]
+  T --> WM["WorldModel residual"]
+```
 
 ---
 
@@ -92,7 +103,7 @@
 │       action_history                 │
 │                                      │
 │ 出力:                                │
-│   residual — 物理予測への補正          │
+│   residual — RHS へ戻せる補正          │
 │     （モーター劣化 → Δthrust）        │
 │     （未モデル化ドラッグ → ΔF）        │
 │   extension — 物理にない状態次元       │
@@ -110,11 +121,12 @@
 │ FusedState（融合状態）                 │
 │                                      │
 │ physics:   [pos, vel, quat, ω, ...]  │ ← 物理がそのまま提供
-│ residual:  [Δthrust, ΔF, Δτ, ...]   │ ← 世界モデルの補正
+│ residual:  [Δthrust, ΔF, Δτ, ...]   │ ← 世界モデルの力/トルク補正
 │ extension: [z_env, σ, z_adapt, ...]  │ ← 世界モデルの拡張
 │                                      │
 │ ※ physics は変更されない              │
-│ ※ residual は physics と同じ空間       │
+│ ※ residual の正準形は RHS に入る力/トルク空間 │
+│ ※ 既存の state-space residual は互換ビュー │
 │ ※ extension は新しい次元              │
 └─────────────────────────────────────┘
 ```

@@ -59,6 +59,41 @@ import KuyuScenarios
     }
 }
 
+@Test func bundledRoArmM1DeclaresFifthDriveAsGripperClampAndPreservesMimicGraph() async throws {
+    let loaded = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
+    let sensors = loaded.embodiment.signals.sensor.sorted { $0.index < $1.index }
+    let actuators = loaded.embodiment.signals.actuator.sorted { $0.index < $1.index }
+    let drives = loaded.embodiment.signals.drive.sorted { $0.index < $1.index }
+    let reflexes = loaded.embodiment.signals.reflex.sorted { $0.index < $1.index }
+    let gripperIndex = 4
+
+    #expect(sensors[gripperIndex].name == "Gripper clamp angle")
+    #expect(sensors[gripperIndex].group == "gripper-proprioception")
+    #expect(actuators[gripperIndex].name == "Gripper clamp target")
+    #expect(actuators[gripperIndex].group == "gripper")
+    #expect(drives[gripperIndex].name == "Drive gripper clamp")
+    #expect(drives[gripperIndex].group == "gripper-target")
+    #expect(reflexes[gripperIndex].name == "Gripper clamp reflex correction")
+    #expect(reflexes[gripperIndex].group == "gripper-reflex")
+
+    let servo = try #require(loaded.embodiment.actuators.first { $0.id == "servo_5" })
+    #expect(servo.type.contains("gripper"))
+    #expect(servo.channels == ["joint_5"])
+
+    let attachment = try #require(loaded.body.actuatorAttachments.first { $0.actuatorID == "servo_5" })
+    #expect(attachment.jointID == "L4_to_L5_1_A")
+
+    let mimicByJointID = Dictionary(uniqueKeysWithValues: loaded.body.joints.compactMap { joint in
+        joint.mimic.map { (joint.id, $0) }
+    })
+    #expect(mimicByJointID.count == 5)
+    #expect(mimicByJointID["L4_to_L5_1_B"] == JointMimic(jointID: "L4_to_L5_1_A", multiplier: -1, offset: 0))
+    #expect(mimicByJointID["L4_to_L5_2_A"] == JointMimic(jointID: "L4_to_L5_1_A", multiplier: 1, offset: 0))
+    #expect(mimicByJointID["L4_to_L5_2_B"] == JointMimic(jointID: "L4_to_L5_1_A", multiplier: -1, offset: 0))
+    #expect(mimicByJointID["L5_1_A_to_L5_3_A"] == JointMimic(jointID: "L4_to_L5_1_A", multiplier: -1, offset: 0))
+    #expect(mimicByJointID["L5_1_B_to_L5_3_B"] == JointMimic(jointID: "L4_to_L5_1_B", multiplier: -1, offset: 0))
+}
+
 @Test func bundledRoArmM1CalibrationPlanUsesSafeCommissioningEnvelope() async throws {
     let loaded = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
     let plan = try RoArmM1HardwareCalibrationPlanBuilder().build(
@@ -332,6 +367,36 @@ import KuyuScenarios
         #expect((0...4095).contains(lowerCommand.positions[index]))
         #expect((0...4095).contains(upperCommand.positions[index]))
     }
+}
+
+@Test(.timeLimit(.minutes(1))) func roArmM1ArticulatedDynamicsPropagatesGripperMimicScalars() async throws {
+    let loaded = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
+    let request = ArticulatedRigidBodySimulationRequest(
+        body: loaded.body,
+        world: loaded.world,
+        embodiment: loaded.embodiment,
+        compatibilityReport: loaded.compatibilityReport,
+        determinism: .tier0Strict,
+        readinessLevel: .dynamicSimulation,
+        duration: 0.2,
+        timeStep: try TimeStep(delta: loaded.world.time.fixedStepSeconds),
+        seed: ScenarioSeed(13)
+    )
+    let log = try await ArticulatedRigidBodySimulator().run(request: request)
+    let event = try #require(log.events.last)
+    let scalarByID = event.plantState.scalars
+
+    for joint in loaded.body.joints {
+        guard let mimic = joint.mimic else { continue }
+        let value = try #require(scalarByID[joint.id])
+        let master = try #require(scalarByID[mimic.jointID])
+        assertClose(value, master * mimic.multiplier + mimic.offset)
+        assertClose(try #require(scalarByID["target_\(joint.id)"]), try #require(scalarByID["target_\(mimic.jointID)"]) * mimic.multiplier + mimic.offset)
+    }
+
+    let bodyIDs = Set(event.plantState.bodies.map(\.id))
+    #expect(bodyIDs.contains("l5_1_B_link"))
+    #expect(bodyIDs.contains("l5_3_B_link"))
 }
 
 @Test(.timeLimit(.minutes(1))) func roArmM1ArticulatedDynamicsIsDeterministicAndFinite() async throws {

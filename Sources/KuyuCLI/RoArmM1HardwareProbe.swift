@@ -13,7 +13,7 @@ struct ProbeRoArmM1: ParsableCommand {
     @Option(help: "RoARM M1 robot manifest path.")
     var model: String = "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json"
 
-    @Option(help: "Comma-separated joint targets in radians, exactly five values.")
+    @Option(help: "Comma-separated arm and gripper targets in radians, exactly five values.")
     var joints: String = "0,0,0,0,0"
 
     @Option(help: "Waveshare JSON speed field S1...S5.")

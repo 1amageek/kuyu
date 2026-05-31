@@ -177,33 +177,33 @@ orchestrates the smoke path into Manas.
 `TrainingDatasetExporter` writes one dataset per scenario (from `KuyAtt1RunOutput`
 or `[ScenarioLogEntry]`) into a subdirectory named `<ScenarioId>_seed_<Seed>`.
 
-## RoArm M1 Joint Target Smoke Training
+## RoArm M1 Arm and Gripper Smoke Training
 
 RoArm M1's first supported manipulator training goal is
-`roarm-m1-joint-target-tracking-v1`. It is a camera-free proprioceptive task
-scoped to `ReadinessLevel.dynamicSimulation`.
+`roarm-m1-arm-gripper-target-tracking-v1`. It is a camera-free proprioceptive
+task scoped to `ReadinessLevel.dynamicSimulation`.
 
 The task records 25 observation channels:
 
 | Channel group | Count | Meaning |
 |---|---:|---|
-| Joint position | 5 | Current active joint angle |
-| Joint velocity | 5 | Current active joint velocity |
-| Target error | 5 | Target joint angle minus current joint angle |
-| Lower-limit margin | 5 | Distance to each lower joint limit |
-| Upper-limit margin | 5 | Distance to each upper joint limit |
+| Position | 5 | Current arm axis angle or gripper clamp angle |
+| Velocity | 5 | Current arm axis velocity or gripper clamp velocity |
+| Target error | 5 | Target arm/gripper value minus current value |
+| Lower-limit margin | 5 | Distance to each lower arm/gripper limit |
+| Upper-limit margin | 5 | Distance to each upper arm/gripper limit |
 
 Completion requires finite records, zero joint-limit violations, non-trivial
 motion, and target-tracking error inside the smoke envelope. The command
-`train-roarm-m1-joint-targets` writes:
+`train-roarm-m1-arm-gripper` writes:
 
-- `roarm-m1-joint-target-training-report.json`
+- `roarm-m1-arm-gripper-training-report.json`
 - `dataset/meta.json`
 - `dataset/records.jsonl`
+- `manas/roarm-m1-arm-gripper.manasbundle`
 
-The records include dense reward values, teacher joint-target actions,
-model-based state tuples, and optional achieved-goal relabel records. This
-dataset is the bootstrap artifact for a future Manas joint-target policy
-backend. The LearningProject template stays `designOnly` until that five-drive
-backend can produce a compatible source model bundle. Contact, grasping, and
+The records include dense reward values, teacher arm/gripper target actions,
+model-based state tuples, and optional achieved-goal relabel records. The Manas
+bundle is a smoke supervised checkpoint for the 5-drive arm/gripper contract.
+Full campaign orchestration remains `designOnly`; contact, grasping, and
 hardware parity remain gated separately.

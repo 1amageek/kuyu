@@ -8,28 +8,28 @@
       { "id": "joint_angle_2", "index": 1, "name": "L1_to_L2 angle", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "proprioception" },
       { "id": "joint_angle_3", "index": 2, "name": "L2_to_L3 angle", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "proprioception" },
       { "id": "joint_angle_4", "index": 3, "name": "L3_to_L4 angle", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "proprioception" },
-      { "id": "joint_angle_5", "index": 4, "name": "L4_to_L5_1_A angle", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "proprioception" }
+      { "id": "joint_angle_5", "index": 4, "name": "Gripper clamp angle", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "gripper-proprioception" }
     ],
     "actuator": [
       { "id": "joint_1", "index": 0, "name": "base_to_L1 target", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "joint" },
       { "id": "joint_2", "index": 1, "name": "L1_to_L2 target", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "joint" },
       { "id": "joint_3", "index": 2, "name": "L2_to_L3 target", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "joint" },
       { "id": "joint_4", "index": 3, "name": "L3_to_L4 target", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "joint" },
-      { "id": "joint_5", "index": 4, "name": "L4_to_L5_1_A target", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "joint" }
+      { "id": "joint_5", "index": 4, "name": "Gripper clamp target", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "gripper" }
     ],
     "drive": [
       { "id": "drive_joint_1", "index": 0, "name": "Drive base_to_L1", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "joint-target" },
       { "id": "drive_joint_2", "index": 1, "name": "Drive L1_to_L2", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "joint-target" },
       { "id": "drive_joint_3", "index": 2, "name": "Drive L2_to_L3", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "joint-target" },
       { "id": "drive_joint_4", "index": 3, "name": "Drive L3_to_L4", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "joint-target" },
-      { "id": "drive_joint_5", "index": 4, "name": "Drive L4_to_L5_1_A", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "joint-target" }
+      { "id": "drive_joint_5", "index": 4, "name": "Drive gripper clamp", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "gripper-target" }
     ],
     "reflex": [
       { "id": "reflex_joint_1", "index": 0, "name": "base_to_L1 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
       { "id": "reflex_joint_2", "index": 1, "name": "L1_to_L2 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
       { "id": "reflex_joint_3", "index": 2, "name": "L2_to_L3 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
       { "id": "reflex_joint_4", "index": 3, "name": "L3_to_L4 reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" },
-      { "id": "reflex_joint_5", "index": 4, "name": "L4_to_L5_1_A reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "joint-reflex" }
+      { "id": "reflex_joint_5", "index": 4, "name": "Gripper clamp reflex correction", "units": "rad", "rateHz": 200, "range": [-0.034907, 0.034907], "group": "gripper-reflex" }
     ],
     "descending": [
       { "id": "intent.end_effector.x", "index": 0, "name": "End effector x bias", "units": "m", "rateHz": 5, "range": [-0.1, 0.1], "group": "task-bias" },

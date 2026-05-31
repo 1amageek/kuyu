@@ -46,8 +46,8 @@ flowchart LR
 | Manufacturer body definition | Complete for URDF kinematic geometry | Tests parse the bundled Waveshare URDF and compare every native link, STL mesh reference, visual/collision origin, joint parent/child, joint origin, axis, velocity limit, hard/soft limit, and mimic relation directly against it. |
 | Actuator and servo range consistency | Complete for declared joint ranges | Tests require active body joint limits, sensor ranges, drive ranges, actuator ranges, and `RoArmM1ServoCommandEncoder.manufacturerJointLimits` to match. |
 | Dynamic movement inside joint ranges | Complete for smoke motion | The articulated simulator runs a deterministic smoke trajectory through `MotorNerveChain`, checks `motorNerveTrace`, and verifies drive intents, actuator values, plant joint scalars, and Waveshare `T:3` servo pulse encoding stay in range. |
-| Camera-free joint target training artifact | Complete for smoke training | `train-roarm-m1-joint-targets` writes a 25-channel proprioceptive dataset, HER-style achieved-goal relabel records, dense rewards, and an explicit goal report. |
-| Manas manipulator controller | Smoke placeholder | No learned or task-level Manas controller is claimed yet. The dynamic path exercises the Manas/MotorNerve boundary with bounded drive targets until a manipulator controller is implemented. |
+| Camera-free arm/gripper training artifact | Complete for smoke training | `train-roarm-m1-arm-gripper` writes a 25-channel proprioceptive dataset, HER-style achieved-goal relabel records, dense rewards, an explicit goal report, and a ManasMLX smoke bundle. |
+| Manas manipulator controller | Smoke target policy | The dynamic path can train and save a supervised Manas arm/gripper target policy. It is not a contact-grasping or hardware-parity controller. |
 | Hardware parity / contact grasping | Not complete | These remain gated by measured calibration and contact/friction evidence. |
 
 ## RoArm M1 Source Mapping
