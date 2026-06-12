@@ -10,10 +10,8 @@ import Observation
 public final class AppViewModel {
     // MARK: - Workspace Management
 
-    public var selectedWorkspace: BoundedWorkspace = .dashboard {
-        didSet { applyWorkspaceSelection() }
-    }
-    public var selectedTrainingPhase: BoundedTrainingPhase = .strategy
+    public var selectedWorkspace: BoundedWorkspace = .dashboard
+    public var selectedTrainingPhase: BoundedTrainingPhase = .template
     public var selectedProjectName: String = "Bounded"
     public var availableProjectNames: [String] {
         if let currentProject {
@@ -69,28 +67,6 @@ public final class AppViewModel {
         self.trainingRunsViewModel = TrainingRunsViewModel()
         self.recentProjectURLs = loadRecentProjectURLs()
         applySelectedEnvironment()
-    }
-
-    /// Sidebar training rows are aliases over the phase/strategy axes; selecting
-    /// a row must move those axes or the rows would all render the same content.
-    private func applyWorkspaceSelection() {
-        switch selectedWorkspace {
-        case .experimentDesign:
-            selectedTrainingPhase = .template
-        case .environment:
-            selectedTrainingPhase = .environment
-        case .reinforcementLearning:
-            selectedTrainingPhase = .strategy
-            simulationViewModel.learningStrategySelection = .reinforcementLearning
-        case .geneticLearning:
-            selectedTrainingPhase = .strategy
-            simulationViewModel.learningStrategySelection = .geneticLearning
-        case .hybridIntegration:
-            selectedTrainingPhase = .strategy
-            simulationViewModel.learningStrategySelection = .hybrid
-        case .dashboard, .runs, .settings, .system:
-            break
-        }
     }
 
     public func openURL(_ url: URL) {

@@ -45,20 +45,6 @@ struct LaunchValidationView: View {
                     }
 
                     Button {
-                        model.startLearningCampaign()
-                    } label: {
-                        Label("Start New Run", systemImage: "play.fill")
-                    }
-                    .disabled(model.isLearningCampaignRunning)
-
-                    Button {
-                        model.continueLearningCampaignFromLastCheckpoint()
-                    } label: {
-                        Label("Continue From Checkpoint", systemImage: "forward.end.fill")
-                    }
-                    .disabled(!model.canContinueLearningCampaign)
-
-                    Button {
                         model.validateLearningCampaignLaunch()
                     } label: {
                         Label("Dry Run Validation", systemImage: "checkmark.seal")

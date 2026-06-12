@@ -199,17 +199,6 @@ public struct TrainingConfigurationView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
-                        Button(model.isLearningCampaignRunning ? "Running..." : "Run") {
-                            model.startLearningCampaign()
-                        }
-                        .disabled(model.isLearningCampaignRunning)
-                        Button("Stop") {
-                            model.stopLearningCampaign()
-                        }
-                        .disabled(!model.isLearningCampaignRunning)
-                    }
-                    .font(.callout)
-                    HStack(spacing: 8) {
                         Button("Use Current") {
                             model.useCurrentLearningCampaignArtifactRoot()
                         }

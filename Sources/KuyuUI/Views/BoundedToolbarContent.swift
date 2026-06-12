@@ -26,7 +26,7 @@ private struct BoundedPrincipalToolbarView: View {
     @Bindable var model: AppViewModel
 
     var body: some View {
-        if model.selectedWorkspace.isTrainingWorkspace {
+        if model.selectedWorkspace.showsPhaseStepper {
             TrainingPhaseStepperView(selection: $model.selectedTrainingPhase)
         } else {
             BoundedHeaderStatusView(model: model.simulationViewModel)
@@ -78,18 +78,16 @@ private struct BoundedHeaderControlsView: View {
     }
 
     private var runButton: some View {
+        // The toolbar play button means exactly one thing in every workspace:
+        // start the learning campaign. Baseline runs live in the Run workspace.
         Button {
-            if model.selectedWorkspace == .dashboard || model.selectedWorkspace.isTrainingWorkspace {
-                model.simulationViewModel.startLearningCampaign()
-            } else {
-                model.simulationViewModel.runBaseline()
-            }
+            model.simulationViewModel.startLearningCampaign()
         } label: {
             Image(systemName: "play.fill")
         }
         .disabled(model.simulationViewModel.isLearningCampaignRunning || model.simulationViewModel.isRunning)
-        .help("Run")
-        .accessibilityLabel("Run")
+        .help("Start Learning Campaign")
+        .accessibilityLabel("Start Learning Campaign")
     }
 
     private var pauseButton: some View {
@@ -167,11 +165,6 @@ private struct BoundedHeaderToolsMenu: View {
             Section("Project") {
                 Text(model.selectedProjectName)
             }
-            Picker("Environment", selection: $model.selectedEnvironmentName) {
-                Text("QuadLift-v1").tag("QuadLift-v1")
-                Text("SinglePropLift-v1").tag("SinglePropLift-v1")
-                Text("Attitude-v1").tag("Attitude-v1")
-            }
             Divider()
             Button {
                 showInspector.toggle()
@@ -194,23 +187,12 @@ private struct BoundedHeaderToolsMenu: View {
                 Label("Export Run Logs", systemImage: "doc.text.below.ecg")
             }
             .disabled(model.simulationViewModel.selectedRun == nil)
-            Divider()
-            Button {
-                model.selectedWorkspace = .settings
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-            Button {
-                model.selectedWorkspace = .system
-            } label: {
-                Label("System", systemImage: BoundedWorkspace.system.systemImage)
-            }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
         .menuStyle(.button)
         .controlSize(.small)
-        .help("Project, environment, layout, export, and settings")
+        .help("Project, layout, and export tools")
         .accessibilityLabel("Header Tools")
     }
 }

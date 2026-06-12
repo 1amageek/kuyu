@@ -12,7 +12,7 @@ struct TrainingWorkspaceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: KuyuSpacing.xl) {
                 phaseContent
-                TrainingPhaseNavigationView(selection: $model.selectedTrainingPhase)
+                TrainingPhaseNavigationView(model: model)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(KuyuSpacing.xl)
@@ -28,8 +28,6 @@ struct TrainingWorkspaceView: View {
             environmentPhase
         case .strategy:
             strategyPhase
-        case .launch:
-            launchPhase
         }
     }
 
@@ -49,7 +47,10 @@ struct TrainingWorkspaceView: View {
                 title: "Configure the Environment",
                 subtitle: "Set the scenario, observation, and execution conditions."
             )
-            EnvironmentConfigView(model: trainingModel)
+            EnvironmentConfigView(
+                model: trainingModel,
+                environmentName: $model.selectedEnvironmentName
+            )
         }
     }
 
@@ -82,17 +83,6 @@ struct TrainingWorkspaceView: View {
         }
     }
 
-    private var launchPhase: some View {
-        VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
-            phaseHeader(
-                title: "Launch Preview",
-                subtitle: "Review the resource estimate and acceptance policy before launching."
-            )
-            TrainingLaunchReviewView(model: trainingModel)
-            TrainingConfigurationView(model: trainingModel)
-        }
-    }
-
     private func phaseHeader(title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
             Text(title)
@@ -105,13 +95,13 @@ struct TrainingWorkspaceView: View {
 }
 
 private struct TrainingPhaseNavigationView: View {
-    @Binding var selection: BoundedTrainingPhase
+    @Bindable var model: AppViewModel
 
     var body: some View {
         HStack {
             Button {
                 if let previous {
-                    selection = previous
+                    model.selectedTrainingPhase = previous
                 }
             } label: {
                 Label("Back", systemImage: "chevron.left")
@@ -122,22 +112,23 @@ private struct TrainingPhaseNavigationView: View {
 
             Button {
                 if let next {
-                    selection = next
+                    model.selectedTrainingPhase = next
+                } else {
+                    model.selectedWorkspace = .run
                 }
             } label: {
-                Label(selection == .launch ? "Launch Preview" : "Next", systemImage: "chevron.right")
+                Label(next == nil ? "Continue to Run" : "Next", systemImage: "chevron.right")
             }
-            .disabled(next == nil)
         }
         .controlSize(.small)
     }
 
     private var previous: BoundedTrainingPhase? {
-        BoundedTrainingPhase.allCases.last { $0.step < selection.step }
+        BoundedTrainingPhase.allCases.last { $0.step < model.selectedTrainingPhase.step }
     }
 
     private var next: BoundedTrainingPhase? {
-        BoundedTrainingPhase.allCases.first { $0.step > selection.step }
+        BoundedTrainingPhase.allCases.first { $0.step > model.selectedTrainingPhase.step }
     }
 }
 
@@ -280,128 +271,5 @@ private struct RecommendedPresetView: View {
                     .padding(-KuyuSpacing.xs)
             }
         }
-    }
-}
-
-private struct TrainingLaunchReviewView: View {
-    @Bindable var model: SimulationViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
-            launchChecklist
-            HStack(alignment: .top, spacing: KuyuSpacing.lg) {
-                launchArtifacts
-                launchEstimate
-                launchPolicy
-            }
-        }
-    }
-
-    private var launchChecklist: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                checklistRow("Template Configured", status: "OK", tone: .success)
-                checklistRow("Environment Configured", status: "OK", tone: .success)
-                checklistRow("Strategy Configured", status: "OK", tone: .success)
-                checklistRow(
-                    "Resource Estimate",
-                    status: model.learningCampaignLaunchEstimate == nil ? "Not run" : "OK",
-                    tone: model.learningCampaignLaunchEstimate == nil ? .warning : .success
-                )
-                checklistRow(
-                    "Dry Run Validation",
-                    status: model.learningCampaignReadiness.status.label,
-                    tone: readinessTone
-                )
-            }
-            .padding(.vertical, KuyuSpacing.xs)
-        } label: {
-            Label("Checklist", systemImage: "checklist")
-                .font(.headline)
-        }
-    }
-
-    private var launchArtifacts: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Source Checkpoint", value: compactPath(model.learningCampaignSourceCheckpointPath))
-                StatRow(label: "Artifact Root", value: compactPath(model.learningCampaignArtifactDirectory))
-                StatRow(label: "Retention", value: model.learningCampaignCompactRetention ? "compact" : "full")
-                StatRow(label: "Validation", value: model.learningCampaignReadiness.status.label)
-            }
-            .padding(.vertical, KuyuSpacing.xs)
-        } label: {
-            Label("Artifact", systemImage: "shippingbox")
-                .font(.headline)
-        }
-    }
-
-    private var launchEstimate: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                if let estimate = model.learningCampaignLaunchEstimate {
-                    StatRow(label: "Scale", value: estimate.scaleLabel)
-                    StatRow(label: "Candidates", value: "\(estimate.candidateEvaluations)")
-                    StatRow(label: "Regression Rollouts", value: "\(estimate.regressionRollouts)")
-                    StatRow(label: "Regression Episodes", value: "\(estimate.regressionEpisodes)")
-                    StatRow(label: "Parallelism", value: estimate.parallelismLabel)
-                } else {
-                    Text("Run “Estimate Compute Cost” to see candidate, rollout, and episode counts.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.vertical, KuyuSpacing.xs)
-        } label: {
-            Label("Run Scale", systemImage: "ruler")
-                .font(.headline)
-        }
-    }
-
-    private var launchPolicy: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Quality Gate", value: "strict")
-                StatRow(label: "Task Pass Rate", value: "1.0 required")
-                StatRow(label: "Checkpoint", value: "accepted only")
-                StatRow(label: "Regression", value: "task profile")
-            }
-            .padding(.vertical, KuyuSpacing.xs)
-        } label: {
-            Label("Acceptance Policy", systemImage: "checkmark.seal")
-                .font(.headline)
-        }
-    }
-
-    private func checklistRow(
-        _ title: String,
-        status: String,
-        tone: StatusPill.Tone
-    ) -> some View {
-        HStack(spacing: KuyuSpacing.sm) {
-            Image(systemName: tone == .success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(tone == .success ? .green : .orange)
-            Text(title)
-                .font(.callout)
-            Spacer(minLength: 0)
-            StatusPill(status, tone: tone)
-        }
-    }
-
-    private var readinessTone: StatusPill.Tone {
-        switch model.learningCampaignReadiness.status {
-        case .idle:
-            return .warning
-        case .ready:
-            return .success
-        case .blocked:
-            return .danger
-        }
-    }
-
-    private func compactPath(_ path: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "missing" }
-        return URL(fileURLWithPath: trimmed).lastPathComponent
     }
 }

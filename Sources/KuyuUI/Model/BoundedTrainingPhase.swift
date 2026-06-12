@@ -4,7 +4,6 @@ public enum BoundedTrainingPhase: String, CaseIterable, Identifiable, Sendable {
     case template
     case environment
     case strategy
-    case launch
 
     public var id: String { rawValue }
 
@@ -16,8 +15,6 @@ public enum BoundedTrainingPhase: String, CaseIterable, Identifiable, Sendable {
             return 2
         case .strategy:
             return 3
-        case .launch:
-            return 4
         }
     }
 
@@ -29,8 +26,6 @@ public enum BoundedTrainingPhase: String, CaseIterable, Identifiable, Sendable {
             return "Environment"
         case .strategy:
             return "Strategy"
-        case .launch:
-            return "Launch"
         }
     }
 
@@ -42,8 +37,6 @@ public enum BoundedTrainingPhase: String, CaseIterable, Identifiable, Sendable {
             return "Scenario, observation, and execution conditions"
         case .strategy:
             return "RL / GA / Hybrid design"
-        case .launch:
-            return "Validate, estimate, and run"
         }
     }
 
@@ -55,8 +48,6 @@ public enum BoundedTrainingPhase: String, CaseIterable, Identifiable, Sendable {
             return "square.grid.3x3"
         case .strategy:
             return "cpu"
-        case .launch:
-            return "paperplane"
         }
     }
 }

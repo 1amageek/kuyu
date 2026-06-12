@@ -1,14 +1,31 @@
 import SwiftUI
 
 public struct ReportWindowContentView: View {
-    @Bindable var model: SimulationViewModel
-    @State private var showLogs: Bool = true
+    @Bindable var model: AppViewModel
 
-    public init(model: SimulationViewModel) {
+    public init(model: AppViewModel) {
         self.model = model
     }
 
     public var body: some View {
+        if model.currentProject == nil {
+            ContentUnavailableView(
+                "No Project Open",
+                systemImage: "folder.badge.questionmark",
+                description: Text("Open or create a project to generate a learning report.")
+            )
+            .navigationTitle("Report")
+        } else {
+            ReportWindowBody(model: model.simulationViewModel)
+        }
+    }
+}
+
+private struct ReportWindowBody: View {
+    @Bindable var model: SimulationViewModel
+    @State private var showLogs: Bool = true
+
+    var body: some View {
         CollapsibleSplitView(isExpanded: $showLogs) {
             ScrollView {
                 VStack(alignment: .leading, spacing: KuyuSpacing.lg) {

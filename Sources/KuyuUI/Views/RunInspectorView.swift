@@ -41,8 +41,8 @@ struct RunInspectorView: View {
                 Button("Open Simulation") {
                     openWindow(id: BoundedWindowID.simulation.rawValue)
                 }
-                Button("Open Analysis") {
-                    openWindow(id: BoundedWindowID.analysis.rawValue)
+                Button("Show Results") {
+                    model.selectedWorkspace = .results
                 }
                 Button("Open Report") {
                     openWindow(id: BoundedWindowID.report.rawValue)

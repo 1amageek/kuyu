@@ -6,23 +6,15 @@ struct BoundedSidebarView: View {
 
     var body: some View {
         List(selection: $model.selectedWorkspace) {
-            Section("Run") {
+            Section("Workspace") {
                 workspaceRow(.dashboard)
-                workspaceRow(.runs)
-            }
-
-            Section("Training") {
-                workspaceRow(.experimentDesign)
-                workspaceRow(.reinforcementLearning)
-                workspaceRow(.geneticLearning)
-                workspaceRow(.hybridIntegration)
-                workspaceRow(.environment)
+                workspaceRow(.design)
+                workspaceRow(.run)
+                workspaceRow(.results)
             }
 
             Section("Open") {
                 windowButton(.simulation)
-                windowButton(.monitor)
-                windowButton(.analysis)
                 windowButton(.report)
             }
         }
@@ -48,10 +40,8 @@ struct BoundedSidebarView: View {
         VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
             Divider()
             HStack {
-                Button {
-                    model.selectedWorkspace = .settings
-                } label: {
-                    Label(BoundedWorkspace.settings.title, systemImage: BoundedWorkspace.settings.systemImage)
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
                 }
 
                 Button {

@@ -12,35 +12,10 @@ struct BoundedInspectorView: View {
             switch model.selectedWorkspace {
             case .dashboard:
                 RunInspectorView(model: model)
-            case .runs:
-                managementInspector(
-                    title: "Runs Inspector",
-                    subtitle: "Training-run contract archive",
-                    systemImage: "list.bullet.rectangle",
-                    rows: [
-                        ("Run root", model.trainingRunsViewModel.runRootPath ?? "unresolved"),
-                        ("Runs", "\(model.trainingRunsViewModel.items.count)"),
-                        ("Selected", model.trainingRunsViewModel.selectedRunID ?? "none")
-                    ]
-                )
-            case .experimentDesign,
-                 .reinforcementLearning,
-                 .geneticLearning,
-                 .hybridIntegration,
-                 .environment:
+            case .design, .run:
                 trainingInspector
-            case .settings:
-                managementInspector(
-                    title: "Settings Inspector",
-                    subtitle: "Application configuration scope",
-                    systemImage: "gearshape",
-                    rows: [
-                        ("Project", model.selectedProjectName),
-                        ("Environment", model.selectedEnvironmentName),
-                        ("Storage", trainingModel.learningCampaignArtifactDirectory.isEmpty ? "not selected" : "selected"),
-                        ("Logging", "enabled")
-                    ]
-                )
+            case .results:
+                AnalysisInspectorView(model: trainingModel)
             case .system:
                 managementInspector(
                     title: "System Inspector",
@@ -63,7 +38,6 @@ struct BoundedInspectorView: View {
             VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                 trainingSummary
                 runtimeSummary
-                LaunchValidationView(model: trainingModel)
             }
             .padding(KuyuSpacing.md)
         }

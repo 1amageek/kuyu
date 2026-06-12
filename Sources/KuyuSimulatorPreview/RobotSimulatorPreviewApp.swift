@@ -92,7 +92,7 @@ private struct RoArmM1SimulatorPreviewRootView: View {
         Group {
             if let model {
                 NavigationStack {
-                    SimulationWindowContentView(model: model)
+                    SimulationWorkbenchView(model: model)
                 }
             } else {
                 ProgressView("Loading RoArm M1 simulation")
