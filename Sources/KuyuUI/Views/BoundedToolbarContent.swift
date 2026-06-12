@@ -14,48 +14,11 @@ struct BoundedToolbarContent: ToolbarContent {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            BoundedWorkspaceActionToolbarView(model: model)
             BoundedHeaderToolsMenu(
                 model: model,
                 showInspector: $showInspector
             )
         }
-    }
-}
-
-private struct BoundedWorkspaceActionToolbarView: View {
-    @Bindable var model: AppViewModel
-
-    var body: some View {
-        if model.selectedWorkspace == .report {
-            ReportExportMenu(model: model.simulationViewModel)
-        }
-    }
-}
-
-private struct ReportExportMenu: View {
-    @Bindable var model: SimulationViewModel
-
-    var body: some View {
-        Menu {
-            ForEach(ReportExportFormat.allCases) { format in
-                Button {
-                    model.exportLearningReport(format: format)
-                } label: {
-                    Label(format.rawValue, systemImage: "square.and.arrow.up")
-                }
-            }
-            if let status = model.reportExportStatus {
-                Divider()
-                Text(status)
-            }
-        } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }
-        .menuStyle(.button)
-        .controlSize(.small)
-        .help("Export the current report")
-        .accessibilityLabel("Export Report")
     }
 }
 
@@ -199,10 +162,10 @@ private struct BoundedHeaderToolsMenu: View {
 
     var body: some View {
         Menu {
-            Picker("Project", selection: $model.selectedProjectName) {
-                ForEach(model.availableProjectNames, id: \.self) { projectName in
-                    Text(projectName).tag(projectName)
-                }
+            // Only one project can be open at a time, so this is a status
+            // readout, not a picker — a picker here would imply switching.
+            Section("Project") {
+                Text(model.selectedProjectName)
             }
             Picker("Environment", selection: $model.selectedEnvironmentName) {
                 Text("QuadLift-v1").tag("QuadLift-v1")
@@ -225,6 +188,12 @@ private struct BoundedHeaderToolsMenu: View {
             } label: {
                 Label("Reload Artifacts", systemImage: "arrow.clockwise")
             }
+            Button {
+                model.simulationViewModel.exportLogs()
+            } label: {
+                Label("Export Run Logs", systemImage: "doc.text.below.ecg")
+            }
+            .disabled(model.simulationViewModel.selectedRun == nil)
             Divider()
             Button {
                 model.selectedWorkspace = .settings
@@ -234,7 +203,7 @@ private struct BoundedHeaderToolsMenu: View {
             Button {
                 model.selectedWorkspace = .system
             } label: {
-                Label("System", systemImage: "server.rack")
+                Label("System", systemImage: BoundedWorkspace.system.systemImage)
             }
         } label: {
             Image(systemName: "ellipsis.circle")

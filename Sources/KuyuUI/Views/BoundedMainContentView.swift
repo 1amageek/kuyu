@@ -9,10 +9,8 @@ struct BoundedMainContentView: View {
             DashboardWorkspaceView(model: model.simulationViewModel)
         case .runs:
             TrainingRunsWorkspaceView(model: model.trainingRunsViewModel)
-        case .training, .experimentDesign, .reinforcementLearning, .geneticLearning, .hybridIntegration, .environment:
+        case .experimentDesign, .reinforcementLearning, .geneticLearning, .hybridIntegration, .environment:
             TrainingWorkspaceView(model: model)
-        case .analysis, .report, .monitor:
-            AuxiliaryWindowPlaceholderView()
         case .settings:
             SettingsWorkspaceView(model: model.simulationViewModel)
         case .system:
@@ -21,12 +19,3 @@ struct BoundedMainContentView: View {
     }
 }
 
-private struct AuxiliaryWindowPlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "Opens in a separate window",
-            systemImage: "macwindow.on.rectangle",
-            description: Text("Simulation, Monitor, Analysis, and Report open in their own windows from the sidebar's “Open” section.")
-        )
-    }
-}

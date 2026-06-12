@@ -50,7 +50,7 @@ public struct ContentView: View {
             )
         }
         .alert(
-            "Run Failed",
+            "Operation Failed",
             isPresented: Binding(
                 get: { model.simulationViewModel.runError != nil },
                 set: { presented in
@@ -58,6 +58,20 @@ public struct ContentView: View {
                 }
             ),
             presenting: model.simulationViewModel.runError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text(error)
+        }
+        .alert(
+            "Project Operation Failed",
+            isPresented: Binding(
+                get: { model.projectCreationError != nil },
+                set: { presented in
+                    if !presented { model.projectCreationError = nil }
+                }
+            ),
+            presenting: model.projectCreationError
         ) { _ in
             Button("OK", role: .cancel) {}
         } message: { error in

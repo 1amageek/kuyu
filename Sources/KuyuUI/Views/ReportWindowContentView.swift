@@ -28,6 +28,11 @@ public struct ReportWindowContentView: View {
             Label("Logs", systemImage: "doc.text")
         }
         .navigationTitle("Report")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                ReportExportMenu(model: model)
+            }
+        }
     }
 
     private var header: some View {
@@ -38,5 +43,31 @@ public struct ReportWindowContentView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+private struct ReportExportMenu: View {
+    @Bindable var model: SimulationViewModel
+
+    var body: some View {
+        Menu {
+            ForEach(ReportExportFormat.allCases) { format in
+                Button {
+                    model.exportLearningReport(format: format)
+                } label: {
+                    Label(format.rawValue, systemImage: "square.and.arrow.up")
+                }
+            }
+            if let status = model.reportExportStatus {
+                Divider()
+                Text(status)
+            }
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+        .menuStyle(.button)
+        .controlSize(.small)
+        .help("Export the current report")
+        .accessibilityLabel("Export Report")
     }
 }

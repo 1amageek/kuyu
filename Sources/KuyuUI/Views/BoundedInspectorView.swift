@@ -10,7 +10,7 @@ struct BoundedInspectorView: View {
     var body: some View {
         Group {
             switch model.selectedWorkspace {
-            case .dashboard, .report:
+            case .dashboard:
                 RunInspectorView(model: model)
             case .runs:
                 managementInspector(
@@ -23,27 +23,12 @@ struct BoundedInspectorView: View {
                         ("Selected", model.trainingRunsViewModel.selectedRunID ?? "none")
                     ]
                 )
-            case .analysis:
-                analysisInspector
-            case .training,
-                 .experimentDesign,
+            case .experimentDesign,
                  .reinforcementLearning,
                  .geneticLearning,
                  .hybridIntegration,
                  .environment:
                 trainingInspector
-            case .monitor:
-                managementInspector(
-                    title: "Monitor Inspector",
-                    subtitle: "Local runtime summary",
-                    systemImage: "chart.line.uptrend.xyaxis",
-                    rows: [
-                        ("Campaign", trainingModel.isLearningCampaignRunning ? "running" : "idle"),
-                        ("Workers", "\(trainingModel.learningCampaignWorkers)"),
-                        ("Progress", String(format: "%.0f%%", trainingModel.learningCampaignProgressFraction * 100)),
-                        ("Logs", "\(trainingModel.logStore.entries.count)")
-                    ]
-                )
             case .settings:
                 managementInspector(
                     title: "Settings Inspector",
@@ -81,60 +66,6 @@ struct BoundedInspectorView: View {
                 LaunchValidationView(model: trainingModel)
             }
             .padding(KuyuSpacing.md)
-        }
-    }
-
-    private var analysisInspector: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: KuyuSpacing.md) {
-                campaignStatistics
-                sampleStatistics
-            }
-            .padding(KuyuSpacing.md)
-        }
-    }
-
-    private var campaignStatistics: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(
-                    label: "Status",
-                    value: trainingModel.learningCampaignState?.statusLabel ?? "--",
-                    compact: true
-                )
-                StatRow(
-                    label: "Accepted",
-                    value: trainingModel.learningCampaignState
-                        .map { "\($0.acceptedCount)/\($0.seedCount)" } ?? "--",
-                    compact: true
-                )
-                StatRow(
-                    label: "Best Delta",
-                    value: trainingModel.learningCampaignState?.bestDelta
-                        .map { String(format: "%+.4f", $0) } ?? "--",
-                    compact: true
-                )
-                StatRow(
-                    label: "Runs",
-                    value: "\(trainingModel.runs.count)",
-                    compact: true
-                )
-            }
-        } label: {
-            Label("Campaign", systemImage: "chart.bar.doc.horizontal")
-        }
-    }
-
-    private var sampleStatistics: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Reward", value: "\(trainingModel.rewardAverageSamples.count)", compact: true)
-                StatRow(label: "Loss", value: "\(trainingModel.trainingLossSamples.count)", compact: true)
-                StatRow(label: "Loop Score", value: "\(trainingModel.loopScoreSamples.count)", compact: true)
-                StatRow(label: "Pass Rate", value: "\(trainingModel.passRateSamples.count)", compact: true)
-            }
-        } label: {
-            Label("Samples", systemImage: "square.stack.3d.up")
         }
     }
 

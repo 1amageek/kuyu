@@ -1,30 +1,18 @@
 import Foundation
 import KuyuScenarios
 import KuyuTraining
+import Logging
 import Observation
 
-/// Root view model that manages application mode and delegates to mode-specific view models
+/// Root view model that owns workspace navigation and delegates to domain view models
 @Observable
 @MainActor
 public final class AppViewModel {
-    /// Application operating mode
-    public enum Mode: String, CaseIterable, Sendable {
-        case simulation
-        case training
+    // MARK: - Workspace Management
 
-        public var displayName: String {
-            switch self {
-            case .simulation: return "Simulation"
-            case .training: return "Training"
-            }
-        }
+    public var selectedWorkspace: BoundedWorkspace = .dashboard {
+        didSet { applyWorkspaceSelection() }
     }
-
-    // MARK: - Mode Management
-
-    /// Current application mode
-    public var currentMode: Mode = .simulation
-    public var selectedWorkspace: BoundedWorkspace = .dashboard
     public var selectedTrainingPhase: BoundedTrainingPhase = .strategy
     public var selectedProjectName: String = "Bounded"
     public var availableProjectNames: [String] {
@@ -40,7 +28,6 @@ public final class AppViewModel {
     public var isCreatingProject = false
     private var projectCreationTask: Task<Void, Never>?
     private var projectCreationSessionID: UUID?
-    private var inactiveProjectCleanupError: String?
     private let recentProjectsDefaults: UserDefaults
     private var currentProjectAccessURL: URL?
     private var currentProjectAccessIsScoped = false
@@ -80,8 +67,30 @@ public final class AppViewModel {
             prepareStarterProjectOnInit: prepareStarterProjectOnInit
         )
         self.trainingRunsViewModel = TrainingRunsViewModel()
-        self.recentProjectURLs = Self.loadRecentProjectURLs(defaults: recentProjectsDefaults)
+        self.recentProjectURLs = loadRecentProjectURLs()
         applySelectedEnvironment()
+    }
+
+    /// Sidebar training rows are aliases over the phase/strategy axes; selecting
+    /// a row must move those axes or the rows would all render the same content.
+    private func applyWorkspaceSelection() {
+        switch selectedWorkspace {
+        case .experimentDesign:
+            selectedTrainingPhase = .template
+        case .environment:
+            selectedTrainingPhase = .environment
+        case .reinforcementLearning:
+            selectedTrainingPhase = .strategy
+            simulationViewModel.learningStrategySelection = .reinforcementLearning
+        case .geneticLearning:
+            selectedTrainingPhase = .strategy
+            simulationViewModel.learningStrategySelection = .geneticLearning
+        case .hybridIntegration:
+            selectedTrainingPhase = .strategy
+            simulationViewModel.learningStrategySelection = .hybrid
+        case .dashboard, .runs, .settings, .system:
+            break
+        }
     }
 
     public func openURL(_ url: URL) {
@@ -297,14 +306,11 @@ public final class AppViewModel {
         return rootURL.appendingPathComponent(reference, isDirectory: true)
     }
 
-    private static func loadRecentProjectURLs(
-        defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
-    ) -> [URL] {
+    private func loadRecentProjectURLs(fileManager: FileManager = .default) -> [URL] {
         var seen = Set<String>()
         var urls: [URL] = []
-        for record in recentProjectRecords(defaults: defaults) {
-            let url = record.resolvedURL().standardizedFileURL
+        for record in recentProjectRecords() {
+            let url = resolveRecentProjectRecordURL(record).standardizedFileURL
             guard url.pathExtension.lowercased() == "kuyu",
                   fileManager.fileExists(atPath: url.path),
                   seen.insert(url.path).inserted else {
@@ -318,27 +324,38 @@ public final class AppViewModel {
         return urls
     }
 
+    private func resolveRecentProjectRecordURL(_ record: RecentProjectAccessRecord) -> URL {
+        do {
+            return try record.resolvedURL()
+        } catch {
+            emitLog(level: .warning, message: "Recent project bookmark resolution failed; using stored path", metadata: [
+                "path": record.path,
+                "error": "\(error)"
+            ])
+            return URL(fileURLWithPath: record.path, isDirectory: true)
+        }
+    }
+
     private func persistRecentProjectURLs() {
-        var records: [RecentProjectAccessRecord] = []
-        for url in recentProjectURLs {
-            guard let bookmarkData = makeSecurityScopedBookmarkData(for: url) else {
-                continue
-            }
-            records.append(RecentProjectAccessRecord(path: url.path, bookmarkData: bookmarkData))
+        // Entries whose bookmark creation fails are kept as path-only records:
+        // a degraded recent is recoverable, a silently dropped one is not.
+        let records = recentProjectURLs.map { url in
+            RecentProjectAccessRecord(path: url.path, bookmarkData: makeSecurityScopedBookmarkData(for: url))
         }
         do {
             let data = try PropertyListEncoder().encode(records)
             recentProjectsDefaults.set(data, forKey: recentProjectAccessDefaultsKey)
         } catch {
-            recentProjectsDefaults.removeObject(forKey: recentProjectAccessDefaultsKey)
+            emitLog(level: .error, message: "Failed to persist recent projects; keeping previously stored list", metadata: [
+                "error": "\(error)"
+            ])
         }
     }
 
     private func resolveProjectURL(_ url: URL) throws -> URL {
         let standardizedURL = url.standardizedFileURL
-        guard let bookmarkData = Self.recentProjectRecords(defaults: recentProjectsDefaults)
-            .first(where: { $0.path == standardizedURL.path })?
-            .bookmarkData else {
+        guard let record = recentProjectRecords().first(where: { $0.path == standardizedURL.path }),
+              let bookmarkData = record.bookmarkData else {
             return standardizedURL
         }
         var isStale = false
@@ -396,19 +413,36 @@ public final class AppViewModel {
                 relativeTo: nil
             )
         } catch {
+            emitLog(level: .error, message: "Failed to create security-scoped bookmark for recent project", metadata: [
+                "path": url.path,
+                "error": "\(error)"
+            ])
             return nil
         }
     }
 
-    private static func recentProjectRecords(defaults: UserDefaults) -> [RecentProjectAccessRecord] {
-        guard let data = defaults.data(forKey: recentProjectAccessDefaultsKey) else {
+    private func recentProjectRecords() -> [RecentProjectAccessRecord] {
+        guard let data = recentProjectsDefaults.data(forKey: recentProjectAccessDefaultsKey) else {
             return []
         }
         do {
             return try PropertyListDecoder().decode([RecentProjectAccessRecord].self, from: data)
         } catch {
+            emitLog(level: .error, message: "Recent projects store is corrupt; ignoring stored entries", metadata: [
+                "error": "\(error)"
+            ])
             return []
         }
+    }
+
+    private func emitLog(level: Logger.Level, message: String, metadata: [String: String] = [:]) {
+        logStore.emit(UILogEntry(
+            timestamp: Date(),
+            level: level,
+            label: "kuyu.ui",
+            message: message,
+            metadata: metadata
+        ))
     }
 
     private nonisolated static func makeAndWriteProjectPackage(
@@ -463,9 +497,11 @@ public final class AppViewModel {
         }
         do {
             try FileManager.default.removeItem(at: temporaryURL)
-            inactiveProjectCleanupError = nil
         } catch {
-            inactiveProjectCleanupError = AppViewModelErrorFormatter.message(for: error)
+            emitLog(level: .warning, message: "Failed to clean up superseded project staging directory", metadata: [
+                "path": temporaryURL.path,
+                "error": AppViewModelErrorFormatter.message(for: error)
+            ])
         }
     }
 
@@ -487,20 +523,21 @@ private let recentProjectAccessDefaultsKey = "team.stamp.Bounded.recentProjectAc
 
 private struct RecentProjectAccessRecord: Codable, Sendable, Equatable {
     let path: String
-    let bookmarkData: Data
+    /// nil when bookmark creation failed at save time; the record then resolves
+    /// to a plain path URL without security scope.
+    let bookmarkData: Data?
 
-    func resolvedURL() -> URL {
-        var isStale = false
-        do {
-            return try URL(
-                resolvingBookmarkData: bookmarkData,
-                options: [.withSecurityScope],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-        } catch {
+    func resolvedURL() throws -> URL {
+        guard let bookmarkData else {
             return URL(fileURLWithPath: path, isDirectory: true)
         }
+        var isStale = false
+        return try URL(
+            resolvingBookmarkData: bookmarkData,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
     }
 }
 
