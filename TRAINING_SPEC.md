@@ -138,29 +138,33 @@ Kuyu exports a training dataset as a directory containing:
 - `meta.json`: dataset metadata (scenario, seed, dt, driveCount, channelCount)
 - `records.jsonl`: one JSON object per time step
 
-`TrainingDatasetMetadata.currentSchemaVersion` is `3` for M1.6. Readers MUST
-require the current schema because provenance now records `robotManifestHash`;
-schema version 1/2 datasets are not accepted by the current training loaders.
+`TrainingDatasetMetadata.currentSchemaVersion` is `4`. Readers currently accept
+schema versions `3` and `4`; schema v3 is a legacy accepted format for existing
+rollout datasets. Schema v1/v2 datasets are not accepted by the current training
+loaders.
 
 Record fields:
 - `time`: simulation time (seconds)
 - `sensors`: array of `{channelIndex, value, timestamp}`
 - `driveIntents`: array of `{driveIndex, value}`
 - `reflexCorrections`: array of `{driveIndex, clamp, damping, delta}`
-- M1.6 rollout records additionally MAY include `reward`, `done`, `truncated`,
-  `episodeId`, and `policyId`.
+- Rollout records additionally MAY include `reward`, `cost`, `done`,
+  `truncated`, `episodeId`, and `policyId`.
 - M2 world-model records additionally MAY include `physicsState`,
   `actualState`, `actionValues`, and `continueValue`. These fields are required
-  for `StateWorldModel` residual training and remain optional for schema v1/v2
-  backward compatibility.
+  for `StateWorldModel` residual training and remain optional when the dataset is
+  not used for world-model training.
 
 `meta.json` MUST include:
 - `failureReason` (nullable)
 - `failureTime` (nullable)
 - for rollout datasets: `episodeId`, `policyId`, `rewardSum`, `done`,
   `truncated`, `terminalReason`, and `rewardDescriptor`.
+- for M2+ datasets when available: `taskReference`, modality-aware `observation`,
+  and distributed-data `provenance`.
 
-Implementation reference: `TrainingDatasetWriter` in Kuyu.
+Implementation reference: `TrainingDatasetWriter` in `kuyu-training`
+(`KuyuTraining`).
 
 ## M2 World-Model and Imagination Smoke
 `train-world-model` trains two artifacts from rollout datasets:

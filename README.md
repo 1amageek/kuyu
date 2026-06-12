@@ -223,7 +223,7 @@ kuyu-app (this package)
 - [kuyu-core](https://github.com/1amageek/kuyu-core) — Core protocols and types
 - [kuyu-physics](https://github.com/1amageek/kuyu-physics) — Physics engines and analytical models
 - [kuyu-scenarios](https://github.com/1amageek/kuyu-scenarios) — Evaluation scenarios and logging
-- [kuyu-training](https://github.com/1amageek/kuyu-training) — Training data collection and pipeline
+- [kuyu-training](https://github.com/1amageek/kuyu-training) — Backend-agnostic training contracts, project packages, runtime orchestration, GA/RL protocols, and artifact validation
 - [kuyu-mlx](https://github.com/1amageek/kuyu-mlx) — Manas/MLX backend implementation for Kuyu training contracts
 - [manas](https://github.com/1amageek/manas) — CNS-style robotic control system
 
