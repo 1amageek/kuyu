@@ -121,7 +121,9 @@ struct TrainRoArmM1JointTargets: AsyncParsableCommand {
                 epochs: manasEpochs,
                 learningRate: manasLearningRate,
                 maxBatches: manasMaxBatches,
-                useQualityGating: false
+                useQualityGating: false,
+                closedLoopSimulationRequest: request,
+                useClosedLoopSineTarget: true
             )
         )
 
@@ -130,6 +132,9 @@ struct TrainRoArmM1JointTargets: AsyncParsableCommand {
         print("[roarm-m1-training] manasRuntime observation=\(manasResult.bundleManifest.runtimeContract.observationSchemaID) drives=\(manasResult.bundleManifest.runtimeContract.driveSemanticsID)")
         print("[roarm-m1-training] manasFinalLoss=\(format(manasResult.training.finalLoss)) epochs=\(manasResult.training.epochs)")
         print("[roarm-m1-training] manasOpenLoopMAE=\(formatOptional(manasResult.training.openLoopDriveMAE)) reloadedOpenLoopMAE=\(formatOptional(manasResult.reloadedOpenLoopFit?.meanAbsoluteError))")
+        if let closedLoop = manasResult.closedLoopEvaluation {
+            print("[roarm-m1-training] manasClosedLoop passed=\(closedLoop.passed) meanAbsErrorRad=\(format(closedLoop.meanAbsoluteErrorRadians)) maxAbsErrorRad=\(format(closedLoop.maximumAbsoluteErrorRadians)) movementRad=\(format(closedLoop.movementMagnitudeRadians)) limitViolations=\(closedLoop.jointLimitViolationCount)")
+        }
     }
 
     private func format(_ value: Double) -> String {
