@@ -120,13 +120,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
                     baselineMode: baselineMode
                 )
             }
+            // Interactive simulation runs do not execute replay verification;
+            // the duplicated rollout would double the user-visible latency.
             let runner = KuyAtt1Runner(
                 parameters: parameters,
                 schedule: schedule,
                 determinism: request.determinism,
                 noise: request.noise,
                 gains: request.gains,
-                baselineMode: baselineMode
+                baselineMode: baselineMode,
+                replayVerification: false
             )
             return try await runner.runWithLogs(control: control)
         case .manasMLX:

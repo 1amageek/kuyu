@@ -17,7 +17,7 @@ struct Conformance: AsyncParsableCommand {
     @Option(help: "Comma-separated suite levels to run (0–5).")
     var suites: String = "0,1,2,3,4,5"
 
-    @Option(help: "Controller: activeAltitudeHold (privileged teacher, performs no replay) or sensorBaseline (rate damping only, replay-verified).")
+    @Option(help: "Controller: activeAltitudeHold (privileged teacher) or sensorBaseline (rate damping only). Both are replay-verified.")
     var controller: ControllerChoice = .activeAltitudeHold
 
     @Option(help: "Determinism tier: tier0, tier1, tier2.")
@@ -85,7 +85,12 @@ struct Conformance: AsyncParsableCommand {
             print("[conformance]   \(summary.suitePassed ? "PASS" : "FAIL") — scenarios=\(summary.evaluations.count) \(replayDetail)")
         }
 
-        let passed = !entries.isEmpty && entries.allSatisfy { $0.summary.suitePassed }
+        // Overall PASS requires every suite to pass its evaluations AND to have
+        // executed replay verification with all checks passing. A suite whose
+        // replay was skipped cannot satisfy the report's determinism claim.
+        let passed = !entries.isEmpty && entries.allSatisfy {
+            $0.summary.suitePassed && replayVerified($0.summary.replay)
+        }
         let report = A1ConformanceReport(
             controller: controllerDescription,
             determinismTier: determinism.tier,
@@ -135,9 +140,9 @@ struct Conformance: AsyncParsableCommand {
     ) async throws -> ValidationSummary {
         switch controller {
         case .activeAltitudeHold:
-            // The privileged teacher runs through the RL environment, which has
-            // no CutInterface replay harness; its summary records replay as
-            // explicitly not performed.
+            // The privileged teacher runs through the RL environment; the runner
+            // re-runs every scenario with a fresh environment + policy and
+            // compares the logs via ReplayChecker (replayVerification: true).
             let runner = KuyAtt1Runner(
                 parameters: parameters,
                 schedule: schedule,
@@ -145,7 +150,8 @@ struct Conformance: AsyncParsableCommand {
                 noise: .zero,
                 environment: .standard,
                 gains: gains,
-                baselineMode: .teacher
+                baselineMode: .teacher,
+                replayVerification: true
             )
             let definitions = try suite.scenarios()
             let output = try await runner.runWithLogs(definitions: definitions)
@@ -192,6 +198,15 @@ struct Conformance: AsyncParsableCommand {
                 manifest: output.manifest,
                 aggregate: EvaluationAggregate.from(evaluations: output.result.evaluations)
             )
+        }
+    }
+
+    private func replayVerified(_ replay: ReplayVerification) -> Bool {
+        switch replay {
+        case .performed(let checks):
+            return !checks.isEmpty && checks.allSatisfy(\.passed)
+        case .notPerformed:
+            return false
         }
     }
 
