@@ -6,9 +6,9 @@ import Testing
 
 @MainActor
 @Test(.timeLimit(.minutes(1))) func nonUIScenarioRuntimeRunsLiftTeacherSuite() async throws {
-    let output = try await KuyuScenarioRuntime(modelStore: ManasMLXModelStore()).run(
+    let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: ManasMLXModelStore()).run(
         request: SimulationRunRequest(
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             taskMode: .lift,
             gains: try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2),
             cutPeriodSteps: 2,
@@ -33,9 +33,9 @@ import Testing
 
 @MainActor
 @Test(.timeLimit(.minutes(1))) func nonUIScenarioRuntimeRunsSingleLiftTeacherSuite() async throws {
-    let output = try await KuyuScenarioRuntime(modelStore: ManasMLXModelStore()).run(
+    let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: ManasMLXModelStore()).run(
         request: SimulationRunRequest(
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             taskMode: .singleLift,
             gains: try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2),
             cutPeriodSteps: 2,

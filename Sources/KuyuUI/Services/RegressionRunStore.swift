@@ -27,9 +27,9 @@ struct PostRegressionGateState: Sendable, Equatable {
 }
 
 struct RegressionRunStore: Sendable {
-    private let validator: KuyuRegressionArtifactValidator
+    private let validator: ReferenceQuadrotorRegressionArtifactValidator
 
-    init(validator: KuyuRegressionArtifactValidator = KuyuRegressionArtifactValidator()) {
+    init(validator: ReferenceQuadrotorRegressionArtifactValidator = ReferenceQuadrotorRegressionArtifactValidator()) {
         self.validator = validator
     }
 

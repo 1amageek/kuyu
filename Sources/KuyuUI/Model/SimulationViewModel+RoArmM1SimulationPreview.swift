@@ -15,7 +15,7 @@ public extension SimulationViewModel {
             source: "roarm-m1-simulator-preview"
         )
         useRenderAssets = true
-        controllerSelection = .teacherBaseline
+        controllerSelection = .teacherActiveAltitudeHold
         determinismSelection = .tier0
         taskMode = .lift
     }

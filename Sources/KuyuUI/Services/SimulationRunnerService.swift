@@ -41,7 +41,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
         let parameters = resolution.parameters
         let embodiment = resolution.embodiment
         switch request.controller {
-        case .baseline, .teacherBaseline, .sensorBaseline:
+        case .teacherActiveAltitudeHold, .sensorBaseline:
             let baselineMode = request.controller.kuyAtt1BaselineMode ?? .teacher
             if let store = manualActuatorStore, store.isEnabled, request.taskMode != .singleLift {
                 return try await runManualBaseline(
@@ -131,7 +131,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
             return try await runner.runWithLogs(control: control)
         case .manasMLX:
             try MLXRuntimePreflight().check()
-            return try await modelStore.runManasMLX(
+            return try await modelStore.runReferenceQuadrotor(
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
@@ -702,7 +702,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
             let baseThrottle = 0.0
             let targetZ = definition.liftEnvelope?.targetZ ?? 0.5
             let baselineMetadata: Logger.Metadata = [
-                "action": "teacherBaseline",
+                "action": "activeAltitudeHold",
                 "task": .string(request.taskMode.rawValue),
                 "hoverThrustScale": .string(String(format: "%.3f", request.gains.hoverThrustScale)),
                 "hoverThrust": .string(String(format: "%.3f", hoverThrust)),
@@ -778,7 +778,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
             let baseThrottle = 0.0
             let targetZ = definition.liftEnvelope?.targetZ ?? 0.5
             let baselineMetadata: Logger.Metadata = [
-                "action": "teacherBaseline",
+                "action": "activeAltitudeHold",
                 "task": .string(request.taskMode.rawValue),
                 "hoverThrustScale": .string(String(format: "%.3f", request.gains.hoverThrustScale)),
                 "hoverThrust": .string(String(format: "%.3f", hoverThrust)),

@@ -22,7 +22,7 @@ import KuyuScenarios
         .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")
         .path
     let request = SimulationRunRequest(
-        controller: .teacherBaseline,
+        controller: .teacherActiveAltitudeHold,
         taskMode: .singleLift,
         gains: try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0),
         cutPeriodSteps: 2,
@@ -57,7 +57,7 @@ import KuyuScenarios
         .path
     let model = makeSimulationViewModel()
 
-    model.controllerSelection = .teacherBaseline
+    model.controllerSelection = .teacherActiveAltitudeHold
     model.taskMode = .singleLift
     model.setRobotManifestPath(missing, source: "test")
     model.runBaseline()
@@ -93,7 +93,7 @@ import KuyuScenarios
         .path
     let (model, store) = makeSimulationViewModelWithStore()
 
-    model.controllerSelection = .teacherBaseline
+    model.controllerSelection = .teacherActiveAltitudeHold
     model.taskMode = .singleLift
     model.setRobotManifestPath(missing, source: "test")
     model.runBaseline()

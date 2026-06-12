@@ -16,6 +16,7 @@ public struct RunnableProjectAssetPreparationRequest {
     public let auxEnabled: Bool
     public let qualityGatingEnabled: Bool
     public let policyContract: LearningProjectPolicyContract
+    public let actionContract: LearningProjectActionContract
 
     public init(
         checkpointURL: URL,
@@ -28,7 +29,8 @@ public struct RunnableProjectAssetPreparationRequest {
         expectedObservationChannelCount: Int,
         auxEnabled: Bool,
         qualityGatingEnabled: Bool,
-        policyContract: LearningProjectPolicyContract
+        policyContract: LearningProjectPolicyContract,
+        actionContract: LearningProjectActionContract
     ) {
         self.checkpointURL = checkpointURL
         self.displayName = displayName
@@ -41,6 +43,7 @@ public struct RunnableProjectAssetPreparationRequest {
         self.auxEnabled = auxEnabled
         self.qualityGatingEnabled = qualityGatingEnabled
         self.policyContract = policyContract
+        self.actionContract = actionContract
     }
 }
 
@@ -68,12 +71,14 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
         }
 
         if request.policyContract.actionEncoding == .ctbr {
-            _ = try ManasMLXTemporalCTBRCheckpointWriter().write(request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+            _ = try ManasMLXTemporalCheckpointWriter().write(request: ManasMLXTemporalCheckpointWriteRequest(
                 checkpointURL: request.checkpointURL,
                 name: request.displayName,
                 policyContract: request.policyContract,
+                observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+                actionContract: request.actionContract,
                 embodiment: request.embodiment,
-                starterCollectiveThrustScale: starterCollectiveThrustScale(taskMode: request.taskMode),
+                starterActionMean: starterActionMean(taskMode: request.taskMode),
                 createdAt: Date(),
                 lastTrainedAt: nil
             ))
@@ -96,14 +101,14 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
         try validateCheckpoint(request: request)
     }
 
-    private func starterCollectiveThrustScale(taskMode: SimulationTaskMode) -> Double {
+    private func starterActionMean(taskMode: SimulationTaskMode) -> [Double] {
         switch taskMode {
         case .lift:
-            return 1.18
+            return [1.0, 0.0, 0.0, 0.0]
         case .attitude:
-            return 1.0
+            return [0.75, 0.0, 0.0, 0.0]
         case .singleLift:
-            return 1.12
+            return [0.9, 0.0, 0.0, 0.0]
         }
     }
 

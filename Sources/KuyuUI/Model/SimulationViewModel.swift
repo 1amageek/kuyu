@@ -150,7 +150,8 @@ public final class SimulationViewModel {
     var learningCampaignTrainingStageID: String?
     var learningCampaignTrainingStageDisplayName: String?
     var learningCampaignTrainingStageKind: AutonomousTrainingStageKind?
-    var learningCampaignPolicyContract: LearningProjectPolicyContract = .referenceQuadrotorTemporalCTBR()
+    var learningCampaignPolicyContract: LearningProjectPolicyContract = ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract()
+    var learningCampaignActionContract: LearningProjectActionContract = ReferenceQuadrotorLearningContracts.bodyRateActionContract()
     var learningStrategySelection: LearningStrategySelection = .hybrid
     var learningCampaignArtifactDirectory: String = ""
     var learningCampaignSourceCheckpointPath: String = ""
@@ -760,7 +761,7 @@ public final class SimulationViewModel {
                     "reason": "manualActuatorEnabled"
                 ])
             }
-            effectiveController = .teacherBaseline
+            effectiveController = .teacherActiveAltitudeHold
         } else {
             effectiveController = controllerSelection
         }
@@ -1234,7 +1235,7 @@ public final class SimulationViewModel {
             )
             emitTerminal(level: .notice, message: "Teacher run started", metadata: [
                 "iter": "\(iteration)",
-                "controller": "teacherBaseline",
+                "controller": "activeAltitudeHold",
                 "task": taskMode.rawValue,
                 "hoverThrustScale": String(format: "%.3f", hoverThrustScale)
             ])
@@ -1633,7 +1634,8 @@ public final class SimulationViewModel {
         let sourceIsValidForTemplate = sourceIsCompleteForTemplate && starterSourceCheckpointIsValid(
             at: sourceURL,
             robotManifestPath: ensureRobotManifestForTask(reason: "kuyuProjectOpen"),
-            policyContract: package.selectedTemplate.policy
+            policyContract: package.selectedTemplate.policy,
+            actionContract: package.selectedTemplate.action
         )
 
         if !package.selectedTemplate.isRunnableStarter {
@@ -1680,7 +1682,8 @@ public final class SimulationViewModel {
             expectedObservationChannelCount: package.selectedTemplate.observation.channelCount,
             auxEnabled: trainingUseAux,
             qualityGatingEnabled: trainingUseQualityGating,
-            policyContract: package.selectedTemplate.policy
+            policyContract: package.selectedTemplate.policy,
+            actionContract: package.selectedTemplate.action
         ))
 
         learningCampaignSourceCheckpointPath = sourceURL.path
@@ -1968,6 +1971,7 @@ public final class SimulationViewModel {
                         projectRoot: request.projectRoot,
                         taskProfileID: request.taskProfileID,
                         policyContract: request.policyContract,
+                        actionContract: request.actionContract,
                         seedCount: request.seedCount,
                         populationSize: request.populationSize,
                         generationLimit: request.generationLimit,
@@ -2613,7 +2617,8 @@ public final class SimulationViewModel {
             && starterSourceCheckpointIsValid(
                 at: sourceURL,
                 robotManifestPath: robotManifestPath,
-                policyContract: learningCampaignPolicyContract
+                policyContract: learningCampaignPolicyContract,
+                actionContract: learningCampaignActionContract
             )
         let artifactURL = URL(fileURLWithPath: artifactPath, isDirectory: true)
         let artifactIsReusable = !artifactPath.isEmpty
@@ -2645,6 +2650,7 @@ public final class SimulationViewModel {
         let observationTaskMode = taskMode
         let driveCount = starterDriveCount(for: observationTaskMode)
         let policyContract = learningCampaignPolicyContract
+        let actionContract = learningCampaignActionContract
 
         if !sourcePath.isEmpty {
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
@@ -2658,12 +2664,14 @@ public final class SimulationViewModel {
                 expectedObservationChannelCount: starterObservationChannelCount(for: observationTaskMode),
                 auxEnabled: trainingUseAux,
                 qualityGatingEnabled: trainingUseQualityGating,
-                policyContract: policyContract
+                policyContract: policyContract,
+                actionContract: actionContract
             ))
             try validateStarterSourceCheckpoint(
                 at: sourceURL,
                 robotManifestPath: robotManifestPath,
-                policyContract: policyContract
+                policyContract: policyContract,
+                actionContract: actionContract
             )
             let nextArtifactURL: URL
             if !forceNewArtifactRoot && artifactIsReusable && !artifactPath.isEmpty {
@@ -2686,7 +2694,7 @@ public final class SimulationViewModel {
         let project = try learningStarterProjectStore.prepareStarterProject(
             regenerateSourceCheckpoint: forceNewArtifactRoot || !sourceIsValid,
             policyContract: policyContract
-        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, driveCount, policyContract] checkpointURL in
+        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, driveCount, policyContract, actionContract] checkpointURL in
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
                 checkpointURL: checkpointURL,
                 displayName: "Bounded Drone Autonomy Starter",
@@ -2698,13 +2706,15 @@ public final class SimulationViewModel {
                 expectedObservationChannelCount: starterObservationChannelCount(for: observationTaskMode),
                 auxEnabled: trainingUseAux,
                 qualityGatingEnabled: trainingUseQualityGating,
-                policyContract: policyContract
+                policyContract: policyContract,
+                actionContract: actionContract
             ))
         }
         try validateStarterSourceCheckpoint(
             at: project.sourceCheckpoint,
             robotManifestPath: robotManifestPath,
-            policyContract: learningCampaignPolicyContract
+            policyContract: learningCampaignPolicyContract,
+            actionContract: learningCampaignActionContract
         )
 
         if forceNewArtifactRoot || !sourceIsValid {
@@ -2724,6 +2734,7 @@ public final class SimulationViewModel {
 
     private func applyProjectTemplate(_ template: LearningProjectTemplate) {
         learningCampaignPolicyContract = template.policy
+        learningCampaignActionContract = template.action
         let runtimeTask = template.primaryRunnableTrainingStage?.task ?? template.task
         switch runtimeTask {
         case "singleLift":
@@ -2822,13 +2833,15 @@ public final class SimulationViewModel {
     private func starterSourceCheckpointIsValid(
         at url: URL,
         robotManifestPath: String,
-        policyContract: LearningProjectPolicyContract
+        policyContract: LearningProjectPolicyContract,
+        actionContract: LearningProjectActionContract
     ) -> Bool {
         do {
             try validateStarterSourceCheckpoint(
                 at: url,
                 robotManifestPath: robotManifestPath,
-                policyContract: policyContract
+                policyContract: policyContract,
+                actionContract: actionContract
             )
             return true
         } catch {
@@ -2851,7 +2864,8 @@ public final class SimulationViewModel {
     private func validateStarterSourceCheckpoint(
         at url: URL,
         robotManifestPath: String,
-        policyContract: LearningProjectPolicyContract
+        policyContract: LearningProjectPolicyContract,
+        actionContract: LearningProjectActionContract
     ) throws {
         _ = try ManasMLXE2EPreflight().check(
             robotManifestPath: robotManifestPath,
@@ -2863,8 +2877,12 @@ public final class SimulationViewModel {
             let data = try Data(contentsOf: manifestURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let manifest = try decoder.decode(ManasMLXTemporalCTBRCheckpointManifest.self, from: data)
-            let expectedConfig = try ManasMLXTemporalCTBRPolicyContractResolver().makeConfig(from: policyContract)
+            let manifest = try decoder.decode(ManasMLXTemporalCheckpointManifest.self, from: data)
+            let expectedConfig = try ManasMLXTemporalPolicyContractResolver().makeConfig(
+                from: policyContract,
+                action: actionContract,
+                hiddenSize: manifest.config.hiddenSize
+            )
             guard manifest.config == expectedConfig else {
                 throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: ctbr policy config mismatch")
             }
@@ -2993,6 +3011,7 @@ public final class SimulationViewModel {
             artifactRoot: URL(fileURLWithPath: artifactPath, isDirectory: true),
             taskProfileID: learningCampaignTaskProfileID(),
             policyContract: learningCampaignPolicyContract,
+            actionContract: learningCampaignActionContract,
             sourceBundle: ModelBundleReference(
                 bundleID: URL(fileURLWithPath: sourcePath, isDirectory: true).lastPathComponent,
                 kind: .source,

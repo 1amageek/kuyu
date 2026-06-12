@@ -20,7 +20,7 @@ import Testing
 @Test(.timeLimit(.minutes(1))) func singleLiftTrainingDatasetRunnerPassesTeacherSuite() async throws {
     let output = try await KuyuSingleLiftTeacherDatasetRunner().run(
         request: SimulationRunRequest(
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             taskMode: .singleLift,
             gains: try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2),
             cutPeriodSteps: 2,

@@ -5,7 +5,7 @@ import MLX
 import Testing
 @testable import KuyuMLX
 
-@Test func temporalCTBRStarterCheckpointUsesConfiguredCollectiveThrustScale() throws {
+@Test func temporalCheckpointWriterInitializesConfiguredStarterActionMean() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("temporal-ctbr-writer-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -18,27 +18,29 @@ import Testing
     }
 
     let checkpoint = root.appendingPathComponent("source.manasbundle", isDirectory: true)
-    let scale = 1.18
-    _ = try ManasMLXTemporalCTBRCheckpointWriter().write(request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+    let starterActionMean = [0.75, 0.1, -0.2, 0.3]
+    _ = try ManasMLXTemporalCheckpointWriter().write(request: ManasMLXTemporalCheckpointWriteRequest(
         checkpointURL: checkpoint,
         name: "ctbr-starter",
-        policyContract: .referenceQuadrotorTemporalCTBR(),
+        policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),
+        observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+        actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
         embodiment: nil,
-        starterCollectiveThrustScale: scale
+        starterActionMean: starterActionMean
     ))
 
     let arrays = try MLX.loadArrays(url: checkpoint.appendingPathComponent("core.safetensors", isDirectory: false))
     let bias = try #require(arrays["actor.meanHead.bias"])
     let values = bias.asArray(Float.self)
     let thrustCommand = 1.0 / (1.0 + exp(-Double(values[0])))
-    let parameters = ReferenceQuadrotorParameters.baseline
-    let hoverCommand = parameters.mass * parameters.gravity / (4.0 * parameters.maxThrust)
-    let expected = hoverCommand * scale
+    let rollRate = tanh(Double(values[1]))
+    let pitchRate = tanh(Double(values[2]))
+    let yawRate = tanh(Double(values[3]))
 
-    #expect(abs(thrustCommand - expected) < 1.0e-5)
-    #expect(values[1] == 0)
-    #expect(values[2] == 0)
-    #expect(values[3] == 0)
+    #expect(abs(thrustCommand - starterActionMean[0]) < 1.0e-5)
+    #expect(abs(rollRate - starterActionMean[1]) < 1.0e-5)
+    #expect(abs(pitchRate - starterActionMean[2]) < 1.0e-5)
+    #expect(abs(yawRate - starterActionMean[3]) < 1.0e-5)
 }
 
 @Test func temporalCTBRTemporaryCheckpointURLIsNotHidden() throws {
@@ -83,7 +85,7 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: unrelated.path))
 }
 
-@Test func temporalCTBRStarterCheckpointRejectsInvalidCollectiveThrustScale() throws {
+@Test func temporalCheckpointWriterRejectsInvalidStarterActionMeanCount() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("temporal-ctbr-writer-invalid-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -96,13 +98,15 @@ import Testing
     }
 
     let checkpoint = root.appendingPathComponent("source.manasbundle", isDirectory: true)
-    #expect(throws: ManasMLXTemporalCTBRCheckpointWriter.WriteError.invalidStarterCollectiveThrustScale(0)) {
-        _ = try ManasMLXTemporalCTBRCheckpointWriter().write(request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+    #expect(throws: ManasMLXTemporalCheckpointWriter.WriteError.invalidStarterActionMeanCount(expected: 4, actual: 1)) {
+        _ = try ManasMLXTemporalCheckpointWriter().write(request: ManasMLXTemporalCheckpointWriteRequest(
             checkpointURL: checkpoint,
             name: "ctbr-starter",
-            policyContract: .referenceQuadrotorTemporalCTBR(),
+            policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),
+            observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+            actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
             embodiment: nil,
-            starterCollectiveThrustScale: 0
+            starterActionMean: [0.5]
         ))
     }
 }

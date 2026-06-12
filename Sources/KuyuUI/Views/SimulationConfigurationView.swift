@@ -24,7 +24,7 @@ public struct SimulationConfigurationView: View {
                         Text("ManasMLX uses learned Core/Reflex. Gains are ignored.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else if model.controllerSelection == .teacherBaseline {
+                    } else if model.controllerSelection == .teacherActiveAltitudeHold {
                         Text("Teacher Baseline may use scenario reference state for dataset/reference runs.")
                             .font(.caption)
                             .foregroundStyle(.secondary)

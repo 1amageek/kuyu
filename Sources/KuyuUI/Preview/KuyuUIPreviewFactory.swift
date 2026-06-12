@@ -46,7 +46,7 @@ public enum KuyuUIPreviewFactory {
         let gains = try! ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0)
         let determinism = try! DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
         return SimulationRunRequest(
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             gains: gains,
             cutPeriodSteps: 2,
             noise: .zero,

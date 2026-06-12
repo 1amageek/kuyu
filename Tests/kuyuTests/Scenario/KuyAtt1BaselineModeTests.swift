@@ -5,16 +5,14 @@ import KuyuScenarios
 
 @MainActor
 @Test(.timeLimit(.minutes(1))) func kuyAtt1BaselineModesSeparateTeacherFromSensorOnlyControl() async throws {
-    #expect(!ControllerSelection.allCases.contains(.baseline))
-    #expect(ControllerSelection.allCases.contains(.teacherBaseline))
+    #expect(ControllerSelection.allCases.contains(.teacherActiveAltitudeHold))
     #expect(ControllerSelection.allCases.contains(.sensorBaseline))
-    #expect(ControllerSelection.baseline.kuyAtt1BaselineMode == .teacher)
-    #expect(ControllerSelection.teacherBaseline.kuyAtt1BaselineMode == .teacher)
+    #expect(ControllerSelection.teacherActiveAltitudeHold.kuyAtt1BaselineMode == .teacher)
     #expect(ControllerSelection.sensorBaseline.kuyAtt1BaselineMode == .sensor)
 
     let gains = try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0)
     let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 2)
-    let factoryTeacher = try KuyAtt1Runner.teacherBaseline(gains: gains)
+    let factoryTeacher = try KuyAtt1Runner.activeAltitudeHoldTeacher(gains: gains)
 
     #expect(factoryTeacher.baselineMode == .teacher)
 
@@ -38,6 +36,9 @@ import KuyuScenarios
 
     #expect(teacherOutput.summary.suitePassed)
     #expect(!sensorOutput.summary.suitePassed)
-    #expect(teacherOutput.result.replayChecks.count == teacherOutput.logs.count)
+    #expect(teacherOutput.logs.count == teacherOutput.summary.manifest.count)
+    #expect(sensorOutput.logs.count == sensorOutput.summary.manifest.count)
+    #expect(teacherOutput.result.replayChecks.isEmpty)
     #expect(sensorOutput.result.replayChecks.count == sensorOutput.logs.count)
+    #expect(sensorOutput.result.replayChecks.allSatisfy { $0.passed })
 }

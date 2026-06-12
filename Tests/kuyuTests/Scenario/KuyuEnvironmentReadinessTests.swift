@@ -8,7 +8,7 @@ import Testing
 @MainActor
 @Test(.timeLimit(.minutes(1))) func environmentReadinessMarksLiftTeacherReady() async throws {
     let artifactRoot = try temporaryReadinessRoot("lift-ready")
-    let report = try await KuyuEnvironmentReadinessChecker().check(
+    let report = try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
         tasks: [.lift],
         parameters: .baseline,
         schedule: try SimulationSchedule.baseline(cutPeriodSteps: 2),
@@ -32,14 +32,14 @@ import Testing
     let data = try Data(contentsOf: reportURL)
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
-    let reloaded = try decoder.decode(KuyuEnvironmentReadinessReport.self, from: data)
+    let reloaded = try decoder.decode(ReferenceQuadrotorEnvironmentReadinessReport.self, from: data)
     #expect(reloaded.allReady == report.allReady)
     #expect(reloaded.tasks == report.tasks)
 }
 
 @MainActor
 @Test(.timeLimit(.minutes(1))) func environmentReadinessMarksSingleLiftTeacherReady() async throws {
-    let report = try await KuyuEnvironmentReadinessChecker().check(
+    let report = try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
         tasks: [.singleLift],
         parameters: .baseline,
         schedule: try SimulationSchedule.baseline(cutPeriodSteps: 2),

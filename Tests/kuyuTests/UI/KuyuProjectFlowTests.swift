@@ -336,6 +336,7 @@ import Testing
         artifactRoot: artifactRoot,
         taskProfileID: stage.taskProfileID ?? template.taskProfileID ?? "lift",
         policyContract: template.policy,
+        actionContract: template.action,
         sourceBundle: ModelBundleReference(
             bundleID: sourceBundleURL.lastPathComponent,
             kind: .source,

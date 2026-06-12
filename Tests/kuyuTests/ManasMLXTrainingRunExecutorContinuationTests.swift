@@ -16,7 +16,8 @@ import Testing
         source: .artifactRoot(sourceRoot),
         destinationArtifactRoot: destinationRoot,
         taskProfileID: "singleLift-v1",
-        policyContract: .referenceQuadrotorTemporalCTBR(),
+        policyContract: singleLiftPolicyContract(),
+        actionContract: singleLiftActionContract(),
         configuration: makeContinuationConfiguration(
             trainingStageID: "evolution-search",
             trainingStageKind: .evolution
@@ -34,6 +35,34 @@ import Testing
     }
 }
 
+private func singleLiftPolicyContract() -> LearningProjectPolicyContract {
+    .simpleFeedForward(
+        observationDimension: 8,
+        actionDimension: 1,
+        actionEncoding: .directMotor
+    )
+}
+
+private func singleLiftActionContract() -> LearningProjectActionContract {
+    LearningProjectActionContract(
+        schemaID: "single-prop-drive-v1",
+        kind: .continuous,
+        driveCount: 1,
+        actuatorCount: 1,
+        isBounded: true,
+        channels: [
+            LearningProjectActionChannel(
+                index: 0,
+                name: "propellerThrust",
+                unit: "normalized",
+                normalizedLowerBound: 0,
+                normalizedUpperBound: 1,
+                outputTransform: .sigmoid
+            )
+        ]
+    )
+}
+
 @Test func manasMLXTrainingRunExecutorRejectsContinuationStageKindMismatch() async throws {
     let sourceRoot = try makeContinuationArtifactRoot(
         task: "lift",
@@ -47,7 +76,8 @@ import Testing
         source: .artifactRoot(sourceRoot),
         destinationArtifactRoot: destinationRoot,
         taskProfileID: "lift-v1",
-        policyContract: .referenceQuadrotorTemporalCTBR(),
+        policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),
+        actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
         configuration: makeContinuationConfiguration(
             trainingStageID: "evolution-search",
             trainingStageKind: .evolution
@@ -78,7 +108,8 @@ import Testing
         source: .artifactRoot(sourceRoot),
         destinationArtifactRoot: destinationRoot,
         taskProfileID: "lift-v1",
-        policyContract: .referenceQuadrotorTemporalCTBR(),
+        policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),
+        actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
         configuration: makeContinuationConfiguration(
             trainingStageID: "evolution-search",
             trainingStageKind: .evolution

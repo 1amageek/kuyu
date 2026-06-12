@@ -40,7 +40,8 @@ import Testing
         artifactRoot: FileManager.default.temporaryDirectory
             .appendingPathComponent("command-system-injected-\(UUID().uuidString)", isDirectory: true),
         taskProfileID: "lift",
-        policyContract: .referenceQuadrotorTemporalCTBR(),
+        policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),
+        actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
         populationSize: 100,
         generationLimit: 1
     ))

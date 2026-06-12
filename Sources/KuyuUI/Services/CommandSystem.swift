@@ -231,7 +231,9 @@ extension CommandSystem: TrainingLoopCommandExecuting {
         observationMetadata: TrainingObservationMetadata?,
         onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
     ) async throws -> TrainingRunResult {
-        let backendBundle = try ManasMLXTrainingBackendFactory().makeWorkerLocalBackend(
+        let backendBundle = try ManasMLXTrainingBackendFactory(
+            rolloutDatasetLoader: .referenceQuadrotor()
+        ).makeWorkerLocalBackend(
             activeStore: modelStore,
             runID: config.runID,
             runRequest: runRequest,
