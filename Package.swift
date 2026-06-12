@@ -70,6 +70,7 @@ let package = Package(
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),
                 .product(name: "KuyuMLX", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXCore", package: "kuyu-mlx"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),

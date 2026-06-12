@@ -12,6 +12,17 @@ struct BoundedInspectorView: View {
             switch model.selectedWorkspace {
             case .dashboard, .report:
                 RunInspectorView(model: model)
+            case .runs:
+                managementInspector(
+                    title: "Runs Inspector",
+                    subtitle: "Training-run contract archive",
+                    systemImage: "list.bullet.rectangle",
+                    rows: [
+                        ("Run root", model.trainingRunsViewModel.runRootPath ?? "unresolved"),
+                        ("Runs", "\(model.trainingRunsViewModel.items.count)"),
+                        ("Selected", model.trainingRunsViewModel.selectedRunID ?? "none")
+                    ]
+                )
             case .analysis:
                 analysisInspector
             case .training,

@@ -7,6 +7,8 @@ struct BoundedMainContentView: View {
         switch model.selectedWorkspace {
         case .dashboard:
             DashboardWorkspaceView(model: model.simulationViewModel)
+        case .runs:
+            TrainingRunsWorkspaceView(model: model.trainingRunsViewModel)
         case .training, .experimentDesign, .reinforcementLearning, .geneticLearning, .hybridIntegration, .environment:
             TrainingWorkspaceView(model: model)
         case .analysis, .report, .monitor:

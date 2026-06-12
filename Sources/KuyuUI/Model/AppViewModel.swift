@@ -58,6 +58,9 @@ public final class AppViewModel {
     /// Simulation mode state
     public let simulationViewModel: SimulationViewModel
 
+    /// Training-run contract archive state (Runs workspace)
+    public let trainingRunsViewModel: TrainingRunsViewModel
+
     // MARK: - Shared Resources
 
     /// Shared log store across all modes
@@ -76,6 +79,7 @@ public final class AppViewModel {
             logStore: logStore,
             prepareStarterProjectOnInit: prepareStarterProjectOnInit
         )
+        self.trainingRunsViewModel = TrainingRunsViewModel()
         self.recentProjectURLs = Self.loadRecentProjectURLs(defaults: recentProjectsDefaults)
         applySelectedEnvironment()
     }

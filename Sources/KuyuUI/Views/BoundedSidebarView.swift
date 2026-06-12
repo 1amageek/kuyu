@@ -8,6 +8,7 @@ struct BoundedSidebarView: View {
         List(selection: $model.selectedWorkspace) {
             Section("Run") {
                 workspaceRow(.dashboard)
+                workspaceRow(.runs)
             }
 
             Section("Training") {

@@ -2,6 +2,7 @@ import SwiftUI
 
 public enum BoundedWorkspace: String, CaseIterable, Identifiable, Sendable {
     case dashboard
+    case runs
     case training
     case experimentDesign
     case reinforcementLearning
@@ -19,6 +20,7 @@ public enum BoundedWorkspace: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .dashboard: return "Dashboard"
+        case .runs: return "Runs"
         case .training: return "Training"
         case .experimentDesign: return "Experiment Design"
         case .reinforcementLearning: return "Reinforcement Learning"
@@ -36,6 +38,7 @@ public enum BoundedWorkspace: String, CaseIterable, Identifiable, Sendable {
     public var systemImage: String {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
+        case .runs: return "list.bullet.rectangle"
         case .training: return "waveform.path.ecg"
         case .experimentDesign: return "doc.badge.gearshape"
         case .reinforcementLearning: return "flask"
@@ -54,7 +57,7 @@ public enum BoundedWorkspace: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .training, .experimentDesign, .reinforcementLearning, .geneticLearning, .hybridIntegration, .environment:
             return true
-        case .dashboard, .analysis, .report, .monitor, .settings, .system:
+        case .dashboard, .runs, .analysis, .report, .monitor, .settings, .system:
             return false
         }
     }

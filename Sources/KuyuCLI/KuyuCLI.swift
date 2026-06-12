@@ -13,7 +13,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, Train.self, Runs.self, Control.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self]
     )
 }
 
@@ -24,8 +24,7 @@ enum TierChoice: String, CaseIterable, ExpressibleByArgument {
 }
 
 enum ControllerChoice: String, CaseIterable, ExpressibleByArgument {
-    case baseline
-    case teacherBaseline
+    case activeAltitudeHold
     case sensorBaseline
     case manasMLX
 }
@@ -125,8 +124,8 @@ extension ReadinessLevel: @retroactive ExpressibleByArgument {}
 struct Run: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Run a single KUY-ATT-1 suite.")
 
-    @Option(help: "Controller to use: teacherBaseline, sensorBaseline, or manasMLX. The legacy baseline alias maps to teacherBaseline.")
-    var controller: ControllerChoice = .teacherBaseline
+    @Option(help: "Controller to use: activeAltitudeHold, sensorBaseline, or manasMLX.")
+    var controller: ControllerChoice = .activeAltitudeHold
 
     @Option(help: "Determinism tier: tier0, tier1, tier2.")
     var tier: TierChoice = .tier1
@@ -233,8 +232,8 @@ struct Rollout: AsyncParsableCommand {
         abstract: "Collect RL-style environment rollouts over KUY-ATT-1 scenarios."
     )
 
-    @Option(help: "Controller to use: teacherBaseline or sensorBaseline. The legacy baseline alias maps to teacherBaseline.")
-    var controller: ControllerChoice = .teacherBaseline
+    @Option(help: "Controller to use: activeAltitudeHold, sensorBaseline, or manasMLX.")
+    var controller: ControllerChoice = .activeAltitudeHold
 
     @Option(help: "Determinism tier: tier0, tier1, tier2.")
     var tier: TierChoice = .tier1
@@ -307,7 +306,7 @@ struct Rollout: AsyncParsableCommand {
         )
         let mode: KuyAtt1BaselineMode = {
             switch controller {
-            case .baseline, .teacherBaseline:
+            case .activeAltitudeHold:
                 return .teacher
             case .sensorBaseline:
                 return .sensor
@@ -362,10 +361,10 @@ struct Rollout: AsyncParsableCommand {
             guard !trimmed.isEmpty else {
                 throw ValidationError("--snapshot is required for manasMLX rollout. Shared ManasMLXModelStore rollout is intentionally unsupported.")
             }
-            policyFactory = ManasMLXRolloutPolicyFactory(
+            policyFactory = ManasMLXReferenceQuadrotorRolloutPolicyFactory(
                 snapshotDirectory: URL(fileURLWithPath: trimmed, isDirectory: true)
             )
-        case .baseline, .teacherBaseline, .sensorBaseline:
+        case .activeAltitudeHold, .sensorBaseline:
             policyFactory = KuyAtt1BaselinePolicyFactory(
                 parameters: rolloutParameters,
                 gains: gains,
@@ -532,7 +531,8 @@ struct Loop: AsyncParsableCommand {
             ),
             backend: ManasMLXTrainingBackend(
                 runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
-                saveDirectory: checkpointDirectory
+                saveDirectory: checkpointDirectory,
+                rolloutDatasetLoader: .referenceQuadrotor()
             ),
             convergenceEvaluator: ConvergenceEvaluator(config: .init(minDelta: 0.01))
         )
@@ -561,8 +561,8 @@ struct Loop: AsyncParsableCommand {
             config: config,
             runRequest: request,
             trainingTemplate: trainingTemplate,
-            artifactDirectory: datasetRoot
-        ) { event in
+            artifactDirectory: datasetRoot,
+            onEvent: { event in
             switch event {
             case .iterationStarted(let iteration):
                 print("[loop] iter=\(iteration) run started")
@@ -583,7 +583,7 @@ struct Loop: AsyncParsableCommand {
             default:
                 break
             }
-        }
+        })
         print("[loop] artifacts path=\(datasetRoot.path)")
         print("[loop] terminal=\(result.manifest.terminalState.rawValue) accepted=\(result.convergence.accepted) reason=\(result.convergence.reason)")
     }
@@ -719,7 +719,7 @@ struct ProbeManas: AsyncParsableCommand {
         }
         let runID = "probe-\(UUID().uuidString)"
         let teacherRequest = SimulationRunRequest(
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             taskMode: taskMode,
             gains: gains,
             cutPeriodSteps: cutPeriodSteps,
@@ -786,7 +786,8 @@ struct ProbeManas: AsyncParsableCommand {
             runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
             saveDirectory: artifactRoot
                 .appendingPathComponent("training", isDirectory: true)
-                .appendingPathComponent("candidate-checkpoints", isDirectory: true)
+                .appendingPathComponent("candidate-checkpoints", isDirectory: true),
+            rolloutDatasetLoader: .referenceQuadrotor()
         )
         let probe = TrainingProbeOrchestrator(
             scenarioExecutor: CLITrainingProbeExecutor(
@@ -879,7 +880,7 @@ struct ProbeCTBRPolicy: ParsableCommand {
     var seed: UInt64 = 42
 
     func run() throws {
-        let report = try ManasMLXTemporalCTBRPolicyProbe().run(
+        let report = try ManasMLXTemporalPolicyProbe().run(
             batchSize: batchSize,
             hiddenSize: hiddenSize,
             epochCount: epochs,
@@ -956,19 +957,21 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
         let sourceCheckpointURL = root.appendingPathComponent("source.manasbundle", isDirectory: true)
-        let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR()
-        let sourceManifest = try ManasMLXTemporalCTBRCheckpointWriter().write(
-            request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+        let policyContract = ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract()
+        let sourceManifest = try ManasMLXTemporalCheckpointWriter().write(
+            request: ManasMLXTemporalCheckpointWriteRequest(
                 checkpointURL: sourceCheckpointURL,
                 name: "CTBR PPO Probe Source",
                 policyContract: policyContract,
+                observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+                actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
                 embodiment: nil,
                 hiddenSize: hiddenSize
             )
         )
 
         let datasetURL = root.appendingPathComponent("tensor-world-rollouts", isDirectory: true)
-        let rolloutReport = try ManasMLXTemporalCTBRRolloutDatasetExporter().export(
+        let rolloutReport = try ManasMLXReferenceQuadrotorRolloutDatasetExporter().export(
             sourceCheckpointURL: sourceCheckpointURL,
             outputURL: datasetURL,
             candidateCount: candidateCount,
@@ -979,7 +982,8 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
         let checkpointRoot = root.appendingPathComponent("checkpoints", isDirectory: true)
         let backend = await ManasMLXTrainingBackend(
             runtime: ManasMLXTrainingRuntime(modelStore: ManasMLXModelStore()),
-            saveDirectory: checkpointRoot
+            saveDirectory: checkpointRoot,
+            rolloutDatasetLoader: .referenceQuadrotor()
         )
         let result = try await backend.trainReinforcement(
             request: ReinforcementTrainingBackendRequest(
@@ -1018,7 +1022,8 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
         print("candidateCheckpointID=\(result.candidateCheckpointID ?? "n/a")")
         print("candidateCheckpoint=\(result.candidateCheckpointURL?.path ?? "n/a")")
         print("rewardAverage=\(String(format: "%.6f", result.rewardAverage))")
-        print("finalLoss=\(String(format: "%.6f", result.finalLoss ?? .nan))")
+        let finalLoss = result.finalLoss ?? Double.nan
+        print("finalLoss=\(String(format: "%.6f", finalLoss))")
         print("workerCount=\(result.workerMetrics.count)")
     }
 }
@@ -1033,7 +1038,7 @@ struct ProbeCTBRRollout: ParsableCommand {
     var candidateCount: Int = 8
 
     func run() throws {
-        let report = try ManasMLXTemporalCTBRRolloutProbe().run(candidateCount: candidateCount)
+        let report = try ManasMLXReferenceQuadrotorRolloutProbe().run(candidateCount: candidateCount)
         print("ctbrRolloutProbe=true")
         print("device=\(report.device)")
         print("policyFamily=\(report.policyFamily)")
@@ -1052,7 +1057,7 @@ struct ProbeCTBRRollout: ParsableCommand {
 struct BehaviorCloneCTBR: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "behavior-clone-ctbr",
-        abstract: "Behavior-clone a temporal CTBR policy from a teacher rollout dataset (e.g. attitude teacherBaseline) to seed a stabilization prior before RL/GA."
+        abstract: "Behavior-clone a temporal CTBR policy from an active altitude hold rollout dataset to seed a stabilization prior before RL/GA."
     )
 
     @Option(name: .customLong("source-checkpoint"), help: "Source CTBR .manasbundle providing the policy architecture (obs/history/action dims).")
@@ -1088,7 +1093,9 @@ struct BehaviorCloneCTBR: ParsableCommand {
         guard actorLearningRate.isFinite, actorLearningRate > 0 else {
             throw ValidationError("--actor-lr must be > 0.")
         }
-        let result = try ManasMLXTemporalCTBRReinforcementWarmupService().behaviorClone(
+        let result = try ManasMLXTemporalReinforcementWarmupService(
+            rolloutDatasetLoader: .referenceQuadrotor()
+        ).behaviorClone(
             sourceCheckpointURL: URL(fileURLWithPath: trimmedSource, isDirectory: true),
             rolloutDatasetURL: URL(fileURLWithPath: trimmedDataset, isDirectory: true),
             epochCount: epochs,
@@ -1159,8 +1166,8 @@ struct DaggerRelabelCTBR: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let evaluator = ManasMLXCheckpointEvaluator(
-            config: ManasMLXCheckpointEvaluatorConfig(
+        let evaluator = ManasMLXReferenceQuadrotorCheckpointEvaluator(
+            config: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
                 robotManifestPath: model,
                 determinism: determinism,
                 schedule: schedule,
@@ -1310,15 +1317,17 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         }
 
         let embodiment = try loadEmbodiment(modelPath: model)
-        let policyContract = LearningProjectPolicyContract.referenceQuadrotorTemporalCTBR(
+        let policyContract = ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(
             observationDimension: observationDimension,
             historyLength: historyLength
         )
-        let manifest = try ManasMLXTemporalCTBRCheckpointWriter().write(
-            request: ManasMLXTemporalCTBRCheckpointWriteRequest(
+        let manifest = try ManasMLXTemporalCheckpointWriter().write(
+            request: ManasMLXTemporalCheckpointWriteRequest(
                 checkpointURL: outputURL,
                 name: name,
                 policyContract: policyContract,
+                observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+                actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
                 embodiment: embodiment,
                 hiddenSize: hiddenSize
             )
@@ -1331,7 +1340,7 @@ struct WriteCTBRCheckpoint: ParsableCommand {
 
         print("ctbrCheckpointWritten=true")
         print("path=\(outputURL.path)")
-        print("modelFamily=\(ManasMLXTemporalCTBRCheckpointManifest.modelFamily)")
+        print("modelFamily=\(ManasMLXTemporalCheckpointManifest.modelFamily)")
         print("schemaVersion=\(manifest.schemaVersion)")
         print("historyLength=\(manifest.config.batchSpec.historyLength)")
         print("observationDimension=\(manifest.config.batchSpec.observationDimension)")
@@ -1715,8 +1724,8 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let evaluator = ManasMLXCheckpointEvaluator(
-            config: ManasMLXCheckpointEvaluatorConfig(
+        let evaluator = ManasMLXReferenceQuadrotorCheckpointEvaluator(
+            config: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
                 robotManifestPath: model,
                 determinism: determinism,
                 schedule: schedule,
@@ -1873,8 +1882,8 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let checkpointEvaluator = ManasMLXCheckpointEvaluator(
-            config: ManasMLXCheckpointEvaluatorConfig(
+        let checkpointEvaluator = ManasMLXReferenceQuadrotorCheckpointEvaluator(
+            config: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
                 robotManifestPath: model,
                 determinism: determinism,
                 schedule: schedule,
@@ -2064,7 +2073,7 @@ private func makeBiasCalibrationCandidateSummary(
     checkpointURL: URL,
     regressionRoot: URL,
     checkpointEvaluationRoot: URL,
-    regressionSummary: KuyuRegressionSummary,
+    regressionSummary: ReferenceQuadrotorRegressionSummary,
     checkpointEvaluationPassed: Bool,
     checkpointEvaluationReasons: [String]
 ) -> ManasMLXBiasCalibrationCandidateSummary {
@@ -2201,8 +2210,8 @@ struct CheckEnvironments: AsyncParsableCommand {
     @Option(help: "Comma-separated task list: attitude,lift,singleLift. Defaults to all.")
     var tasks: String = "attitude,lift,singleLift"
 
-    @Option(help: "Baseline controller to validate: teacherBaseline or sensorBaseline.")
-    var controller: ControllerChoice = .teacherBaseline
+    @Option(help: "Baseline controller to validate: activeAltitudeHold or sensorBaseline.")
+    var controller: ControllerChoice = .activeAltitudeHold
 
     @Option(help: "Determinism tier: tier0, tier1, tier2.")
     var tier: TierChoice = .tier1
@@ -2236,7 +2245,7 @@ struct CheckEnvironments: AsyncParsableCommand {
         let selectedTasks = try parseProbeTasks(tasks).map(simulationTaskMode(from:))
         let selectedController = controllerSelection(from: controller)
         guard selectedController != .manasMLX else {
-            throw ValidationError("check-environments validates baseline environments only. Use teacherBaseline or sensorBaseline.")
+            throw ValidationError("check-environments validates baseline environments only. Use activeAltitudeHold or sensorBaseline.")
         }
 
         let determinism = try makeDeterminism(tier: tier)
@@ -2257,7 +2266,7 @@ struct CheckEnvironments: AsyncParsableCommand {
                 .appendingPathComponent("kuyu-environment-readiness-\(UUID().uuidString)", isDirectory: true)
         }
 
-        let report = try await KuyuEnvironmentReadinessChecker().check(
+        let report = try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
             tasks: selectedTasks,
             controller: selectedController,
             parameters: parameters,
@@ -2386,9 +2395,9 @@ struct CheckTrainingHarness: AsyncParsableCommand {
         )
 
         let environmentRoot = artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
-        let environmentReport = try await KuyuEnvironmentReadinessChecker().check(
+        let environmentReport = try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
             tasks: [.lift, .singleLift],
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             parameters: parameters,
             schedule: schedule,
             determinism: determinism,
@@ -2692,9 +2701,9 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
             throw ValidationError("check-training-harness-sweep supports lift and singleLift. Attitude requires the rollout/regression path until ManasMLX multi-drive probe training is stabilized.")
         }
 
-        let environmentReport = try await KuyuEnvironmentReadinessChecker().check(
+        let environmentReport = try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
             tasks: selectedTaskModes,
-            controller: .teacherBaseline,
+            controller: .teacherActiveAltitudeHold,
             parameters: parameters,
             schedule: schedule,
             determinism: determinism,
@@ -2808,7 +2817,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                                 minimumRewardAverage: postRegressionMinRewardAverage,
                                 useQualityGating: !noQualityGate
                             )
-                            let validatedRegression = try KuyuRegressionArtifactValidator()
+                            let validatedRegression = try ReferenceQuadrotorRegressionArtifactValidator()
                                 .loadAndValidate(from: regressionRoot)
                             postRegressionEntry = makePostTrainingRegressionEntry(
                                 regression: validatedRegression,
@@ -2817,7 +2826,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                             )
                             print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) postRegression=\(validatedRegression.allPassed)")
                         } else {
-                            let defaultMinimumRewardAverage = try KuyuRegressionQualityGatePolicy
+                            let defaultMinimumRewardAverage = try ReferenceQuadrotorRegressionQualityGatePolicy
                                 .defaultMinimumRewardAverage(for: task.rawValue)
                             postRegressionEntry = KuyuPostTrainingRegressionEntry(
                                 attempted: false,
@@ -2960,8 +2969,8 @@ struct CheckKuyuRegression: AsyncParsableCommand {
         abstract: "Run Kuyu environment and M2 rollout regression checks."
     )
 
-    @Option(help: "Controller to validate: teacherBaseline, sensorBaseline, or manasMLX.")
-    var controller: ControllerChoice = .teacherBaseline
+    @Option(help: "Controller to validate: activeAltitudeHold, sensorBaseline, or manasMLX.")
+    var controller: ControllerChoice = .activeAltitudeHold
 
     @Option(help: "Determinism tier: tier0, tier1, tier2.")
     var tier: TierChoice = .tier1
@@ -3067,7 +3076,7 @@ struct CheckKuyuRegression: AsyncParsableCommand {
             minimumRewardAverage: minimumRewardAverage,
             useQualityGating: !noQualityGate
         )
-        let validatedSummary = try KuyuRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
+        let validatedSummary = try ReferenceQuadrotorRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
         print("[regression] artifacts path=\(artifactRoot.path)")
         print("[regression] environmentReady=\(validatedSummary.environmentReady) rolloutPassed=\(validatedSummary.rolloutPassed) gateAccepted=\(validatedSummary.gateReport.accepted) reasons=\(validatedSummary.gateReport.reasons.joined(separator: "|")) allPassed=\(validatedSummary.allPassed)")
         if !validatedSummary.allPassed {
@@ -3111,7 +3120,7 @@ struct CheckKuyuRegression: AsyncParsableCommand {
         }
     }
 
-    private func writeRegressionSummary(_ summary: KuyuRegressionSummary, to artifactRoot: URL) throws {
+    private func writeRegressionSummary(_ summary: ReferenceQuadrotorRegressionSummary, to artifactRoot: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -3128,8 +3137,8 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
         abstract: "Run a task/controller matrix of Kuyu regression checks."
     )
 
-    @Option(help: "Comma-separated controller list: teacherBaseline,sensorBaseline,manasMLX.")
-    var controllers: String = "teacherBaseline"
+    @Option(help: "Comma-separated controller list: activeAltitudeHold,sensorBaseline,manasMLX.")
+    var controllers: String = "activeAltitudeHold"
 
     @Option(help: "Comma-separated task list: lift,singleLift.")
     var tasks: String = "lift,singleLift"
@@ -3219,7 +3228,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
                         minimumRewardAverage: minimumRewardAverage,
                         useQualityGating: true
                     )
-                    let summary = try KuyuRegressionArtifactValidator().loadAndValidate(from: cellRoot)
+                    let summary = try ReferenceQuadrotorRegressionArtifactValidator().loadAndValidate(from: cellRoot)
                     entries.append(KuyuRegressionMatrixEntry(
                         controller: controller.rawValue,
                         task: taskName,
@@ -3305,16 +3314,16 @@ private func runKuyuRegression(
     failOnTruncation: Bool,
     minimumRewardAverage: Double?,
     useQualityGating: Bool
-) async throws -> KuyuRegressionSummary {
+) async throws -> ReferenceQuadrotorRegressionSummary {
     try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
 
     let environmentController: ControllerSelection = selectedController.isBaselineController
         ? selectedController
-        : .teacherBaseline
+        : .teacherActiveAltitudeHold
     let snapshotPath = snapshotURL?.path
     let regressionTask = regressionRolloutTask(selectedTasks)
     let regressionProfile = try TaskEvaluationProfile.profile(task: regressionTask.rawValue)
-    let effectiveMinimumRewardAverage = try KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+    let effectiveMinimumRewardAverage = try ReferenceQuadrotorRegressionQualityGatePolicy.minimumRewardAverage(
         override: minimumRewardAverage,
         task: regressionProfile.task
     )
@@ -3327,7 +3336,7 @@ private func runKuyuRegression(
                 requireSourceCheckpoint: true
             )
         } catch {
-            let gateReport = try KuyuRegressionGatePolicy.report(
+            let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
                 preflightFailure: String(describing: error),
                 environmentTasks: [],
                 rolloutSuites: [],
@@ -3335,8 +3344,8 @@ private func runKuyuRegression(
                 minimumRewardAverage: effectiveMinimumRewardAverage,
                 qualityGateTask: regressionProfile.task
             )
-            let summary = KuyuRegressionSummary(
-                schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
+            let summary = ReferenceQuadrotorRegressionSummary(
+                schemaVersion: ReferenceQuadrotorRegressionSummary.currentSchemaVersion,
                 artifactRoot: artifactRoot.path,
                 startedAt: Date(),
                 controller: selectedController.rawValue,
@@ -3351,7 +3360,7 @@ private func runKuyuRegression(
                 gateReport: gateReport,
                 allPassed: gateReport.accepted
             )
-            try writeKuyuRegressionSummary(summary, to: artifactRoot)
+            try writeReferenceQuadrotorRegressionSummary(summary, to: artifactRoot)
             return summary
         }
     }
@@ -3394,7 +3403,7 @@ private func runKuyuRegression(
         )
     {
         let rolloutEntries = selectedSuites.map { suite in
-            KuyuRegressionRolloutEntry(
+            ReferenceQuadrotorRegressionRolloutEntry(
                 suite: suite,
                 track: regressionTrackName(for: suite),
                 policyID: "manasMLX-regression",
@@ -3414,7 +3423,7 @@ private func runKuyuRegression(
                 artifactPath: nil
             )
         }
-        let gateReport = try KuyuRegressionGatePolicy.report(
+        let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
             preflightFailure: nil,
             environmentTasks: environmentReport.tasks,
             rolloutSuites: rolloutEntries,
@@ -3422,8 +3431,8 @@ private func runKuyuRegression(
             minimumRewardAverage: effectiveMinimumRewardAverage,
             qualityGateTask: regressionProfile.task
         )
-        let summary = KuyuRegressionSummary(
-            schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
+        let summary = ReferenceQuadrotorRegressionSummary(
+            schemaVersion: ReferenceQuadrotorRegressionSummary.currentSchemaVersion,
             artifactRoot: artifactRoot.path,
             startedAt: Date(),
             controller: selectedController.rawValue,
@@ -3438,12 +3447,12 @@ private func runKuyuRegression(
             gateReport: gateReport,
             allPassed: gateReport.accepted
         )
-        try writeKuyuRegressionSummary(summary, to: artifactRoot)
+        try writeReferenceQuadrotorRegressionSummary(summary, to: artifactRoot)
         print("[regression] skipped rollout reason=\(compatibilityFailure)")
         return summary
     }
 
-    var rolloutEntries: [KuyuRegressionRolloutEntry] = []
+    var rolloutEntries: [ReferenceQuadrotorRegressionRolloutEntry] = []
     for suite in selectedSuites {
         let definitions = try makeRegressionRolloutDefinitions(
             task: regressionTask,
@@ -3489,7 +3498,7 @@ private func runKuyuRegression(
                 episodes: episodesOut,
                 determinism: determinism
             )
-            let entry = KuyuRegressionRolloutEntry(
+            let entry = ReferenceQuadrotorRegressionRolloutEntry(
                 suite: suite,
                 track: track,
                 policyID: policyFactory.policyID,
@@ -3515,7 +3524,7 @@ private func runKuyuRegression(
             rolloutEntries.append(entry)
             print("[regression] suite=\(suite) track=\(track) episodes=\(entry.episodeCount) workers=\(entry.workerSummaries.count) rewardAvg=\(String(format: "%.3f", rewardAverage)) failures=\(entry.failureCount) taskFailures=\(entry.taskFailureCount) taskPassRate=\(String(format: "%.3f", regressionTaskPassRate(entry))) truncated=\(entry.truncatedCount) \(regressionQualityText(entry.taskQuality)) \(regressionWorkerText(entry.workerSummaries))")
         } catch {
-            let entry = KuyuRegressionRolloutEntry(
+            let entry = ReferenceQuadrotorRegressionRolloutEntry(
                 suite: suite,
                 track: track,
                 policyID: policyFactory.policyID,
@@ -3546,7 +3555,7 @@ private func runKuyuRegression(
             && entry.taskPassCount == entry.episodeCount
             && (!failOnTruncation || entry.truncatedCount == 0)
     }
-    let gateReport = try KuyuRegressionGatePolicy.report(
+    let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
         preflightFailure: nil,
         environmentTasks: environmentReport.tasks,
         rolloutSuites: rolloutEntries,
@@ -3554,8 +3563,8 @@ private func runKuyuRegression(
         minimumRewardAverage: effectiveMinimumRewardAverage,
         qualityGateTask: regressionProfile.task
     )
-    let summary = KuyuRegressionSummary(
-        schemaVersion: KuyuRegressionSummary.currentSchemaVersion,
+    let summary = ReferenceQuadrotorRegressionSummary(
+        schemaVersion: ReferenceQuadrotorRegressionSummary.currentSchemaVersion,
         artifactRoot: artifactRoot.path,
         startedAt: Date(),
         controller: selectedController.rawValue,
@@ -3570,7 +3579,7 @@ private func runKuyuRegression(
         gateReport: gateReport,
         allPassed: gateReport.accepted
     )
-    try writeKuyuRegressionSummary(summary, to: artifactRoot)
+    try writeReferenceQuadrotorRegressionSummary(summary, to: artifactRoot)
     return summary
 }
 
@@ -3598,8 +3607,8 @@ private func runRegressionEnvironmentReadiness(
     robotManifestPath: String,
     embodiment: EmbodimentContract?,
     artifactRoot: URL?
-) async throws -> KuyuEnvironmentReadinessReport {
-    try await KuyuEnvironmentReadinessChecker().check(
+) async throws -> ReferenceQuadrotorEnvironmentReadinessReport {
+    try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
         tasks: tasks,
         controller: controller,
         parameters: parameters,
@@ -3631,7 +3640,7 @@ private func makeRegressionPolicyFactory(
     useQualityGating: Bool
 ) throws -> any ReferenceQuadrotorPolicyFactory {
     switch selectedController {
-    case .baseline, .teacherBaseline:
+    case .teacherActiveAltitudeHold:
         return KuyAtt1BaselinePolicyFactory(
             parameters: parameters,
             gains: gains,
@@ -3647,7 +3656,7 @@ private func makeRegressionPolicyFactory(
         guard let snapshotURL else {
             throw ValidationError("--snapshot is required when --controller manasMLX.")
         }
-        return ManasMLXRolloutPolicyFactory(
+        return ManasMLXReferenceQuadrotorRolloutPolicyFactory(
             snapshotDirectory: snapshotURL,
             policyID: "manasMLX-regression",
             useQualityGating: useQualityGating
@@ -3751,7 +3760,7 @@ private func evaluateRegressionEpisodes(
     )
 }
 
-private func regressionTaskPassRate(_ entry: KuyuRegressionRolloutEntry) -> Double {
+private func regressionTaskPassRate(_ entry: ReferenceQuadrotorRegressionRolloutEntry) -> Double {
     guard entry.episodeCount > 0 else { return 0 }
     return Double(entry.taskPassCount) / Double(entry.episodeCount)
 }
@@ -3773,7 +3782,7 @@ private func regressionWorkerSummaries(
     episodes: [RolloutEpisode],
     snapshotURL: URL?,
     rolloutRoot: URL
-) -> [KuyuRegressionWorkerSummary] {
+) -> [ReferenceQuadrotorRegressionWorkerSummary] {
     let grouped = Dictionary(grouping: episodes, by: \.workerIndex)
     return grouped.keys.sorted().map { workerIndex in
         let workerEpisodes = grouped[workerIndex] ?? []
@@ -3782,7 +3791,7 @@ private func regressionWorkerSummaries(
         let rewardAverage = episodeCount > 0 ? rewardSum / Double(episodeCount) : 0
         let durationSeconds = workerEpisodes.reduce(0.0) { $0 + max($1.durationSeconds, 0) }
         let throughput = durationSeconds > 0 ? Double(episodeCount) / durationSeconds : Double(episodeCount)
-        return KuyuRegressionWorkerSummary(
+        return ReferenceQuadrotorRegressionWorkerSummary(
             workerIndex: workerIndex,
             snapshotID: snapshotURL?.lastPathComponent,
             rolloutShardPath: rolloutRoot.appendingPathComponent("worker-\(workerIndex)", isDirectory: true).path,
@@ -3798,7 +3807,7 @@ private func regressionWorkerSummaries(
     }
 }
 
-private func regressionWorkerText(_ summaries: [KuyuRegressionWorkerSummary]) -> String {
+private func regressionWorkerText(_ summaries: [ReferenceQuadrotorRegressionWorkerSummary]) -> String {
     guard let slowest = summaries.min(by: { lhs, rhs in lhs.throughput < rhs.throughput }) else {
         return "workerThroughput=missing"
     }
@@ -3845,7 +3854,7 @@ private func regressionTrackName(for suite: Int) -> String {
     }
 }
 
-private func regressionFailureReasons(from summary: KuyuRegressionSummary) -> [String] {
+private func regressionFailureReasons(from summary: ReferenceQuadrotorRegressionSummary) -> [String] {
     var reasons: [String] = []
     if let preflightFailure = summary.preflightFailure {
         reasons.append(preflightFailure)
@@ -3857,7 +3866,7 @@ private func regressionFailureReasons(from summary: KuyuRegressionSummary) -> [S
     return Array(Set(reasons)).sorted()
 }
 
-private func postRegressionApplicable(_ summary: KuyuRegressionSummary) -> Bool {
+private func postRegressionApplicable(_ summary: ReferenceQuadrotorRegressionSummary) -> Bool {
     let reasons = regressionFailureReasons(from: summary)
     guard !reasons.isEmpty else {
         return true
@@ -3866,7 +3875,7 @@ private func postRegressionApplicable(_ summary: KuyuRegressionSummary) -> Bool 
 }
 
 private func makePostTrainingRegressionEntry(
-    regression: KuyuRegressionSummary,
+    regression: ReferenceQuadrotorRegressionSummary,
     artifactPath: String,
     minimumRewardAverage: Double?
 ) -> KuyuPostTrainingRegressionEntry {
@@ -3956,7 +3965,7 @@ private func postRegressionAcceptanceSatisfied(_ entry: KuyuPostTrainingRegressi
     return !entry.applicable || entry.allPassed
 }
 
-private func writeKuyuRegressionSummary(_ summary: KuyuRegressionSummary, to artifactRoot: URL) throws {
+private func writeReferenceQuadrotorRegressionSummary(_ summary: ReferenceQuadrotorRegressionSummary, to artifactRoot: URL) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601
@@ -3964,7 +3973,7 @@ private func writeKuyuRegressionSummary(_ summary: KuyuRegressionSummary, to art
         to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
         options: [.atomic]
     )
-    _ = try KuyuRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
+    _ = try ReferenceQuadrotorRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
 }
 
 // Core harness acceptance logic + thresholds now live in the shared
@@ -4242,7 +4251,7 @@ private func runCLIManasProbe(
     let taskMode = simulationTaskMode(from: task)
     let runID = "probe-\(UUID().uuidString)"
     let teacherRequest = SimulationRunRequest(
-        controller: .teacherBaseline,
+        controller: .teacherActiveAltitudeHold,
         taskMode: taskMode,
         gains: gains,
         cutPeriodSteps: cutPeriodSteps,
@@ -4312,7 +4321,8 @@ private func runCLIManasProbe(
         runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
         saveDirectory: artifactRoot
             .appendingPathComponent("training", isDirectory: true)
-            .appendingPathComponent("candidate-checkpoints", isDirectory: true)
+            .appendingPathComponent("candidate-checkpoints", isDirectory: true),
+        rolloutDatasetLoader: .referenceQuadrotor()
     )
     let probe = TrainingProbeOrchestrator(
         scenarioExecutor: CLITrainingProbeExecutor(
@@ -4395,14 +4405,14 @@ private func parseProbeTasks(_ raw: String) throws -> [RolloutTaskChoice] {
 }
 
 @MainActor
-private struct CLIScenarioExecutor: TrainingScenarioExecuting {
+struct CLIScenarioExecutor: TrainingScenarioExecuting {
     let store: ManasMLXModelStore
     let parameters: ReferenceQuadrotorParameters
     let schedule: SimulationSchedule
     let embodiment: EmbodimentContract?
 
     func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> KuyAtt1RunOutput {
-        try await store.runManasMLX(
+        try await store.runReferenceQuadrotor(
             parameters: parameters,
             schedule: schedule,
             request: request,
@@ -4443,8 +4453,8 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
         checkpointURL: URL?
     ) async throws -> KuyAtt1RunOutput {
         switch stage {
-        case .teacherBaseline:
-            return try await KuyuScenarioRuntime(modelStore: initialStore).run(
+        case .teacherActiveAltitudeHold:
+            return try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
@@ -4460,7 +4470,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                     control: nil
                 )
             }
-            return try await KuyuScenarioRuntime(modelStore: initialStore).run(
+            return try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
@@ -4468,7 +4478,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 control: nil
             )
         case .initialPolicy:
-            return try await initialStore.runManasMLX(
+            return try await initialStore.runReferenceQuadrotor(
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
@@ -4480,7 +4490,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 throw ValidationError("Accepted checkpoint URL is required before trained probe run.")
             }
             _ = try trainedStore.loadModel(from: checkpointURL)
-            return try await trainedStore.runManasMLX(
+            return try await trainedStore.runReferenceQuadrotor(
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
@@ -4671,7 +4681,7 @@ struct EvolveManas: AsyncParsableCommand {
             throw ValidationError("--min-reward-average must be finite when specified.")
         }
         let evolutionProfile = try TaskEvaluationProfile.profile(task: task.rawValue)
-        let effectiveMinimumRewardAverage = try KuyuRegressionQualityGatePolicy.minimumRewardAverage(
+        let effectiveMinimumRewardAverage = try ReferenceQuadrotorRegressionQualityGatePolicy.minimumRewardAverage(
             override: minimumRewardAverage,
             task: evolutionProfile.task
         )
@@ -4725,7 +4735,7 @@ struct EvolveManas: AsyncParsableCommand {
         let evaluator: any EvolutionCandidateEvaluating
         switch evaluation {
         case .regression:
-            evaluator = LearningCampaignEvolutionRegressionEvaluator(
+            evaluator = ReferenceQuadrotorEvolutionRegressionEvaluator(
                 task: learningCampaignRolloutTask(from: task),
                 tier: learningCampaignTier(from: tier),
                 cutPeriodSteps: cutPeriodSteps,
@@ -5125,7 +5135,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
             ),
             reinforcement: TrainingReinforcementSettings(
                 warmupEnabled: !noReinforcementWarmup,
-                requiresTemporalCTBR: true,
+                requiresTemporalActorCritic: true,
                 rolloutDuration: reinforcementWarmupDuration,
                 iterations: reinforcementWarmupIterations,
                 learningRate: reinforcementWarmupLearningRate,
@@ -5156,6 +5166,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
             artifactRoot: artifactRoot,
             taskProfileID: task.profileID,
             policyContract: task.policyContract,
+            actionContract: task.actionContract,
             sourceBundle: ModelBundleReference(
                 bundleID: sourceCheckpointURL.lastPathComponent,
                 kind: .source,
@@ -5184,6 +5195,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
                 destinationArtifactRoot: artifactRoot,
                 taskProfileID: trainingRequest.taskProfileID,
                 policyContract: trainingRequest.policyContract,
+                actionContract: trainingRequest.actionContract,
                 seedCount: trainingRequest.seedCount,
                 populationSize: trainingRequest.populationSize,
                 generationLimit: trainingRequest.generationLimit,
@@ -5380,14 +5392,39 @@ private extension LearningCampaignTask {
     var policyContract: LearningProjectPolicyContract {
         switch self {
         case .attitude:
-            return .referenceQuadrotorTemporalCTBR()
+            return ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract()
         case .lift:
-            return .referenceQuadrotorTemporalCTBR()
+            return ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract()
         case .singleLift:
             return .simpleFeedForward(
                 observationDimension: 8,
                 actionDimension: 1,
                 actionEncoding: .directMotor
+            )
+        }
+    }
+
+    var actionContract: LearningProjectActionContract {
+        switch self {
+        case .attitude, .lift:
+            return ReferenceQuadrotorLearningContracts.bodyRateActionContract()
+        case .singleLift:
+            return LearningProjectActionContract(
+                schemaID: "single-prop-drive-v1",
+                kind: .continuous,
+                driveCount: 1,
+                actuatorCount: 1,
+                isBounded: true,
+                channels: [
+                    LearningProjectActionChannel(
+                        index: 0,
+                        name: "propellerThrust",
+                        unit: "normalized",
+                        normalizedLowerBound: 0,
+                        normalizedUpperBound: 1,
+                        outputTransform: .sigmoid
+                    )
+                ]
             )
         }
     }
@@ -5615,9 +5652,9 @@ struct Verify: AsyncParsableCommand {
         // Stage 2: environment readiness for the attitude task (teacher baseline).
         stage("Environment readiness (attitude)")
         do {
-            let report = try await KuyuEnvironmentReadinessChecker().check(
+            let report = try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
                 tasks: [.attitude],
-                controller: .teacherBaseline,
+                controller: .teacherActiveAltitudeHold,
                 parameters: parameters,
                 schedule: schedule,
                 determinism: determinism,
@@ -5685,7 +5722,7 @@ struct Verify: AsyncParsableCommand {
     }
 }
 
-private func makeDeterminism(tier: TierChoice) throws -> DeterminismConfig {
+func makeDeterminism(tier: TierChoice) throws -> DeterminismConfig {
     switch tier {
     case .tier0:
         return try DeterminismConfig(tier: .tier0)
@@ -5718,7 +5755,7 @@ private func learningCampaignRolloutTask(from task: RolloutTaskChoice) -> Learni
     }
 }
 
-private func loadParameters(modelPath: String) throws -> ReferenceQuadrotorParameters {
+func loadParameters(modelPath: String) throws -> ReferenceQuadrotorParameters {
     let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return .baseline }
 
@@ -5731,7 +5768,7 @@ private func loadParameters(modelPath: String) throws -> ReferenceQuadrotorParam
     )
 }
 
-private func loadEmbodiment(modelPath: String) throws -> EmbodimentContract? {
+func loadEmbodiment(modelPath: String) throws -> EmbodimentContract? {
     let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
@@ -5893,10 +5930,8 @@ private func simulationTaskMode(from task: RolloutTaskChoice) -> SimulationTaskM
 
 private func controllerSelection(from controller: ControllerChoice) -> ControllerSelection {
     switch controller {
-    case .baseline:
-        return .baseline
-    case .teacherBaseline:
-        return .teacherBaseline
+    case .activeAltitudeHold:
+        return .teacherActiveAltitudeHold
     case .sensorBaseline:
         return .sensorBaseline
     case .manasMLX:
@@ -5962,7 +5997,7 @@ private func safePathComponent(_ raw: String) -> String {
     return String(scalars)
 }
 
-private func parseDescendingVector(_ raw: String, optionName: String = "--descending") throws -> [Double]? {
+func parseDescendingVector(_ raw: String, optionName: String = "--descending") throws -> [Double]? {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
         return nil
@@ -5988,7 +6023,7 @@ private func parseDescendingVector(_ raw: String, optionName: String = "--descen
     return vector
 }
 
-private func parseDescendingProgram(_ raw: String) throws -> DescendingIntentProgram? {
+func parseDescendingProgram(_ raw: String) throws -> DescendingIntentProgram? {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
         return nil
