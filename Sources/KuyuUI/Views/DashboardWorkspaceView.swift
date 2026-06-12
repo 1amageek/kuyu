@@ -516,10 +516,13 @@ private struct RawLearningCampaignLogView: View {
                     rawLogFilterText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("Clear Filter")
+                .accessibilityLabel("Clear Filter")
             }
 
             Spacer()

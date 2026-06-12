@@ -63,7 +63,7 @@ struct EvolutionFitnessChartView: View {
     private var placeholder: some View {
         ZStack {
             RoundedRectangle(cornerRadius: KuyuRadius.medium, style: .continuous)
-                .fill(.black.opacity(0.16))
+                .fill(.quaternary)
             Text("No generation artifacts yet")
                 .font(.caption)
                 .foregroundStyle(.secondary)

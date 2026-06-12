@@ -50,7 +50,7 @@ struct DashboardMetricCardView: View {
     private var sparkline: some View {
         if samples.isEmpty {
             RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous)
-                .fill(.white.opacity(0.04))
+                .fill(.quaternary)
         } else {
             Chart(Array(samples.enumerated()), id: \.offset) { _, sample in
                 LineMark(

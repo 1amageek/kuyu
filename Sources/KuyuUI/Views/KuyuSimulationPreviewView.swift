@@ -142,7 +142,7 @@ struct KuyuSimulationPreviewView: View {
                     .padding(.horizontal, KuyuSpacing.sm)
                     .padding(.vertical, KuyuSpacing.xs)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white.opacity(0.05))
+                    .background(.quaternary.opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
                 }
             }
@@ -167,7 +167,7 @@ struct KuyuSimulationPreviewView: View {
         .padding(.horizontal, KuyuSpacing.sm)
         .padding(.vertical, KuyuSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.05))
+        .background(.quaternary.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
     }
 
@@ -269,7 +269,7 @@ struct KuyuSimulationPreviewView: View {
                         .padding(.horizontal, KuyuSpacing.sm)
                         .padding(.vertical, KuyuSpacing.xs)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.05))
+                        .background(.quaternary.opacity(0.5))
                         .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.small, style: .continuous))
                     }
                 }

@@ -36,10 +36,10 @@ struct LearningStudioHeaderView: View {
         }
         .padding(.horizontal, KuyuSpacing.md)
         .padding(.vertical, KuyuSpacing.sm)
-        .background(.black.opacity(0.18))
+        .background(.quaternary.opacity(0.5))
         .overlay {
             RoundedRectangle(cornerRadius: KuyuRadius.large, style: .continuous)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
+                .stroke(.separator, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: KuyuRadius.large, style: .continuous))
     }

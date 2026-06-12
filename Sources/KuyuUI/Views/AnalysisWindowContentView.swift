@@ -41,6 +41,7 @@ public struct AnalysisWindowContentView: View {
                     Image(systemName: "sidebar.trailing")
                 }
                 .help(showInspector ? "Hide Inspector" : "Show Inspector")
+                .accessibilityLabel(showInspector ? "Hide Inspector" : "Show Inspector")
             }
         }
     }
