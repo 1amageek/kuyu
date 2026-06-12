@@ -4,10 +4,7 @@ import Logging
 import KuyuPhysics
 import KuyuScenarios
 
-// SimulationRunnerService is passed through MainActor UI coordination and async
-// CLI paths, while the underlying model store is MainActor-isolated and the
-// optional manual actuator store protects its state with a lock.
-public struct SimulationRunnerService: @unchecked Sendable {
+public struct SimulationRunnerService: Sendable {
     let modelStore: ManasMLXModelStore
     let manualActuatorStore: ManualActuatorStore?
     private var logger: Logger
