@@ -269,7 +269,7 @@ public struct SimulationRunnerService: @unchecked Sendable {
         let summary = ValidationSummary(
             suitePassed: output.result.passed,
             evaluations: output.result.evaluations,
-            replayChecks: output.result.replayChecks,
+            replay: output.result.replay,
             manifest: output.manifest,
             aggregate: aggregate
         )
@@ -336,13 +336,13 @@ public struct SimulationRunnerService: @unchecked Sendable {
         )
         let result = SuiteRunResult(
             evaluations: [evaluation],
-            replayChecks: [],
+            replay: .notPerformed(reason: "Articulated dynamic simulation does not execute replay verification."),
             passed: evaluation.passed
         )
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: [manifest],
             aggregate: EvaluationAggregate.from(evaluations: result.evaluations)
         )
@@ -489,12 +489,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResult(evaluations: evaluations, replayChecks: [], passed: evaluations.allSatisfy { $0.passed })
+        let result = SuiteRunResult(
+            evaluations: evaluations,
+            replay: .notPerformed(reason: "Interactive simulation runs do not execute replay verification."),
+            passed: evaluations.allSatisfy { $0.passed }
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )
@@ -596,12 +600,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResult(evaluations: evaluations, replayChecks: [], passed: evaluations.allSatisfy { $0.passed })
+        let result = SuiteRunResult(
+            evaluations: evaluations,
+            replay: .notPerformed(reason: "Interactive simulation runs do not execute replay verification."),
+            passed: evaluations.allSatisfy { $0.passed }
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )
@@ -660,12 +668,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResult(evaluations: evaluations, replayChecks: [], passed: evaluations.allSatisfy { $0.passed })
+        let result = SuiteRunResult(
+            evaluations: evaluations,
+            replay: .notPerformed(reason: "Interactive simulation runs do not execute replay verification."),
+            passed: evaluations.allSatisfy { $0.passed }
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )
@@ -735,12 +747,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResult(evaluations: evaluations, replayChecks: [], passed: evaluations.allSatisfy { $0.passed })
+        let result = SuiteRunResult(
+            evaluations: evaluations,
+            replay: .notPerformed(reason: "Interactive simulation runs do not execute replay verification."),
+            passed: evaluations.allSatisfy { $0.passed }
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )
@@ -805,12 +821,16 @@ public struct SimulationRunnerService: @unchecked Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResult(evaluations: evaluations, replayChecks: [], passed: evaluations.allSatisfy { $0.passed })
+        let result = SuiteRunResult(
+            evaluations: evaluations,
+            replay: .notPerformed(reason: "Interactive simulation runs do not execute replay verification."),
+            passed: evaluations.allSatisfy { $0.passed }
+        )
         let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
         let summary = ValidationSummary(
             suitePassed: result.passed,
             evaluations: result.evaluations,
-            replayChecks: result.replayChecks,
+            replay: result.replay,
             manifest: manifest,
             aggregate: aggregate
         )

@@ -192,9 +192,10 @@ private func makeLog(firstStepHasDrive: Bool = true) throws -> SimulationLog {
 @Test(.timeLimit(.minutes(1))) func trainingDatasetExporterWritesPerScenario() async throws {
     let log = try makeLog()
     let entry = ScenarioLogEntry(key: ScenarioKey(scenarioId: log.scenarioId, seed: log.seed), log: log)
+    let replay = ReplayVerification.notPerformed(reason: "Test fixture does not execute replay verification.")
     let output = KuyAtt1RunOutput(
-        result: SuiteRunResult(evaluations: [], replayChecks: [], passed: true),
-        summary: ValidationSummary(suitePassed: true, evaluations: [], replayChecks: [], manifest: [], aggregate: EvaluationAggregate(averageRecoveryTime: nil, worstOvershootDegrees: nil, averageHfStabilityScore: nil)),
+        result: SuiteRunResult(evaluations: [], replay: replay, passed: true),
+        summary: ValidationSummary(suitePassed: true, evaluations: [], replay: replay, manifest: [], aggregate: EvaluationAggregate(averageRecoveryTime: nil, worstOvershootDegrees: nil, averageHfStabilityScore: nil)),
         logs: [entry]
     )
 

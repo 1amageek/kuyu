@@ -38,7 +38,8 @@ import KuyuScenarios
     #expect(!sensorOutput.summary.suitePassed)
     #expect(teacherOutput.logs.count == teacherOutput.summary.manifest.count)
     #expect(sensorOutput.logs.count == sensorOutput.summary.manifest.count)
-    #expect(teacherOutput.result.replayChecks.isEmpty)
-    #expect(sensorOutput.result.replayChecks.count == sensorOutput.logs.count)
-    #expect(sensorOutput.result.replayChecks.allSatisfy { $0.passed })
+    #expect(teacherOutput.result.replay.notPerformedReason != nil)
+    #expect(sensorOutput.result.replay.notPerformedReason == nil)
+    #expect(sensorOutput.result.replay.checks.count == sensorOutput.logs.count)
+    #expect(sensorOutput.result.replay.checks.allSatisfy { $0.passed })
 }

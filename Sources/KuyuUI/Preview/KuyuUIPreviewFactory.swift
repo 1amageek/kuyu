@@ -19,12 +19,13 @@ public enum KuyuUIPreviewFactory {
             hfStabilityScore: nil,
             failures: []
         )
-        let result = SuiteRunResult(evaluations: [evaluation], replayChecks: [], passed: true)
+        let replay = ReplayVerification.notPerformed(reason: "Preview fixtures do not execute simulations.")
+        let result = SuiteRunResult(evaluations: [evaluation], replay: replay, passed: true)
         let aggregate = EvaluationAggregate.from(evaluations: [evaluation])
         let summary = ValidationSummary(
             suitePassed: true,
             evaluations: [evaluation],
-            replayChecks: [],
+            replay: replay,
             manifest: [],
             aggregate: aggregate
         )
