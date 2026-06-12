@@ -75,6 +75,10 @@ struct TrainingLoopStateReducer: Sendable {
             next.loopLastScore = summary.lastScore
             next.loopStatusMessage = summary.passed ? "Completed (passed)" : "Completed"
         case .failed:
+            // A launch failure emits only .failed (no .stopped/.completed follows),
+            // so the running flags must be released here or the loop wedges.
+            next.isLoopRunning = false
+            next.isLoopPaused = false
             next.loopStatusMessage = "Failed"
             next.activeLoopController = nil
         }

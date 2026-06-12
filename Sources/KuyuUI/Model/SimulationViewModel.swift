@@ -990,7 +990,13 @@ public final class SimulationViewModel {
         Task(priority: .userInitiated) { [request] in
             do {
                 let result = try await commandSystem.submit(.trainCore(request))
-                guard case .trainingCompleted(let output) = result else { return }
+                guard case .trainingCompleted(let output) = result else {
+                    isTraining = false
+                    emitUIAction(level: .error, message: "Training returned an unexpected result", action: "trainCoreModel", metadata: [
+                        "result": "\(result)"
+                    ])
+                    return
+                }
                 isTraining = false
                 lastTrainingLoss = output.finalLoss
                 let sampleIndex = Double(trainingLossSamples.count + 1)
@@ -1980,6 +1986,12 @@ public final class SimulationViewModel {
                 } else {
                     handle = try await self.commandSystem.startTrainingRun(request: request)
                 }
+                // A stop issued while the backend was still launching cancels this
+                // task; the freshly created handle must be cancelled, not adopted.
+                guard !Task.isCancelled else {
+                    handle.cancel()
+                    return
+                }
                 self.learningCampaignHandle = handle
                 self.learningCampaignProgressFraction = handle.progress.fractionCompleted
                 self.startLearningCampaignEventMonitoring(handle: handle)
@@ -2045,6 +2057,7 @@ public final class SimulationViewModel {
     }
 
     func stopLearningCampaign() {
+        learningCampaignWaitTask?.cancel()
         learningCampaignHandle?.cancel()
         isLearningCampaignRunning = false
         learningCampaignCurrentPhase = "cancelling"
@@ -3531,6 +3544,12 @@ public final class SimulationViewModel {
         do {
             items = try fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         } catch {
+            // An unreadable root is reported, not treated as a silent "absent":
+            // the caller switches the training route based on this answer.
+            emitTerminal(level: .warning, message: "Training dataset probe failed; treating dataset as absent", metadata: [
+                "path": root.path,
+                "error": "\(error)"
+            ])
             return false
         }
         for url in items {
