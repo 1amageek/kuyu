@@ -1,6 +1,10 @@
 import Charts
 import SwiftUI
 
+#if canImport(Metal)
+import Metal
+#endif
+
 struct VectorizedExecutionView: View {
     @Bindable var model: SimulationViewModel
 
@@ -17,6 +21,7 @@ struct VectorizedExecutionView: View {
                 VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                     HStack(alignment: .top, spacing: KuyuSpacing.md) {
                         currentBatchSummary
+                        gpuActivitySummary
                         throughputChart
                     }
 
@@ -62,6 +67,16 @@ struct VectorizedExecutionView: View {
 
     private var variationBatches: [LearningCampaignVectorizedBatchState] {
         batches.filter { $0.kind == .variation }
+    }
+
+    private var gpuActivity: LearningCampaignGPUActivitySnapshot {
+        LearningCampaignGPUActivitySnapshot(
+            batches: batches,
+            progressEvents: model.learningCampaignProgressEventsForDisplay,
+            acceleratorLabel: state?.latestAcceleratorDevice ?? state?.accelerator?.acceleratorLabel,
+            currentAllocatedBytes: MetalGPUUsageProbe.currentAllocatedBytes,
+            recommendedMaxWorkingSetBytes: MetalGPUUsageProbe.recommendedMaxWorkingSetBytes
+        )
     }
 
     private var executionStatusLabel: String {
@@ -132,6 +147,49 @@ struct VectorizedExecutionView: View {
             }
         }
         .frame(minWidth: 260, idealWidth: 320, maxWidth: 380, alignment: .topLeading)
+    }
+
+    private var gpuActivitySummary: some View {
+        let activity = gpuActivity
+        return VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
+            HStack {
+                Text("GPU Utilization")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                StatusPill(activity.statusLabel, tone: gpuStatusTone(activity.statusLabel))
+            }
+
+            StatRow(label: "Accelerator", value: activity.acceleratorLabel, compact: true)
+            StatRow(label: "Execution", value: activity.latestExecutionLabel, compact: true)
+            StatRow(label: "Latest", value: formattedThroughput(activity.latestThroughput), compact: true)
+            StatRow(label: "Peak", value: formattedThroughput(activity.peakThroughput), compact: true)
+
+            utilizationBar(
+                label: "GPU events",
+                fraction: activity.gpuBackedEventFraction,
+                detail: "\(activity.gpuBackedEventCount)/\(activity.knownEventCount)",
+                tint: .green
+            )
+            utilizationBar(
+                label: "GPU batches",
+                fraction: activity.gpuBackedBatchFraction,
+                detail: "\(activity.gpuBackedBatchCount)/\(activity.totalBatchCount)",
+                tint: .cyan
+            )
+            utilizationBar(
+                label: "Batch fill",
+                fraction: activity.latestBatchFillFraction,
+                detail: formattedPercent(activity.latestBatchFillFraction),
+                tint: .orange
+            )
+            utilizationBar(
+                label: "Metal memory",
+                fraction: activity.metalMemoryFraction,
+                detail: memoryDetail(activity),
+                tint: .purple
+            )
+        }
+        .frame(minWidth: 220, idealWidth: 260, maxWidth: 300, alignment: .topLeading)
     }
 
     private var throughputChart: some View {
@@ -277,6 +335,64 @@ struct VectorizedExecutionView: View {
         return String(format: "%.2f/s", value)
     }
 
+    private func gpuStatusTone(_ label: String) -> StatusPill.Tone {
+        switch label {
+        case "active":
+            return .success
+        case "ready":
+            return .info
+        case "unavailable":
+            return .warning
+        default:
+            return .neutral
+        }
+    }
+
+    private func utilizationBar(
+        label: String,
+        fraction: Double?,
+        detail: String,
+        tint: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text(detail)
+                    .font(.system(.caption2, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(fraction == nil ? Color.secondary : tint)
+            }
+            ProgressView(value: fraction ?? 0)
+                .progressViewStyle(.linear)
+                .tint(tint)
+        }
+    }
+
+    private func formattedPercent(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "--" }
+        return String(format: "%.0f%%", value * 100)
+    }
+
+    private func memoryDetail(_ activity: LearningCampaignGPUActivitySnapshot) -> String {
+        guard let current = activity.currentAllocatedBytes,
+              let limit = activity.recommendedMaxWorkingSetBytes else {
+            return "--"
+        }
+        return "\(formattedBytes(current)) / \(formattedBytes(limit))"
+    }
+
+    private func formattedBytes(_ value: UInt64) -> String {
+        let gib = Double(value) / 1_073_741_824
+        if gib >= 1 {
+            return String(format: "%.1f GB", gib)
+        }
+        let mib = Double(value) / 1_048_576
+        return String(format: "%.0f MB", mib)
+    }
+
     private var acceleratorName: String {
         state?.latestAcceleratorDevice ?? state?.accelerator?.acceleratorLabel ?? "Metal"
     }
@@ -339,4 +455,23 @@ private struct VectorizedThroughputSample: Identifiable {
     let generationIndex: Int
     let kind: String
     let throughput: Double
+}
+
+private enum MetalGPUUsageProbe {
+    #if canImport(Metal)
+    private static let device = MTLCreateSystemDefaultDevice()
+
+    static var currentAllocatedBytes: UInt64? {
+        guard let device else { return nil }
+        return UInt64(device.currentAllocatedSize)
+    }
+
+    static var recommendedMaxWorkingSetBytes: UInt64? {
+        guard let device else { return nil }
+        return device.recommendedMaxWorkingSetSize
+    }
+    #else
+    static var currentAllocatedBytes: UInt64? { nil }
+    static var recommendedMaxWorkingSetBytes: UInt64? { nil }
+    #endif
 }
