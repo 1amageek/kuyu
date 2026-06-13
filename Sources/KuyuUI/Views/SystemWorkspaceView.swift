@@ -4,6 +4,10 @@ import SwiftUI
 struct SystemWorkspaceView: View {
     @Bindable var model: SimulationViewModel
 
+    // Creating the system Metal device is expensive; never do it per body
+    // evaluation.
+    private static let metalDevice: (any MTLDevice)? = MTLCreateSystemDefaultDevice()
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: KuyuSpacing.md) {
@@ -25,7 +29,7 @@ struct SystemWorkspaceView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
                 StatRow(label: "Local Runtime", value: "available")
-                StatRow(label: "Metal", value: MTLCreateSystemDefaultDevice() == nil ? "unavailable" : "available")
+                StatRow(label: "Metal", value: Self.metalDevice == nil ? "unavailable" : "available")
                 StatRow(label: "Running Campaign", value: model.isLearningCampaignRunning ? "yes" : "no")
                 StatRow(label: "Artifact Monitor", value: model.learningCampaignMonitorEnabled ? "on" : "off")
             }
@@ -83,7 +87,7 @@ struct SystemWorkspaceView: View {
     }
 
     private var gpuName: String {
-        MTLCreateSystemDefaultDevice()?.name ?? "unavailable"
+        Self.metalDevice?.name ?? "unavailable"
     }
 
     private var memorySummary: String {

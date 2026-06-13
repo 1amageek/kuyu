@@ -192,16 +192,16 @@ public final class SimulationViewModel {
     var learningCampaignLiveAltitudeErrorSamples: [MetricSample] = []
     var learningCampaignLiveEpisodeSamples: [MetricSample] = []
     var learningCampaignLiveCandidateEvaluationCount: Int = 0
-    var learningCampaignLiveProgressEvents: [LearningCampaignProgressRecord] = []
-    var learningCampaignProgressEventsForDisplay: [LearningCampaignProgressRecord] {
-        let persisted = learningCampaignState?.progressEvents ?? []
-        return (persisted + learningCampaignLiveProgressEvents).sorted { lhs, rhs in
-            lhs.timestamp < rhs.timestamp
-        }
-    }
+    private(set) var learningCampaignLiveProgressEvents: [LearningCampaignProgressRecord] = []
+    // Stored, bounded snapshot of persisted + live progress events. Keeping it
+    // a computed sort made every access O(n log n) over the whole campaign and
+    // saturated the main thread once views read it inside per-element closures.
+    private(set) var learningCampaignProgressEventsForDisplay: [LearningCampaignProgressRecord] = []
     var isLearningCampaignRunning = false
     var learningCampaignMonitorEnabled = false
-    var learningCampaignState: LearningCampaignRunStoreState?
+    var learningCampaignState: LearningCampaignRunStoreState? {
+        didSet { rebuildLearningCampaignProgressEventsForDisplay() }
+    }
     var learningCampaignError: String?
     var canContinueLearningCampaign: Bool {
         guard !isLearningCampaignRunning else { return false }
@@ -2332,16 +2332,52 @@ public final class SimulationViewModel {
         learningCampaignLiveEpisodeSamples = []
         learningCampaignLiveCandidateEvaluationCount = 0
         learningCampaignLiveProgressEvents = []
+        rebuildLearningCampaignProgressEventsForDisplay()
     }
 
     func appendLearningCampaignLiveProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
-        let progressRecord = makeLearningCampaignProgressRecord(from: progressEvent)
+        appendLearningCampaignLiveProgressRecord(makeLearningCampaignProgressRecord(from: progressEvent))
+    }
+
+    func appendLearningCampaignLiveProgressRecord(_ progressRecord: LearningCampaignProgressRecord) {
         learningCampaignLiveProgressEvents.append(progressRecord)
         let maximumEntryCount = 1_000
         if learningCampaignLiveProgressEvents.count > maximumEntryCount {
             learningCampaignLiveProgressEvents.removeFirst(learningCampaignLiveProgressEvents.count - maximumEntryCount)
         }
+        if let last = learningCampaignProgressEventsForDisplay.last, progressRecord.timestamp < last.timestamp {
+            // An out-of-order timestamp breaks the append fast path; fall back
+            // to a full rebuild so the display array stays sorted.
+            rebuildLearningCampaignProgressEventsForDisplay()
+        } else {
+            learningCampaignProgressEventsForDisplay.append(progressRecord)
+            trimLearningCampaignProgressEventsForDisplay()
+        }
         appendLearningCampaignLiveMetricSamples(progressRecord)
+    }
+
+    private static let maximumDisplayedProgressEventCount = 4_000
+
+    private func rebuildLearningCampaignProgressEventsForDisplay() {
+        // progress.jsonl is an append-only log, so the suffix of the persisted
+        // events is the most recent slice. Bounding both sources keeps this
+        // rebuild and every downstream view pass independent of campaign length.
+        let persisted = (learningCampaignState?.progressEvents ?? [])
+            .suffix(Self.maximumDisplayedProgressEventCount)
+        let merged = (persisted + learningCampaignLiveProgressEvents).sorted { lhs, rhs in
+            lhs.timestamp < rhs.timestamp
+        }
+        learningCampaignProgressEventsForDisplay = Array(merged.suffix(Self.maximumDisplayedProgressEventCount))
+    }
+
+    private func trimLearningCampaignProgressEventsForDisplay() {
+        // Trim with slack so steady-state appends stay amortized O(1) instead
+        // of shifting the whole buffer on every event.
+        let slack = 512
+        let overflow = learningCampaignProgressEventsForDisplay.count - Self.maximumDisplayedProgressEventCount
+        if overflow > slack {
+            learningCampaignProgressEventsForDisplay.removeFirst(overflow)
+        }
     }
 
     private func makeLearningCampaignProgressRecord(

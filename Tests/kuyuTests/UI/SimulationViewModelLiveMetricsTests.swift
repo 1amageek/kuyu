@@ -46,7 +46,7 @@ import Testing
 @MainActor
 @Test(.timeLimit(.minutes(1))) func simulationViewModelExposesLiveVectorizedProgressForDashboardViews() {
     let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
-    model.learningCampaignLiveProgressEvents = [
+    model.appendLearningCampaignLiveProgressRecord(
         LearningCampaignProgressRecord(
             event: "candidate-evaluated",
             timestamp: "2026-05-16T00:00:00Z",
@@ -74,7 +74,7 @@ import Testing
             failureReasons: [],
             message: "Candidate evaluated"
         )
-    ]
+    )
 
     let records = model.learningCampaignProgressEventsForDisplay
 

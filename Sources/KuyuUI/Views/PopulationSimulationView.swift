@@ -4,23 +4,28 @@ struct PopulationSimulationView: View {
     @Bindable var model: SimulationViewModel
 
     var body: some View {
+        // All event-derived values are computed exactly once per body
+        // evaluation. Deriving them lazily inside per-element closures made
+        // body evaluation super-linear in the progress event count and pinned
+        // the main thread during long campaigns.
+        let snapshot = PopulationSimulationSnapshot(model: model)
         GroupBox {
             VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                 HStack(spacing: KuyuSpacing.sm) {
-                    statusMetric(label: "Seed", value: activeSeedLabel)
-                    statusMetric(label: "Generation", value: generationLabel)
-                    statusMetric(label: "Population", value: "\(population)")
-                    statusMetric(label: "Evaluated", value: "\(evaluatedCount) / \(population)")
-                    statusMetric(label: "Batch", value: batchLabel)
-                    statusMetric(label: "Parallelism", value: parallelismLabel)
-                    statusMetric(label: "Accelerator", value: acceleratorLabel)
-                    statusMetric(label: "Execution", value: executionModeLabel)
-                    statusMetric(label: "Observation", value: observationModeLabel)
-                    statusMetric(label: "Best", value: formattedFitness(bestFitness))
+                    statusMetric(label: "Seed", value: snapshot.activeSeedLabel)
+                    statusMetric(label: "Generation", value: snapshot.generationLabel)
+                    statusMetric(label: "Population", value: "\(snapshot.population)")
+                    statusMetric(label: "Evaluated", value: "\(snapshot.evaluatedCount) / \(snapshot.population)")
+                    statusMetric(label: "Batch", value: snapshot.batchLabel)
+                    statusMetric(label: "Parallelism", value: snapshot.parallelismLabel)
+                    statusMetric(label: "Accelerator", value: snapshot.acceleratorLabel)
+                    statusMetric(label: "Execution", value: snapshot.executionModeLabel)
+                    statusMetric(label: "Observation", value: snapshot.observationModeLabel)
+                    statusMetric(label: "Best", value: formattedFitness(snapshot.bestFitness))
                 }
 
-                LazyVGrid(columns: gridColumns, spacing: 5) {
-                    ForEach(slots) { slot in
+                LazyVGrid(columns: gridColumns(population: snapshot.population), spacing: 5) {
+                    ForEach(snapshot.slots) { slot in
                         PopulationCandidateCell(slot: slot)
                     }
                 }
@@ -42,129 +47,15 @@ struct PopulationSimulationView: View {
             HStack {
                 Label("Population Simulation", systemImage: "circle.grid.2x2")
                 Spacer()
-                Text(runStateLabel)
+                Text(snapshot.runStateLabel)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(runStateColor)
+                    .foregroundStyle(runStateColor(for: snapshot.runStateLabel))
             }
         }
     }
 
-    private var state: LearningCampaignRunStoreState? {
-        model.learningCampaignState
-    }
-
-    private var population: Int {
-        max(1, state?.plan?.population ?? model.learningCampaignPopulation)
-    }
-
-    private var activeGenerationIndex: Int {
-        if let progressGeneration = model.learningCampaignProgressEventsForDisplay.last(where: {
-            $0.generationIndex != nil
-        })?.generationIndex {
-            return progressGeneration
-        }
-        return state?.latestCompletedGenerationIndex ?? 0
-    }
-
-    private var activeSeed: String {
-        if let seed = model.learningCampaignProgressEventsForDisplay.last(where: {
-            $0.generationIndex == activeGenerationIndex && $0.seed != nil
-        })?.seed {
-            return seed
-        }
-        if let seed = state?.plan?.seeds.first {
-            return seed
-        }
-        return "seed-1"
-    }
-
-    private var activeSeedLabel: String {
-        activeSeed.replacingOccurrences(of: "seed-", with: "")
-    }
-
-    private var generationLabel: String {
-        let planned = state?.plannedGenerationCount ?? model.learningCampaignGenerations
-        return "\(activeGenerationIndex) / \(planned)"
-    }
-
-    private var parallelismLabel: String {
-        let workers = state?.plan?.workers ?? model.learningCampaignWorkers
-        let concurrency = state?.plan?.candidateEvaluationConcurrency ?? model.learningCampaignCandidateEvaluationConcurrency
-        if let latest = state?.latestVectorizedBatch {
-            return "\(latest.completedCandidateCount)/\(latest.candidateCount)"
-        }
-        return "\(concurrency) x \(workers)"
-    }
-
-    private var batchLabel: String {
-        guard let latest = state?.latestVectorizedBatch else { return "--" }
-        return "\(latest.kind.rawValue) g\(latest.generationIndex)"
-    }
-
-    private var acceleratorLabel: String {
-        state?.latestAcceleratorDevice ?? "--"
-    }
-
-    private var executionModeLabel: String {
-        guard let latest = state?.latestVectorizedBatch else { return "--" }
-        switch latest.kind {
-        case .variation:
-            return "MLX variation"
-        case .evaluation:
-            if latest.worldExecutionMode?.hasPrefix("mlx-tensor-") == true {
-                let action = formattedActionEncoding(latest.actionEncoding)
-                if let active = latest.worldActiveActionDimension {
-                    return "MLX \(action) policy + tensor world (\(active) active)"
-                }
-                return "MLX \(action) policy + tensor world"
-            }
-            return "Unsupported non-tensor evaluation"
-        }
-    }
-
-    private var observationModeLabel: String {
-        guard let latest = state?.latestVectorizedBatch else { return "--" }
-        switch latest.observationExecutionMode {
-        case "mlx-tensor-ctbr-observation-history-v1":
-            return "Tensor CTBR history"
-        case "mlx-tensor-ctbr-observation-bridge-v1":
-            return "Tensor CTBR bridge"
-        case "cpu-materialized-ctbr-observations":
-            return "Unsupported CTBR materialized"
-        case "mlx-tensor-direct-motor-observation-bridge-v1":
-            return "Tensor motor bridge"
-        case "cpu-materialized-direct-motor-observations":
-            return "Unsupported motor materialized"
-        case let mode?:
-            return mode
-        case nil:
-            return "--"
-        }
-    }
-
-    private func formattedActionEncoding(_ value: String?) -> String {
-        switch value {
-        case "ctbr":
-            return "CTBR"
-        case "directMotor":
-            return "direct motor"
-        case "jointTargets":
-            return "joint targets"
-        case "vehicleSteerThrottleBrake":
-            return "steer/throttle/brake"
-        case let value?:
-            return value
-        case nil:
-            return "action"
-        }
-    }
-
-    private var runStateLabel: String {
-        state?.statusLabel ?? (model.isLearningCampaignRunning ? "running" : "ready")
-    }
-
-    private var runStateColor: Color {
-        switch runStateLabel.lowercased() {
+    private func runStateColor(for label: String) -> Color {
+        switch label.lowercased() {
         case "running", "started":
             return .green
         case "failed", "cancelled":
@@ -176,84 +67,9 @@ struct PopulationSimulationView: View {
         }
     }
 
-    private var progressRecordsByCandidateID: [String: LearningCampaignProgressRecord] {
-        let records = model.learningCampaignProgressEventsForDisplay.filter { record in
-            record.event == "candidate-evaluated"
-            && record.seed == activeSeed
-            && record.generationIndex == activeGenerationIndex
-            && record.candidateID != nil
-        }
-        var recordsByID: [String: LearningCampaignProgressRecord] = [:]
-        for record in records {
-            guard let candidateID = record.candidateID else { continue }
-            recordsByID[candidateID] = record
-        }
-        return recordsByID
-    }
-
-    private var persistedCandidatesByCandidateID: [String: LearningCampaignCandidateState] {
-        guard let state else { return [:] }
-        let candidates = state.candidates.filter { candidate in
-            candidate.seed == activeSeed && candidate.generationIndex == activeGenerationIndex
-        }
-        var candidatesByID: [String: LearningCampaignCandidateState] = [:]
-        for candidate in candidates {
-            candidatesByID[candidate.candidateID] = candidate
-        }
-        return candidatesByID
-    }
-
-    private var slots: [PopulationCandidateSlot] {
-        let progress = progressRecordsByCandidateID
-        let persisted = persistedCandidatesByCandidateID
-        let bestID = bestCandidateID(progress: progress, persisted: persisted)
-        return (0..<population).map { index in
-            let candidateID = "g\(activeGenerationIndex)-c\(index)"
-            return PopulationCandidateSlot(
-                index: index,
-                candidateID: candidateID,
-                progress: progress[candidateID],
-                persisted: persisted[candidateID],
-                isBest: candidateID == bestID
-            )
-        }
-    }
-
-    private var evaluatedCount: Int {
-        slots.filter(\.isEvaluated).count
-    }
-
-    private var bestFitness: Double? {
-        slots.compactMap(\.fitness).max()
-    }
-
-    private var gridColumns: [GridItem] {
+    private func gridColumns(population: Int) -> [GridItem] {
         let count = max(8, min(20, Int(ceil(sqrt(Double(population))))))
         return Array(repeating: GridItem(.flexible(minimum: 10, maximum: 22), spacing: 5), count: count)
-    }
-
-    private func bestCandidateID(
-        progress: [String: LearningCampaignProgressRecord],
-        persisted: [String: LearningCampaignCandidateState]
-    ) -> String? {
-        let progressBest = progress.max { lhs, rhs in
-            (lhs.value.fitness ?? -.greatestFiniteMagnitude) < (rhs.value.fitness ?? -.greatestFiniteMagnitude)
-        }
-        let persistedBest = persisted.max { lhs, rhs in
-            (lhs.value.scalarFitness ?? -.greatestFiniteMagnitude) < (rhs.value.scalarFitness ?? -.greatestFiniteMagnitude)
-        }
-        switch (progressBest, persistedBest) {
-        case (.some(let lhs), .some(let rhs)):
-            let lhsValue = lhs.value.fitness ?? -.greatestFiniteMagnitude
-            let rhsValue = rhs.value.scalarFitness ?? -.greatestFiniteMagnitude
-            return lhsValue >= rhsValue ? lhs.key : rhs.key
-        case (.some(let value), .none):
-            return value.key
-        case (.none, .some(let value)):
-            return value.key
-        case (.none, .none):
-            return nil
-        }
     }
 
     @ViewBuilder
@@ -284,6 +100,168 @@ struct PopulationSimulationView: View {
     private func formattedFitness(_ value: Double?) -> String {
         guard let value, value.isFinite else { return "--" }
         return String(format: "%.3f", value)
+    }
+}
+
+private struct PopulationSimulationSnapshot {
+    let population: Int
+    let activeSeedLabel: String
+    let generationLabel: String
+    let batchLabel: String
+    let parallelismLabel: String
+    let acceleratorLabel: String
+    let executionModeLabel: String
+    let observationModeLabel: String
+    let runStateLabel: String
+    let slots: [PopulationCandidateSlot]
+    let evaluatedCount: Int
+    let bestFitness: Double?
+
+    @MainActor
+    init(model: SimulationViewModel) {
+        let events = model.learningCampaignProgressEventsForDisplay
+        let state = model.learningCampaignState
+        let population = max(1, state?.plan?.population ?? model.learningCampaignPopulation)
+
+        let activeGenerationIndex = events.last { $0.generationIndex != nil }?.generationIndex
+            ?? state?.latestCompletedGenerationIndex
+            ?? 0
+
+        let activeSeed = events.last { $0.generationIndex == activeGenerationIndex && $0.seed != nil }?.seed
+            ?? state?.plan?.seeds.first
+            ?? "seed-1"
+
+        var progressByCandidateID: [String: LearningCampaignProgressRecord] = [:]
+        for record in events where record.event == "candidate-evaluated"
+            && record.seed == activeSeed
+            && record.generationIndex == activeGenerationIndex {
+            guard let candidateID = record.candidateID else { continue }
+            progressByCandidateID[candidateID] = record
+        }
+
+        var persistedByCandidateID: [String: LearningCampaignCandidateState] = [:]
+        for candidate in state?.candidates ?? []
+            where candidate.seed == activeSeed && candidate.generationIndex == activeGenerationIndex {
+            persistedByCandidateID[candidate.candidateID] = candidate
+        }
+
+        let bestID = Self.bestCandidateID(progress: progressByCandidateID, persisted: persistedByCandidateID)
+        let slots = (0..<population).map { index in
+            let candidateID = "g\(activeGenerationIndex)-c\(index)"
+            return PopulationCandidateSlot(
+                index: index,
+                candidateID: candidateID,
+                progress: progressByCandidateID[candidateID],
+                persisted: persistedByCandidateID[candidateID],
+                isBest: candidateID == bestID
+            )
+        }
+
+        self.population = population
+        self.activeSeedLabel = activeSeed.replacingOccurrences(of: "seed-", with: "")
+        self.generationLabel = "\(activeGenerationIndex) / \(state?.plannedGenerationCount ?? model.learningCampaignGenerations)"
+        self.batchLabel = Self.batchLabel(state: state)
+        self.parallelismLabel = Self.parallelismLabel(state: state, model: model)
+        self.acceleratorLabel = state?.latestAcceleratorDevice ?? "--"
+        self.executionModeLabel = Self.executionModeLabel(state: state)
+        self.observationModeLabel = Self.observationModeLabel(state: state)
+        self.runStateLabel = state?.statusLabel ?? (model.isLearningCampaignRunning ? "running" : "ready")
+        self.slots = slots
+        self.evaluatedCount = slots.filter(\.isEvaluated).count
+        self.bestFitness = slots.compactMap(\.fitness).max()
+    }
+
+    private static func batchLabel(state: LearningCampaignRunStoreState?) -> String {
+        guard let latest = state?.latestVectorizedBatch else { return "--" }
+        return "\(latest.kind.rawValue) g\(latest.generationIndex)"
+    }
+
+    @MainActor
+    private static func parallelismLabel(state: LearningCampaignRunStoreState?, model: SimulationViewModel) -> String {
+        let workers = state?.plan?.workers ?? model.learningCampaignWorkers
+        let concurrency = state?.plan?.candidateEvaluationConcurrency ?? model.learningCampaignCandidateEvaluationConcurrency
+        if let latest = state?.latestVectorizedBatch {
+            return "\(latest.completedCandidateCount)/\(latest.candidateCount)"
+        }
+        return "\(concurrency) x \(workers)"
+    }
+
+    private static func executionModeLabel(state: LearningCampaignRunStoreState?) -> String {
+        guard let latest = state?.latestVectorizedBatch else { return "--" }
+        switch latest.kind {
+        case .variation:
+            return "MLX variation"
+        case .evaluation:
+            if latest.worldExecutionMode?.hasPrefix("mlx-tensor-") == true {
+                let action = formattedActionEncoding(latest.actionEncoding)
+                if let active = latest.worldActiveActionDimension {
+                    return "MLX \(action) policy + tensor world (\(active) active)"
+                }
+                return "MLX \(action) policy + tensor world"
+            }
+            return "Unsupported non-tensor evaluation"
+        }
+    }
+
+    private static func observationModeLabel(state: LearningCampaignRunStoreState?) -> String {
+        guard let latest = state?.latestVectorizedBatch else { return "--" }
+        switch latest.observationExecutionMode {
+        case "mlx-tensor-ctbr-observation-history-v1":
+            return "Tensor CTBR history"
+        case "mlx-tensor-ctbr-observation-bridge-v1":
+            return "Tensor CTBR bridge"
+        case "cpu-materialized-ctbr-observations":
+            return "Unsupported CTBR materialized"
+        case "mlx-tensor-direct-motor-observation-bridge-v1":
+            return "Tensor motor bridge"
+        case "cpu-materialized-direct-motor-observations":
+            return "Unsupported motor materialized"
+        case let mode?:
+            return mode
+        case nil:
+            return "--"
+        }
+    }
+
+    private static func formattedActionEncoding(_ value: String?) -> String {
+        switch value {
+        case "ctbr":
+            return "CTBR"
+        case "directMotor":
+            return "direct motor"
+        case "jointTargets":
+            return "joint targets"
+        case "vehicleSteerThrottleBrake":
+            return "steer/throttle/brake"
+        case let value?:
+            return value
+        case nil:
+            return "action"
+        }
+    }
+
+    private static func bestCandidateID(
+        progress: [String: LearningCampaignProgressRecord],
+        persisted: [String: LearningCampaignCandidateState]
+    ) -> String? {
+        let progressBest = progress.max { lhs, rhs in
+            (lhs.value.fitness ?? -.greatestFiniteMagnitude) < (rhs.value.fitness ?? -.greatestFiniteMagnitude)
+        }
+        let persistedBest = persisted.max { lhs, rhs in
+            (lhs.value.scalarFitness ?? -.greatestFiniteMagnitude) < (rhs.value.scalarFitness ?? -.greatestFiniteMagnitude)
+        }
+        switch (progressBest, persistedBest) {
+        case (.some(let lhs), .some(let rhs)):
+            let lhsValue = lhs.value.fitness ?? -.greatestFiniteMagnitude
+            let rhsValue = rhs.value.scalarFitness ?? -.greatestFiniteMagnitude
+            return lhsValue >= rhsValue ? lhs.key : rhs.key
+        case (.some(let value), .none):
+            return value.key
+        case (.none, .some(let value)):
+            return value.key
+        case (.none, .none):
+            return nil
+        }
     }
 }
 
