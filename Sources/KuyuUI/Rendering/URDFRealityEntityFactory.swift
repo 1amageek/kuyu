@@ -31,7 +31,7 @@ struct URDFRealityEntityFactory {
         model: URDFKinematicModel,
         sourceURL: URL,
         scale: KuyuVector3?
-    ) throws -> RenderedRobotEntity {
+    ) async throws -> RenderedRobotEntity {
         let root = Entity()
         root.name = "URDFRoot"
         let descriptorScale = scale.map(axis(from:)) ?? [1, 1, 1]
@@ -41,7 +41,7 @@ struct URDFRealityEntityFactory {
             let entity = Entity()
             entity.name = link.name
             for visual in link.visuals {
-                entity.addChild(try makeVisualEntity(
+                entity.addChild(try await makeVisualEntity(
                     visual,
                     sourceURL: sourceURL,
                     descriptorScale: descriptorScale
@@ -90,11 +90,11 @@ struct URDFRealityEntityFactory {
         _ visual: URDFVisual,
         sourceURL: URL,
         descriptorScale: SIMD3<Float>
-    ) throws -> Entity {
+    ) async throws -> Entity {
         let root = Entity()
         root.position = mapPosition(visual.origin.xyz, scale: descriptorScale)
         root.transform.rotation = rotation(from: visual.origin.rpy)
-        root.addChild(try makeGeometryEntity(
+        root.addChild(try await makeGeometryEntity(
             visual.geometry,
             sourceURL: sourceURL,
             descriptorScale: descriptorScale
@@ -106,7 +106,7 @@ struct URDFRealityEntityFactory {
         _ geometry: URDFGeometry,
         sourceURL: URL,
         descriptorScale: SIMD3<Float>
-    ) throws -> Entity {
+    ) async throws -> Entity {
         switch geometry {
         case .box(let size):
             let mappedSize = mapSize(size, scale: descriptorScale)
@@ -133,10 +133,10 @@ struct URDFRealityEntityFactory {
             let meshURL = resolveMeshURL(filename: filename, sourceURL: sourceURL)
             let combinedScale = descriptorScale * (meshScale.map(axis(from:)) ?? [1, 1, 1])
             if meshURL.pathExtension.lowercased() == "stl" {
-                return try STLMeshEntityFactory().makeEntity(url: meshURL, scale: vector(from: combinedScale))
+                return try await STLMeshEntityFactory().makeEntity(url: meshURL, scale: vector(from: combinedScale))
             }
 
-            let entity = try ModelEntity.loadModel(contentsOf: meshURL)
+            let entity = try await ModelEntity(contentsOf: meshURL)
             entity.scale = combinedScale
             return entity
         }
@@ -182,8 +182,38 @@ struct STLMeshEntityFactory {
         case unsupportedEncoding
     }
 
-    func makeEntity(url: URL, scale: KuyuVector3?) throws -> Entity {
-        let triangles = try parseTriangles(url: url, scale: scale.map(axis(from:)) ?? [1, 1, 1])
+    func makeEntity(url: URL, scale: KuyuVector3?) async throws -> Entity {
+        // File reading and triangle parsing are CPU/IO heavy; keep them off
+        // the main actor and only assemble RealityKit resources here.
+        let mappedScale = scale.map(axis(from:)) ?? SIMD3<Float>(1, 1, 1)
+        let parsed = try await Task.detached(priority: .userInitiated) {
+            try Self.parseMesh(url: url, scale: mappedScale)
+        }.value
+
+        var descriptor = MeshDescriptor(name: url.deletingPathExtension().lastPathComponent)
+        descriptor.positions = MeshBuffers.Positions(parsed.positions)
+        descriptor.normals = MeshBuffers.Normals(parsed.normals)
+        descriptor.primitives = .triangles(parsed.indices)
+        let mesh = try await MeshResource(from: [descriptor])
+        return ModelEntity(
+            mesh: mesh,
+            materials: [SimpleMaterial(color: .gray, isMetallic: true)]
+        )
+    }
+
+    private struct ParsedMesh: Sendable {
+        let positions: [SIMD3<Float>]
+        let normals: [SIMD3<Float>]
+        let indices: [UInt32]
+    }
+
+    private struct Triangle {
+        let normal: SIMD3<Float>
+        let vertices: [SIMD3<Float>]
+    }
+
+    private nonisolated static func parseMesh(url: URL, scale: SIMD3<Float>) throws -> ParsedMesh {
+        let triangles = try parseTriangles(url: url, scale: scale)
         var positions: [SIMD3<Float>] = []
         var normals: [SIMD3<Float>] = []
         var indices: [UInt32] = []
@@ -198,24 +228,10 @@ struct STLMeshEntityFactory {
                 indices.append(UInt32(indices.count))
             }
         }
-
-        var descriptor = MeshDescriptor(name: url.deletingPathExtension().lastPathComponent)
-        descriptor.positions = MeshBuffers.Positions(positions)
-        descriptor.normals = MeshBuffers.Normals(normals)
-        descriptor.primitives = .triangles(indices)
-        let mesh = try MeshResource.generate(from: [descriptor])
-        return ModelEntity(
-            mesh: mesh,
-            materials: [SimpleMaterial(color: .gray, isMetallic: true)]
-        )
+        return ParsedMesh(positions: positions, normals: normals, indices: indices)
     }
 
-    private struct Triangle {
-        let normal: SIMD3<Float>
-        let vertices: [SIMD3<Float>]
-    }
-
-    private func parseTriangles(url: URL, scale: SIMD3<Float>) throws -> [Triangle] {
+    private nonisolated static func parseTriangles(url: URL, scale: SIMD3<Float>) throws -> [Triangle] {
         let data = try Data(contentsOf: url)
         if isBinarySTL(data) {
             return try parseBinarySTL(data, scale: scale)
@@ -223,13 +239,13 @@ struct STLMeshEntityFactory {
         return try parseASCIISTL(data, scale: scale)
     }
 
-    private func isBinarySTL(_ data: Data) -> Bool {
+    private nonisolated static func isBinarySTL(_ data: Data) -> Bool {
         guard data.count >= 84 else { return false }
         let count = Int(readUInt32(data, offset: 80))
         return data.count == 84 + (count * 50)
     }
 
-    private func parseBinarySTL(_ data: Data, scale: SIMD3<Float>) throws -> [Triangle] {
+    private nonisolated static func parseBinarySTL(_ data: Data, scale: SIMD3<Float>) throws -> [Triangle] {
         guard data.count >= 84 else {
             throw LoaderError.invalidData
         }
@@ -268,7 +284,7 @@ struct STLMeshEntityFactory {
         return triangles
     }
 
-    private func parseASCIISTL(_ data: Data, scale: SIMD3<Float>) throws -> [Triangle] {
+    private nonisolated static func parseASCIISTL(_ data: Data, scale: SIMD3<Float>) throws -> [Triangle] {
         guard let text = String(data: data, encoding: .utf8) else {
             throw LoaderError.unsupportedEncoding
         }
@@ -298,13 +314,13 @@ struct STLMeshEntityFactory {
         return triangles
     }
 
-    private func readUInt32(_ data: Data, offset: Int) -> UInt32 {
+    private nonisolated static func readUInt32(_ data: Data, offset: Int) -> UInt32 {
         data.withUnsafeBytes { pointer in
             UInt32(littleEndian: pointer.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
         }
     }
 
-    private func readFloat(_ data: Data, offset: Int) -> Float {
+    private nonisolated static func readFloat(_ data: Data, offset: Int) -> Float {
         data.withUnsafeBytes { pointer in
             let bits = UInt32(littleEndian: pointer.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
             return Float(bitPattern: bits)

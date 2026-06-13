@@ -299,6 +299,201 @@ public struct LearningCampaignVectorizedBatchState: Identifiable, Sendable, Equa
 }
 
 public struct LearningCampaignRunStoreState: Sendable, Equatable {
+    /// Metrics that require O(N) passes over progress events, generations,
+    /// and candidates. They are computed exactly once at construction time
+    /// (off the main actor, inside the store load) so that SwiftUI body
+    /// evaluations reading them stay O(1).
+    public struct DerivedMetrics: Sendable, Equatable {
+        public let latestCompletedGenerationIndex: Int?
+        public let liveCandidateEvaluationCount: Int
+        public let bestFitness: Double?
+        public let initialBestFitness: Double?
+        public let bestTaskPassRate: Double?
+        public let bestHoldTimeRatio: Double?
+        public let bestAltitudeErrorRatio: Double?
+        public let liveBestFitnessSamples: [MetricSample]
+        public let liveRewardAverageSamples: [MetricSample]
+        public let liveTaskPassRateSamples: [MetricSample]
+        public let liveHoldTimeRatioSamples: [MetricSample]
+        public let liveAltitudeErrorRatioSamples: [MetricSample]
+        public let liveGenerationCountSamples: [MetricSample]
+        public let liveEpisodeSamples: [MetricSample]
+        public let livePopulationDiversitySamples: [MetricSample]
+        public let latestLiveCandidate: LearningCampaignProgressRecord?
+        public let diagnosis: LearningCampaignRunDiagnosis
+
+        init(
+            plan: LearningCampaignPlan?,
+            status: LearningCampaignStatus?,
+            summary: LearningCampaignSummary?,
+            validation: LearningCampaignValidation?,
+            progressEvents: [LearningCampaignProgressRecord],
+            generations: [LearningCampaignGenerationState],
+            candidates: [LearningCampaignCandidateState],
+            acceptedCheckpoints: [LearningCampaignAcceptedCheckpointState]
+        ) {
+            let persistedGenerationIndex = generations.map(\.generationIndex).max()
+            let liveGenerationIndex = progressEvents
+                .filter { $0.event == "generation-completed" }
+                .compactMap(\.generationIndex)
+                .max()
+            switch (persistedGenerationIndex, liveGenerationIndex) {
+            case (.some(let lhs), .some(let rhs)):
+                latestCompletedGenerationIndex = max(lhs, rhs)
+            case (.some(let value), .none), (.none, .some(let value)):
+                latestCompletedGenerationIndex = value
+            case (.none, .none):
+                latestCompletedGenerationIndex = nil
+            }
+
+            let progressCandidateCount = progressEvents.filter { $0.event == "candidate-evaluated" }.count
+            liveCandidateEvaluationCount = max(candidates.count, progressCandidateCount)
+
+            bestFitness = Self.mergedExtremum(
+                persisted: candidates.compactMap(\.scalarFitness).max(),
+                live: progressEvents.compactMap(\.fitness).max(),
+                by: max
+            )
+            let generationZeroLiveFitness = progressEvents
+                .filter { $0.event == "candidate-evaluated" && $0.generationIndex == 0 }
+                .compactMap(\.fitness)
+                .max()
+            initialBestFitness = generationZeroLiveFitness
+                ?? candidates.filter { $0.generationIndex == 0 }.compactMap(\.scalarFitness).max()
+            bestTaskPassRate = Self.mergedExtremum(
+                persisted: candidates.compactMap(\.taskPassRate).max(),
+                live: progressEvents.compactMap(\.taskPassRate).max(),
+                by: max
+            )
+            bestHoldTimeRatio = Self.mergedExtremum(
+                persisted: candidates.compactMap(\.holdTimeRatio).max(),
+                live: progressEvents.compactMap(\.holdTimeRatio).max(),
+                by: max
+            )
+            bestAltitudeErrorRatio = Self.mergedExtremum(
+                persisted: candidates.compactMap(\.altitudeErrorRatio).min(),
+                live: progressEvents.compactMap(\.altitudeErrorRatio).min(),
+                by: min
+            )
+
+            let candidateRecords = progressEvents.filter { record in
+                record.event == "candidate-evaluated" &&
+                record.generationIndex != nil &&
+                record.fitness?.isFinite == true
+            }
+            let recordsByGeneration = Dictionary(grouping: candidateRecords) { record in
+                record.generationIndex ?? 0
+            }
+            let sortedGenerationIndexes = recordsByGeneration.keys.sorted()
+            let bestRecordsByGeneration = sortedGenerationIndexes.compactMap { generationIndex in
+                recordsByGeneration[generationIndex]?.max { lhs, rhs in
+                    (lhs.fitness ?? -.greatestFiniteMagnitude) < (rhs.fitness ?? -.greatestFiniteMagnitude)
+                }
+            }
+            liveBestFitnessSamples = Self.samples(from: bestRecordsByGeneration, value: \.fitness)
+            liveRewardAverageSamples = Self.samples(from: bestRecordsByGeneration, value: \.rewardAverage)
+            liveTaskPassRateSamples = Self.samples(from: bestRecordsByGeneration, value: \.taskPassRate)
+            liveHoldTimeRatioSamples = Self.samples(from: bestRecordsByGeneration, value: \.holdTimeRatio)
+            liveAltitudeErrorRatioSamples = Self.samples(from: bestRecordsByGeneration, value: \.altitudeErrorRatio)
+
+            let completedOrEvaluatedGenerationIndexes = Set(
+                progressEvents
+                    .filter { $0.event == "generation-completed" || $0.event == "candidate-evaluated" }
+                    .compactMap(\.generationIndex)
+            )
+            liveGenerationCountSamples = completedOrEvaluatedGenerationIndexes.sorted().map { generationIndex in
+                MetricSample(time: Double(generationIndex), value: Double(generationIndex + 1))
+            }
+
+            let episodeMultiplier = max(1, plan?.episodes ?? 1) * max(1, plan?.suites.count ?? 1)
+            var cumulativeEpisodes = 0
+            liveEpisodeSamples = sortedGenerationIndexes.compactMap { generationIndex in
+                guard let records = recordsByGeneration[generationIndex], !records.isEmpty else { return nil }
+                cumulativeEpisodes += records.count * episodeMultiplier
+                return MetricSample(time: Double(generationIndex), value: Double(cumulativeEpisodes))
+            }
+
+            livePopulationDiversitySamples = sortedGenerationIndexes.compactMap { generationIndex in
+                guard let records = recordsByGeneration[generationIndex] else { return nil }
+                let values = records.compactMap(\.fitness).filter(\.isFinite)
+                guard values.count > 1 else { return nil }
+                return MetricSample(time: Double(generationIndex), value: Self.standardDeviation(values))
+            }
+
+            latestLiveCandidate = progressEvents.last { $0.event == "candidate-evaluated" }
+
+            let autonomyStages = summary?.autonomousPipelineExecution?.stageRecords
+                .map(LearningCampaignAutonomyStageState.init) ?? []
+            diagnosis = LearningCampaignRunDiagnosis.make(
+                status: status,
+                validation: validation,
+                summary: summary,
+                progressEvents: progressEvents.map {
+                    LearningCampaignRunDiagnosisProgressEvent(
+                        event: $0.event,
+                        timestamp: $0.timestamp,
+                        status: $0.status,
+                        exitCode: $0.exitCode
+                    )
+                },
+                checkpointRejectionReasons: acceptedCheckpoints.flatMap { checkpoint in
+                    if checkpoint.accepted {
+                        return [String]()
+                    }
+                    return checkpoint.reasons.map { reason in
+                        "accepted-checkpoint:\(checkpoint.seed): \(reason)"
+                    }
+                },
+                generationRejectionReasons: generations.flatMap { generation in
+                    generation.rejectionReasons.map { reason in
+                        "generation:\(generation.seed):g\(generation.generationIndex): \(reason)"
+                    }
+                },
+                autonomyFailureReasons: autonomyStages.flatMap { stage in
+                    stage.failureReasons.map { reason in
+                        "autonomy:\(stage.stageID): \(reason)"
+                    }
+                }
+            )
+        }
+
+        private static func mergedExtremum(
+            persisted: Double?,
+            live: Double?,
+            by extremum: (Double, Double) -> Double
+        ) -> Double? {
+            switch (persisted, live) {
+            case (.some(let lhs), .some(let rhs)):
+                return extremum(lhs, rhs)
+            case (.some(let value), .none), (.none, .some(let value)):
+                return value
+            case (.none, .none):
+                return nil
+            }
+        }
+
+        private static func samples(
+            from records: [LearningCampaignProgressRecord],
+            value: KeyPath<LearningCampaignProgressRecord, Double?>
+        ) -> [MetricSample] {
+            records.compactMap { record in
+                guard let generationIndex = record.generationIndex,
+                      let value = record[keyPath: value] else { return nil }
+                return MetricSample(time: Double(generationIndex), value: value)
+            }
+        }
+
+        private static func standardDeviation(_ values: [Double]) -> Double {
+            guard values.count > 1 else { return 0 }
+            let average = values.reduce(0, +) / Double(values.count)
+            let variance = values.reduce(0) { partial, value in
+                let delta = value - average
+                return partial + delta * delta
+            } / Double(values.count)
+            return sqrt(variance)
+        }
+    }
+
     public let artifactDirectory: URL
     public let plan: LearningCampaignPlan?
     public let status: LearningCampaignStatus?
@@ -311,6 +506,45 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     public let candidates: [LearningCampaignCandidateState]
     public let vectorizedBatches: [LearningCampaignVectorizedBatchState]
     public let acceptedCheckpoints: [LearningCampaignAcceptedCheckpointState]
+    public let derived: DerivedMetrics
+
+    public init(
+        artifactDirectory: URL,
+        plan: LearningCampaignPlan?,
+        status: LearningCampaignStatus?,
+        summary: LearningCampaignSummary?,
+        validation: LearningCampaignValidation?,
+        retention: LearningCampaignArtifactRetentionSummary?,
+        accelerator: LearningCampaignAcceleratorSnapshot?,
+        progressEvents: [LearningCampaignProgressRecord],
+        generations: [LearningCampaignGenerationState],
+        candidates: [LearningCampaignCandidateState],
+        vectorizedBatches: [LearningCampaignVectorizedBatchState],
+        acceptedCheckpoints: [LearningCampaignAcceptedCheckpointState]
+    ) {
+        self.artifactDirectory = artifactDirectory
+        self.plan = plan
+        self.status = status
+        self.summary = summary
+        self.validation = validation
+        self.retention = retention
+        self.accelerator = accelerator
+        self.progressEvents = progressEvents
+        self.generations = generations
+        self.candidates = candidates
+        self.vectorizedBatches = vectorizedBatches
+        self.acceptedCheckpoints = acceptedCheckpoints
+        self.derived = DerivedMetrics(
+            plan: plan,
+            status: status,
+            summary: summary,
+            validation: validation,
+            progressEvents: progressEvents,
+            generations: generations,
+            candidates: candidates,
+            acceptedCheckpoints: acceptedCheckpoints
+        )
+    }
 
     public var latestEvent: LearningCampaignProgressRecord? {
         progressEvents.last
@@ -383,19 +617,7 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     }
 
     public var latestCompletedGenerationIndex: Int? {
-        let persisted = generations.map(\.generationIndex).max()
-        let live = progressEvents
-            .filter { $0.event == "generation-completed" }
-            .compactMap(\.generationIndex)
-            .max()
-        switch (persisted, live) {
-        case (.some(let lhs), .some(let rhs)):
-            return max(lhs, rhs)
-        case (.some(let value), .none), (.none, .some(let value)):
-            return value
-        case (.none, .none):
-            return nil
-        }
+        derived.latestCompletedGenerationIndex
     }
 
     public var completedGenerationCount: Int {
@@ -403,8 +625,7 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     }
 
     public var liveCandidateEvaluationCount: Int {
-        let progressCount = progressEvents.filter { $0.event == "candidate-evaluated" }.count
-        return max(candidateEvaluationCount, progressCount)
+        derived.liveCandidateEvaluationCount
     }
 
     public var liveEpisodeCount: Int {
@@ -431,26 +652,11 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     }
 
     public var bestFitness: Double? {
-        let persisted = candidates.compactMap(\.scalarFitness).max()
-        let live = progressEvents.compactMap(\.fitness).max()
-        switch (persisted, live) {
-        case (.some(let lhs), .some(let rhs)):
-            return max(lhs, rhs)
-        case (.some(let value), .none), (.none, .some(let value)):
-            return value
-        case (.none, .none):
-            return nil
-        }
+        derived.bestFitness
     }
 
     public var initialBestFitness: Double? {
-        let generationZeroCandidates = progressEvents.filter {
-            $0.event == "candidate-evaluated" && $0.generationIndex == 0
-        }
-        if let value = generationZeroCandidates.compactMap(\.fitness).max() {
-            return value
-        }
-        return candidates.filter { $0.generationIndex == 0 }.compactMap(\.scalarFitness).max()
+        derived.initialBestFitness
     }
 
     public var bestFitnessDeltaFromInitial: Double? {
@@ -459,116 +665,55 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     }
 
     public var bestTaskPassRate: Double? {
-        let persisted = candidates.compactMap(\.taskPassRate).max()
-        let live = progressEvents.compactMap(\.taskPassRate).max()
-        switch (persisted, live) {
-        case (.some(let lhs), .some(let rhs)):
-            return max(lhs, rhs)
-        case (.some(let value), .none), (.none, .some(let value)):
-            return value
-        case (.none, .none):
-            return nil
-        }
+        derived.bestTaskPassRate
     }
 
     public var bestHoldTimeRatio: Double? {
-        let persisted = candidates.compactMap(\.holdTimeRatio).max()
-        let live = progressEvents.compactMap(\.holdTimeRatio).max()
-        switch (persisted, live) {
-        case (.some(let lhs), .some(let rhs)):
-            return max(lhs, rhs)
-        case (.some(let value), .none), (.none, .some(let value)):
-            return value
-        case (.none, .none):
-            return nil
-        }
+        derived.bestHoldTimeRatio
     }
 
     public var bestAltitudeErrorRatio: Double? {
-        let persisted = candidates.compactMap(\.altitudeErrorRatio).min()
-        let live = progressEvents.compactMap(\.altitudeErrorRatio).min()
-        switch (persisted, live) {
-        case (.some(let lhs), .some(let rhs)):
-            return min(lhs, rhs)
-        case (.some(let value), .none), (.none, .some(let value)):
-            return value
-        case (.none, .none):
-            return nil
-        }
+        derived.bestAltitudeErrorRatio
     }
 
     public var liveBestFitnessSamples: [MetricSample] {
-        liveBestCandidateRecordsByGeneration.compactMap { record in
-            guard let generationIndex = record.generationIndex, let value = record.fitness else { return nil }
-            return MetricSample(time: Double(generationIndex), value: value)
-        }
+        derived.liveBestFitnessSamples
     }
 
     public var liveRewardAverageSamples: [MetricSample] {
-        liveBestCandidateRecordsByGeneration.compactMap { record in
-            guard let generationIndex = record.generationIndex, let value = record.rewardAverage else { return nil }
-            return MetricSample(time: Double(generationIndex), value: value)
-        }
+        derived.liveRewardAverageSamples
     }
 
     public var liveTaskPassRateSamples: [MetricSample] {
-        liveBestCandidateRecordsByGeneration.compactMap { record in
-            guard let generationIndex = record.generationIndex, let value = record.taskPassRate else { return nil }
-            return MetricSample(time: Double(generationIndex), value: value)
-        }
+        derived.liveTaskPassRateSamples
     }
 
     public var liveHoldTimeRatioSamples: [MetricSample] {
-        liveBestCandidateRecordsByGeneration.compactMap { record in
-            guard let generationIndex = record.generationIndex, let value = record.holdTimeRatio else { return nil }
-            return MetricSample(time: Double(generationIndex), value: value)
-        }
+        derived.liveHoldTimeRatioSamples
     }
 
     public var liveAltitudeErrorRatioSamples: [MetricSample] {
-        liveBestCandidateRecordsByGeneration.compactMap { record in
-            guard let generationIndex = record.generationIndex, let value = record.altitudeErrorRatio else { return nil }
-            return MetricSample(time: Double(generationIndex), value: value)
-        }
+        derived.liveAltitudeErrorRatioSamples
     }
 
     public var liveGenerationCountSamples: [MetricSample] {
-        let generationIndexes = Set(
-            progressEvents
-                .filter { $0.event == "generation-completed" || $0.event == "candidate-evaluated" }
-                .compactMap(\.generationIndex)
-        )
-        return generationIndexes.sorted().map { generationIndex in
-            MetricSample(time: Double(generationIndex), value: Double(generationIndex + 1))
-        }
+        derived.liveGenerationCountSamples
     }
 
     public var liveEpisodeSamples: [MetricSample] {
-        let grouped = liveCandidateRecordsByGeneration
-        var cumulative = 0
-        return grouped.keys.sorted().compactMap { generationIndex in
-            guard let records = grouped[generationIndex], !records.isEmpty else { return nil }
-            cumulative += records.count * episodeMultiplier
-            return MetricSample(time: Double(generationIndex), value: Double(cumulative))
-        }
+        derived.liveEpisodeSamples
     }
 
     public var livePopulationDiversitySamples: [MetricSample] {
-        let grouped = liveCandidateRecordsByGeneration
-        return grouped.keys.sorted().compactMap { generationIndex in
-            guard let records = grouped[generationIndex] else { return nil }
-            let values = records.compactMap(\.fitness).filter(\.isFinite)
-            guard values.count > 1 else { return nil }
-            return MetricSample(time: Double(generationIndex), value: standardDeviation(values))
-        }
+        derived.livePopulationDiversitySamples
     }
 
     public var populationDiversity: Double? {
-        livePopulationDiversitySamples.last?.value
+        derived.livePopulationDiversitySamples.last?.value
     }
 
     public var latestLiveCandidate: LearningCampaignProgressRecord? {
-        progressEvents.last { $0.event == "candidate-evaluated" }
+        derived.latestLiveCandidate
     }
 
     public var maxRequestedCandidateConcurrency: Int {
@@ -650,22 +795,7 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     }
 
     public var diagnosis: LearningCampaignRunDiagnosis {
-        LearningCampaignRunDiagnosis.make(
-            status: status,
-            validation: validation,
-            summary: summary,
-            progressEvents: progressEvents.map {
-                LearningCampaignRunDiagnosisProgressEvent(
-                    event: $0.event,
-                    timestamp: $0.timestamp,
-                    status: $0.status,
-                    exitCode: $0.exitCode
-                )
-            },
-            checkpointRejectionReasons: acceptedCheckpointFailureReasons,
-            generationRejectionReasons: generationFailureReasons,
-            autonomyFailureReasons: autonomyFailureReasons
-        )
+        derived.diagnosis
     }
 
     public var failureReasons: [String] {
@@ -718,67 +848,10 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
         return lines.joined(separator: "\n")
     }
 
-    private var generationFailureReasons: [String] {
-        generations.flatMap { generation in
-            generation.rejectionReasons.map { reason in
-                "generation:\(generation.seed):g\(generation.generationIndex): \(reason)"
-            }
-        }
-    }
-
-    private var acceptedCheckpointFailureReasons: [String] {
-        acceptedCheckpoints.flatMap { checkpoint in
-            if checkpoint.accepted {
-                return [String]()
-            }
-            return checkpoint.reasons.map { reason in
-                "accepted-checkpoint:\(checkpoint.seed): \(reason)"
-            }
-        }
-    }
-
-    private var autonomyFailureReasons: [String] {
-        autonomyStages.flatMap { stage in
-            stage.failureReasons.map { reason in
-                "autonomy:\(stage.stageID): \(reason)"
-            }
-        }
-    }
-
-    private var liveBestCandidateRecordsByGeneration: [LearningCampaignProgressRecord] {
-        let grouped = liveCandidateRecordsByGeneration
-        return grouped.keys.sorted().compactMap { generationIndex in
-            grouped[generationIndex]?.max { lhs, rhs in
-                (lhs.fitness ?? -.greatestFiniteMagnitude) < (rhs.fitness ?? -.greatestFiniteMagnitude)
-            }
-        }
-    }
-
-    private var liveCandidateRecordsByGeneration: [Int: [LearningCampaignProgressRecord]] {
-        let candidates = progressEvents.filter { record in
-            record.event == "candidate-evaluated" &&
-            record.generationIndex != nil &&
-            record.fitness?.isFinite == true
-        }
-        return Dictionary(grouping: candidates) { record in
-            record.generationIndex ?? 0
-        }
-    }
-
     private var episodeMultiplier: Int {
         let episodeCount = plan?.episodes ?? 1
         let suiteCount = plan?.suites.count ?? 1
         return max(1, episodeCount) * max(1, suiteCount)
-    }
-
-    private func standardDeviation(_ values: [Double]) -> Double {
-        guard values.count > 1 else { return 0 }
-        let average = values.reduce(0, +) / Double(values.count)
-        let variance = values.reduce(0) { partial, value in
-            let delta = value - average
-            return partial + delta * delta
-        } / Double(values.count)
-        return sqrt(variance)
     }
 }
 

@@ -52,7 +52,6 @@ public struct WorldRealityView: View {
     @State private var cameraPitch: Float = 1.1
     @State private var cameraDistance: Float = 3.2
     @State private var cameraTarget = SIMD3<Float>(0, 0.15, 0)
-    private let renderSystem = RenderSystem()
     private static let defaultCameraYaw: Float = 0.6
     private static let defaultCameraPitch: Float = 1.1
     private static let defaultCameraDistance: Float = 3.2
@@ -458,25 +457,26 @@ public struct WorldRealityView: View {
         loadFailed = false
         Task {
             do {
-                let rendered = try await renderSystem.loadRobotEntity(info: info)
-                await MainActor.run {
-                    loadedEntity = rendered.entity
-                    loadedJointBindings = rendered.jointBindings
-                    if let proxyBodyEntity {
-                        rootEntity?.removeChild(proxyBodyEntity)
-                        self.proxyBodyEntity = nil
-                    }
-                    if let proxyEntity {
-                        rootEntity?.removeChild(proxyEntity)
-                        self.proxyEntity = nil
-                    }
-                    rootEntity?.addChild(rendered.entity)
-                    updateLoadedJoints()
+                // Served from the main-actor entity cache: a cache hit clones
+                // the loaded template instead of re-parsing the asset, so
+                // workspace switches do not repeat disk loads.
+                let rendered = try await RobotEntityCache.shared.renderedEntity(for: info)
+                guard loadedURL == info.url else { return }
+                loadedEntity = rendered.entity
+                loadedJointBindings = rendered.jointBindings
+                if let proxyBodyEntity {
+                    rootEntity?.removeChild(proxyBodyEntity)
+                    self.proxyBodyEntity = nil
                 }
+                if let proxyEntity {
+                    rootEntity?.removeChild(proxyEntity)
+                    self.proxyEntity = nil
+                }
+                rootEntity?.addChild(rendered.entity)
+                updateLoadedJoints()
             } catch {
-                await MainActor.run {
-                    loadFailed = true
-                }
+                guard loadedURL == info.url else { return }
+                loadFailed = true
             }
         }
     }

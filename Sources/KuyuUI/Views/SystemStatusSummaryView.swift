@@ -6,6 +6,16 @@ import SwiftUI
 struct SystemStatusSummaryView: View {
     @Bindable var model: SimulationViewModel
 
+    // Creating the system Metal device is expensive; never do it per body
+    // evaluation.
+    #if canImport(Metal)
+    private static let metalDevice: (any MTLDevice)? = MTLCreateSystemDefaultDevice()
+    #endif
+
+    private static let diskRefreshInterval: Duration = .seconds(30)
+
+    @State private var diskAvailableSummary = "--"
+
     var body: some View {
         GroupBox("System Status") {
             VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
@@ -26,6 +36,11 @@ struct SystemStatusSummaryView: View {
         .controlSize(.small)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("System Status")
+        .task(id: model.learningCampaignArtifactDirectory) {
+            await refreshDiskSummaryPeriodically(
+                artifactDirectory: model.learningCampaignArtifactDirectory
+            )
+        }
     }
 
     private var primaryStatus: String {
@@ -94,7 +109,7 @@ struct SystemStatusSummaryView: View {
 
     private var metalStatus: String {
         #if canImport(Metal)
-        return MTLCreateSystemDefaultDevice()?.name ?? "unavailable"
+        return Self.metalDevice?.name ?? "unavailable"
         #else
         return "unavailable"
         #endif
@@ -107,8 +122,26 @@ struct SystemStatusSummaryView: View {
         )
     }
 
-    private var diskAvailableSummary: String {
-        let url = existingDiskProbeURL()
+    // Disk probing walks the filesystem; it runs off the main actor on a
+    // fixed interval instead of inside body evaluation.
+    private func refreshDiskSummaryPeriodically(artifactDirectory: String) async {
+        while !Task.isCancelled {
+            let summary = await Task.detached(priority: .utility) {
+                Self.diskAvailableSummary(artifactDirectory: artifactDirectory)
+            }.value
+            if diskAvailableSummary != summary {
+                diskAvailableSummary = summary
+            }
+            do {
+                try await Task.sleep(for: Self.diskRefreshInterval)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private nonisolated static func diskAvailableSummary(artifactDirectory: String) -> String {
+        let url = existingDiskProbeURL(artifactDirectory: artifactDirectory)
         do {
             let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             guard let capacity = values.volumeAvailableCapacityForImportantUsage else {
@@ -120,8 +153,8 @@ struct SystemStatusSummaryView: View {
         }
     }
 
-    private func existingDiskProbeURL() -> URL {
-        var url = URL(fileURLWithPath: model.learningCampaignArtifactDirectory)
+    private nonisolated static func existingDiskProbeURL(artifactDirectory: String) -> URL {
+        var url = URL(fileURLWithPath: artifactDirectory)
         let fileManager = FileManager.default
         while !fileManager.fileExists(atPath: url.path), url.path != "/" {
             url.deleteLastPathComponent()

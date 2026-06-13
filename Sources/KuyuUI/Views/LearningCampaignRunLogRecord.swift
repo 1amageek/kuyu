@@ -200,7 +200,7 @@ enum LearningCampaignRunLogFormatter {
         entries.map { entry in
             let metadata = entry.metadata.isEmpty ? "" : " [\(entry.metadata.joined(separator: ", "))]"
             let detail = entry.detail.isEmpty ? "" : " - \(entry.detail)"
-            return "\(makeISOFormatter().string(from: entry.timestamp)) \(entry.level.rawValue.uppercased()) \(entry.phase): \(entry.title)\(detail)\(metadata)"
+            return "\(isoFormatStyle.format(entry.timestamp)) \(entry.level.rawValue.uppercased()) \(entry.phase): \(entry.title)\(detail)\(metadata)"
         }
         .joined(separator: "\n")
     }
@@ -211,7 +211,7 @@ enum LearningCampaignRunLogFormatter {
         let metadata = progressMetadata(record)
         return LearningCampaignRunLogRecord(
             id: UUID(uuidString: deterministicID(record.timestamp + record.event)) ?? UUID(),
-            timestamp: makeISOFormatter().date(from: record.timestamp) ?? Date.distantPast,
+            timestamp: parseISOTimestamp(record.timestamp) ?? Date.distantPast,
             category: progressCategory(record),
             level: progressLevel(record),
             phase: phase,
@@ -447,7 +447,16 @@ enum LearningCampaignRunLogFormatter {
         return "00000000-0000-0000-0000-\(padding)\(rawSuffix)"
     }
 
-    private static func makeISOFormatter() -> ISO8601DateFormatter {
-        ISO8601DateFormatter()
+    // A shared Sendable format style avoids a per-record formatter allocation
+    // when formatting large progress logs. The default style matches
+    // ISO8601DateFormatter's .withInternetDateTime output.
+    private static let isoFormatStyle = Date.ISO8601FormatStyle()
+
+    private static func parseISOTimestamp(_ value: String) -> Date? {
+        do {
+            return try isoFormatStyle.parse(value)
+        } catch {
+            return nil
+        }
     }
 }

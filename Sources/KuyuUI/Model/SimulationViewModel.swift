@@ -99,6 +99,8 @@ public final class SimulationViewModel {
     private var robotCachePath: String?
     private var robotCache: LoadedKuyuRobot?
     private var robotCacheError: String?
+    @ObservationIgnored private var resolvedManifestPathCacheKey: String?
+    @ObservationIgnored private var resolvedManifestPathCacheValue: String?
     private var lastTelemetryLogTime: Double?
     var lastActuatorValues: [ActuatorValue] = []
     var lastDriveIntents: [DriveIntent] = []
@@ -2107,19 +2109,35 @@ public final class SimulationViewModel {
         let directory = URL(fileURLWithPath: path, isDirectory: true)
         learningCampaignArtifactLoadID &+= 1
         let loadID = learningCampaignArtifactLoadID
+        let previousState = learningCampaignState
+        let hadError = learningCampaignError != nil
+        let formatsRunLog = learningCampaignHandle == nil
         learningCampaignArtifactLoadTask?.cancel()
         learningCampaignArtifactLoadTask = Task { [weak self, directory, loadID] in
             do {
-                let state = try await Task.detached(priority: .utility) {
-                    try LearningCampaignRunStore().load(from: directory)
+                // Load, change-detect, and format off the main actor; the
+                // main actor only receives a ready-to-apply payload, and an
+                // unchanged on-disk state skips the apply entirely so that
+                // observing views are not invalidated every poll cycle.
+                let load = try await Task.detached(priority: .utility) { () -> LearningCampaignArtifactLoad? in
+                    let state = try LearningCampaignRunStore().load(from: directory)
+                    if !hadError, let previousState, state == previousState {
+                        return nil
+                    }
+                    let runLog = formatsRunLog ? LearningCampaignRunLogFormatter.entries(from: state) : nil
+                    return LearningCampaignArtifactLoad(state: state, runLog: runLog)
                 }.value
                 try Task.checkCancellation()
                 await MainActor.run {
-                    self?.applyLearningCampaignArtifactLoad(
-                        state: state,
-                        directory: directory,
-                        loadID: loadID
-                    )
+                    if let load {
+                        self?.applyLearningCampaignArtifactLoad(
+                            load: load,
+                            directory: directory,
+                            loadID: loadID
+                        )
+                    } else {
+                        self?.finishUnchangedLearningCampaignArtifactLoad(loadID: loadID)
+                    }
                 }
             } catch is CancellationError {
                 return
@@ -2140,19 +2158,46 @@ public final class SimulationViewModel {
     }
 
     private func applyLearningCampaignArtifactLoad(
-        state: LearningCampaignRunStoreState,
+        load: LearningCampaignArtifactLoad,
         directory: URL,
         loadID: UInt64
     ) {
         guard loadID == learningCampaignArtifactLoadID else { return }
-        learningCampaignState = state
-        learningCampaignProgressFraction = state.campaignProgressFraction
-        learningCampaignError = nil
-        isLearningCampaignRunning = learningCampaignHandle != nil
-        if learningCampaignHandle == nil {
-            learningCampaignRunLog = LearningCampaignRunLogFormatter.entries(from: state)
-            learningCampaignCurrentPhase = state.isActive ? "stale \(state.statusLabel)" : state.statusLabel
+        // @Observable fires invalidation on every assignment regardless of
+        // value equality, so each mutation is guarded by an inequality check.
+        let state = load.state
+        if learningCampaignState != state {
+            learningCampaignState = state
         }
+        let progressFraction = state.campaignProgressFraction
+        if learningCampaignProgressFraction != progressFraction {
+            learningCampaignProgressFraction = progressFraction
+        }
+        if learningCampaignError != nil {
+            learningCampaignError = nil
+        }
+        let isRunning = learningCampaignHandle != nil
+        if isLearningCampaignRunning != isRunning {
+            isLearningCampaignRunning = isRunning
+        }
+        if learningCampaignHandle == nil {
+            // The run log is formatted off-main only when no live handle was
+            // present at schedule time; if a handle appeared since, the live
+            // event stream owns the run log and the stale formatting is
+            // discarded by the surrounding guard.
+            if let runLog = load.runLog {
+                learningCampaignRunLog = runLog
+            }
+            let phase = state.isActive ? "stale \(state.statusLabel)" : state.statusLabel
+            if learningCampaignCurrentPhase != phase {
+                learningCampaignCurrentPhase = phase
+            }
+        }
+        learningCampaignArtifactLoadTask = nil
+    }
+
+    private func finishUnchangedLearningCampaignArtifactLoad(loadID: UInt64) {
+        guard loadID == learningCampaignArtifactLoadID else { return }
         learningCampaignArtifactLoadTask = nil
     }
 
@@ -3434,8 +3479,16 @@ public final class SimulationViewModel {
         return levelIndex > errorIndex ? .error : level
     }
 
+    // Resolution probes the bundle and filesystem for default literal paths,
+    // so memoize per input path; this runs on every render-side robot lookup.
     private func resolvedRobotManifestPathForCache() -> String {
-        KuyuUIModelPaths.resolveRobotManifestPath(robotManifestPath)
+        if resolvedManifestPathCacheKey == robotManifestPath, let value = resolvedManifestPathCacheValue {
+            return value
+        }
+        let resolved = KuyuUIModelPaths.resolveRobotManifestPath(robotManifestPath)
+        resolvedManifestPathCacheKey = robotManifestPath
+        resolvedManifestPathCacheValue = resolved
+        return resolved
     }
 
     private func resolvedRobotManifestPath() -> String {
@@ -4028,6 +4081,13 @@ private extension TrainingDeterminismTier {
             self = .tier2
         }
     }
+}
+
+/// Payload produced off the main actor by an artifact load: the decoded state
+/// plus the pre-formatted run log (nil when a live handle owns the run log).
+private struct LearningCampaignArtifactLoad: Sendable {
+    let state: LearningCampaignRunStoreState
+    let runLog: [LearningCampaignRunLogRecord]?
 }
 
 private struct LearningCampaignPresetSettings {

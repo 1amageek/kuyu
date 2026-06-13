@@ -16,36 +16,37 @@ public struct RenderSystem: Sendable {
         )
     }
 
+    @MainActor
     public func loadEntity(info: RenderAssetInfo) async throws -> Entity {
         (try await loadRobotEntity(info: info)).entity
     }
 
+    // The main actor only assembles entities; file reading, parsing, and mesh
+    // decoding all run off-main (detached tasks or RealityKit's async loaders).
+    @MainActor
     func loadRobotEntity(info: RenderAssetInfo) async throws -> RenderedRobotEntity {
         switch info.format {
         case .urdf:
-            let model = try URDFKinematicParser().parse(url: info.url)
-            return try await MainActor.run {
-                try URDFRealityEntityFactory().makeEntity(
-                    model: model,
-                    sourceURL: info.url,
-                    scale: info.scale
-                )
-            }
+            let url = info.url
+            let model = try await Task.detached(priority: .userInitiated) {
+                try URDFKinematicParser().parse(url: url)
+            }.value
+            return try await URDFRealityEntityFactory().makeEntity(
+                model: model,
+                sourceURL: info.url,
+                scale: info.scale
+            )
         case .stl:
-            return try await MainActor.run {
-                RenderedRobotEntity(
-                    entity: try STLMeshEntityFactory().makeEntity(url: info.url, scale: info.scale),
-                    jointBindings: []
-                )
-            }
+            return RenderedRobotEntity(
+                entity: try await STLMeshEntityFactory().makeEntity(url: info.url, scale: info.scale),
+                jointBindings: []
+            )
         case .usdz, .usdc, .glb, .gltf, .obj:
-            return try await MainActor.run {
-                let entity = try ModelEntity.loadModel(contentsOf: info.url)
-                if let scale = info.scale {
-                    entity.scale = [Float(scale.x), Float(scale.y), Float(scale.z)]
-                }
-                return RenderedRobotEntity(entity: entity, jointBindings: [])
+            let entity = try await ModelEntity(contentsOf: info.url)
+            if let scale = info.scale {
+                entity.scale = [Float(scale.x), Float(scale.y), Float(scale.z)]
             }
+            return RenderedRobotEntity(entity: entity, jointBindings: [])
         }
     }
 

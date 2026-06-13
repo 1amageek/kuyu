@@ -188,10 +188,12 @@ private struct LearningCampaignRunLogView: View {
                     .font(.callout.weight(.semibold))
                 Spacer()
                 Button("Copy") {
-                    copyToPasteboard(transcript)
+                    // The transcript is only formatted on click; building it
+                    // per body evaluation would be O(entries) per render.
+                    copyToPasteboard(LearningCampaignRunLogFormatter.transcript(entries: entries))
                 }
                 .buttonStyle(.bordered)
-                .disabled(transcript.isEmpty)
+                .disabled(entries.isEmpty)
             }
 
             Picker("Run log filter", selection: $filter) {
@@ -222,10 +224,6 @@ private struct LearningCampaignRunLogView: View {
 
     private var entries: [LearningCampaignRunLogRecord] {
         filter.apply(to: model.learningCampaignRunLog)
-    }
-
-    private var transcript: String {
-        LearningCampaignRunLogFormatter.transcript(entries: entries)
     }
 
     private func copyToPasteboard(_ value: String) {
@@ -488,9 +486,12 @@ private struct RawLearningCampaignLogView: View {
     @State private var rawLogFilterText = ""
 
     var body: some View {
+        // Formatting the raw log lines is O(run log + UI log); build them once
+        // per body evaluation and share between the output view and footer.
+        let lines = rawLogLines
         VStack(spacing: 0) {
             MonospacedLogOutputView(
-                lines: rawLogLines,
+                lines: lines,
                 emptyMessage: "No raw logs yet",
                 filterText: rawLogFilterText
             )
@@ -498,12 +499,12 @@ private struct RawLearningCampaignLogView: View {
 
             Divider()
 
-            rawLogFooter
+            rawLogFooter(lines: lines)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var rawLogFooter: some View {
+    private func rawLogFooter(lines: [MonospacedLogLine]) -> some View {
         HStack(spacing: KuyuSpacing.sm) {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .foregroundStyle(.secondary)
@@ -528,12 +529,13 @@ private struct RawLearningCampaignLogView: View {
             Spacer()
 
             Button {
-                copyRawLogsToPasteboard(filteredRawLogText)
+                // The joined text is only built on click, not per render.
+                copyRawLogsToPasteboard(filteredRawLogText(lines: lines))
             } label: {
                 Image(systemName: "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .disabled(filteredRawLogText.isEmpty)
+            .disabled(lines.isEmpty)
             .help("Copy Visible Raw Logs")
         }
         .font(.callout)
@@ -563,11 +565,11 @@ private struct RawLearningCampaignLogView: View {
         return lines
     }
 
-    private var filteredRawLogText: String {
+    private func filteredRawLogText(lines: [MonospacedLogLine]) -> String {
         let filter = rawLogFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
         let visible = filter.isEmpty
-            ? rawLogLines
-            : rawLogLines.filter { $0.text.localizedStandardContains(filter) }
+            ? lines
+            : lines.filter { $0.text.localizedStandardContains(filter) }
         return visible.map(\.text).joined(separator: "\n")
     }
 
