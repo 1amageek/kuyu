@@ -528,6 +528,7 @@ private struct RawLearningCampaignLogView: View {
 
             Spacer()
 
+            let hasVisibleLines = hasVisibleRawLogLines(lines: lines)
             Button {
                 // The joined text is only built on click, not per render.
                 copyRawLogsToPasteboard(filteredRawLogText(lines: lines))
@@ -535,7 +536,7 @@ private struct RawLearningCampaignLogView: View {
                 Image(systemName: "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .disabled(lines.isEmpty)
+            .disabled(!hasVisibleLines)
             .help("Copy Visible Raw Logs")
         }
         .font(.callout)
@@ -571,6 +572,14 @@ private struct RawLearningCampaignLogView: View {
             ? lines
             : lines.filter { $0.text.localizedStandardContains(filter) }
         return visible.map(\.text).joined(separator: "\n")
+    }
+
+    private func hasVisibleRawLogLines(lines: [MonospacedLogLine]) -> Bool {
+        let filter = rawLogFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !filter.isEmpty else {
+            return !lines.isEmpty
+        }
+        return lines.contains { $0.text.localizedStandardContains(filter) }
     }
 
     private func uiLogLine(for entry: UILogEntry) -> String {
