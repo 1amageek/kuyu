@@ -1,9 +1,58 @@
 import Foundation
 
 struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
-    let statusLabel: String
+    enum Status: String, Sendable, Equatable {
+        case active
+        case ready
+        case unavailable
+
+        var label: String { rawValue }
+    }
+
+    enum ExecutionEvidence: Sendable, Equatable {
+        case cpu
+        case mlxGPU
+        case gpuTensorWorld
+        case gpuTensorSummary
+        case mlxVariation
+        case mlxEvaluation
+        case cpuEvaluation
+        case unknown
+
+        var label: String {
+            switch self {
+            case .cpu:
+                return "CPU"
+            case .mlxGPU:
+                return "MLX GPU"
+            case .gpuTensorWorld:
+                return "GPU tensor world"
+            case .gpuTensorSummary:
+                return "GPU tensor summary"
+            case .mlxVariation:
+                return "MLX variation"
+            case .mlxEvaluation:
+                return "MLX evaluation"
+            case .cpuEvaluation:
+                return "CPU evaluation"
+            case .unknown:
+                return "--"
+            }
+        }
+
+        var usesGPU: Bool {
+            switch self {
+            case .mlxGPU, .gpuTensorWorld, .gpuTensorSummary, .mlxVariation, .mlxEvaluation:
+                return true
+            case .cpu, .cpuEvaluation, .unknown:
+                return false
+            }
+        }
+    }
+
+    let status: Status
     let acceleratorLabel: String
-    let latestExecutionLabel: String
+    let latestExecution: ExecutionEvidence
     let latestThroughput: Double?
     let peakThroughput: Double?
     let gpuBackedEventCount: Int
@@ -24,15 +73,14 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
         let relevantEvents = progressEvents.filter(Self.isGPURelevantEvent)
         let latestEvent = relevantEvents.last
         let latestBatch = Self.latestBatch(in: batches)
-        let latestUsesGPU = latestEvent.map(Self.recordUsesGPU)
-            ?? latestBatch.map(Self.batchUsesGPU)
-            ?? false
+        let latestExecution = latestEvent.map(Self.executionEvidence(record:))
+            ?? latestBatch.map(Self.executionEvidence(batch:))
+            ?? .unknown
+        let latestUsesGPU = latestExecution.usesGPU
 
-        self.statusLabel = latestUsesGPU ? "active" : (acceleratorLabel == nil ? "unavailable" : "ready")
+        self.status = latestUsesGPU ? .active : (acceleratorLabel == nil ? .unavailable : .ready)
         self.acceleratorLabel = acceleratorLabel ?? "--"
-        self.latestExecutionLabel = latestEvent.map(Self.executionLabel(record:))
-            ?? latestBatch.map(Self.executionLabel(batch:))
-            ?? "--"
+        self.latestExecution = latestExecution
         self.latestThroughput = latestEvent?.workerThroughput.flatMap(Self.finitePositive)
             ?? latestBatch.flatMap(Self.throughput(batch:))
 
@@ -49,6 +97,14 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
         self.latestBatchFillFraction = latestBatch.flatMap(Self.batchFillFraction(batch:))
         self.currentAllocatedBytes = currentAllocatedBytes
         self.recommendedMaxWorkingSetBytes = recommendedMaxWorkingSetBytes
+    }
+
+    var statusLabel: String {
+        status.label
+    }
+
+    var latestExecutionLabel: String {
+        latestExecution.label
     }
 
     var gpuBackedEventFraction: Double? {
@@ -81,48 +137,44 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
     }
 
     private static func recordUsesGPU(_ record: LearningCampaignProgressRecord) -> Bool {
-        record.gpuAcceleration == true ||
-            record.tensorWorldBatch == true ||
-            record.tensorSummary == true
+        executionEvidence(record: record).usesGPU
     }
 
     private static func batchUsesGPU(_ batch: LearningCampaignVectorizedBatchState) -> Bool {
-        switch batch.kind {
-        case .variation:
-            return !batch.acceleratorDevice.isEmpty
-                && batch.acceleratorDevice.lowercased() != "cpu"
-                && batch.acceleratorDevice.lowercased() != "unavailable"
-        case .evaluation:
-            return batch.worldExecutionMode?.hasPrefix("mlx-tensor-") == true ||
-                batch.policyExecutionMode?.lowercased().contains("mlx") == true
-        }
+        executionEvidence(batch: batch).usesGPU
     }
 
-    private static func executionLabel(record: LearningCampaignProgressRecord) -> String {
+    private static func executionEvidence(record: LearningCampaignProgressRecord) -> ExecutionEvidence {
         if record.tensorWorldBatch == true {
-            return "GPU tensor world"
+            return .gpuTensorWorld
         }
         if record.tensorSummary == true {
-            return "GPU tensor summary"
+            return .gpuTensorSummary
         }
         if record.gpuAcceleration == true {
-            return "MLX GPU"
+            return .mlxGPU
         }
-        return "CPU"
+        return .cpu
     }
 
-    private static func executionLabel(batch: LearningCampaignVectorizedBatchState) -> String {
+    private static func executionEvidence(batch: LearningCampaignVectorizedBatchState) -> ExecutionEvidence {
         switch batch.kind {
         case .variation:
-            return "MLX variation"
+            let normalizedDevice = batch.acceleratorDevice.lowercased()
+            if batch.acceleratorDevice.isEmpty ||
+                normalizedDevice == "cpu" ||
+                normalizedDevice == "unavailable" {
+                return .cpu
+            }
+            return .mlxVariation
         case .evaluation:
             if batch.worldExecutionMode?.hasPrefix("mlx-tensor-") == true {
-                return "GPU tensor world"
+                return .gpuTensorWorld
             }
             if batch.policyExecutionMode?.lowercased().contains("mlx") == true {
-                return "MLX evaluation"
+                return .mlxEvaluation
             }
-            return "CPU evaluation"
+            return .cpuEvaluation
         }
     }
 

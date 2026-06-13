@@ -86,6 +86,164 @@ import Testing
     #expect(records.first?.vectorizedWorldCount == 100)
 }
 
+@MainActor
+@Test(.timeLimit(.minutes(1))) func trainingMonitorSnapshotReportsHealthyLiveCampaign() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.isLearningCampaignRunning = true
+    model.learningCampaignMonitorEnabled = true
+    model.learningCampaignArtifactDirectory = "/tmp/kuyu-monitor-live"
+    model.learningCampaignLastRunnerEventAt = now.addingTimeInterval(-5)
+    model.learningCampaignLastArtifactLoadStartedAt = now.addingTimeInterval(-3)
+    model.learningCampaignLastArtifactLoadFinishedAt = now.addingTimeInterval(-2)
+    model.learningCampaignLastArtifactLoadChangedAt = now.addingTimeInterval(-2)
+    model.appendLearningCampaignLiveProgressRecord(
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-4)),
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "seed-1",
+            generationIndex: 2,
+            candidateID: "g2-c0",
+            fitness: -4,
+            workerThroughput: 12,
+            gpuAcceleration: true,
+            tensorWorldBatch: true,
+            tensorSummary: true
+        )
+    )
+
+    let snapshot = TrainingMonitorSnapshot(model: model, now: now)
+
+    #expect(snapshot.health == .healthy)
+    #expect(snapshot.eventStreamStatus == "live")
+    #expect(snapshot.artifactMonitorStatus == "watching")
+    #expect(snapshot.artifactLoadStatus == "loaded")
+    #expect(snapshot.throughputText == "12.00/s")
+    #expect(snapshot.alerts.isEmpty)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func trainingMonitorSnapshotRaisesStaleAlerts() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.isLearningCampaignRunning = true
+    model.learningCampaignMonitorEnabled = true
+    model.learningCampaignArtifactDirectory = "/tmp/kuyu-monitor-stale"
+    model.learningCampaignLastRunnerEventAt = now.addingTimeInterval(-900)
+    model.learningCampaignLastArtifactLoadStartedAt = now.addingTimeInterval(-900)
+    model.learningCampaignLastArtifactLoadFinishedAt = now.addingTimeInterval(-900)
+    model.learningCampaignLastArtifactLoadChangedAt = now.addingTimeInterval(-900)
+    model.appendLearningCampaignLiveProgressRecord(
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-900)),
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "seed-1",
+            generationIndex: 1,
+            candidateID: "g1-c0"
+        )
+    )
+
+    let snapshot = TrainingMonitorSnapshot(model: model, now: now)
+
+    #expect(snapshot.health == .stale)
+    #expect(snapshot.alerts.contains { $0.id == "event-stale" })
+    #expect(snapshot.alerts.contains { $0.id == "artifact-stale" })
+    #expect(snapshot.alerts.contains { $0.id == "candidate-stale" })
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func trainingMonitorSnapshotDetectsStaleArtifactsDespiteFreshLoaderPoll() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.isLearningCampaignRunning = true
+    model.learningCampaignMonitorEnabled = true
+    model.learningCampaignArtifactDirectory = "/tmp/kuyu-monitor-stale-artifact"
+    model.learningCampaignLastRunnerEventAt = now.addingTimeInterval(-5)
+    model.learningCampaignLastArtifactLoadStartedAt = now.addingTimeInterval(-3)
+    model.learningCampaignLastArtifactLoadFinishedAt = now.addingTimeInterval(-2)
+    model.learningCampaignLastArtifactLoadChangedAt = now.addingTimeInterval(-360)
+    model.appendLearningCampaignLiveProgressRecord(
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-4)),
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "seed-1",
+            generationIndex: 2,
+            candidateID: "g2-c0",
+            workerThroughput: 12,
+            gpuAcceleration: true
+        )
+    )
+
+    let snapshot = TrainingMonitorSnapshot(model: model, now: now)
+
+    #expect(snapshot.health == .stale)
+    #expect(snapshot.artifactLoadStatus == "loaded")
+    #expect(snapshot.alerts.contains { $0.id == "artifact-stale" })
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func trainingMonitorSnapshotDetectsStalledArtifactLoader() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    model.isLearningCampaignRunning = true
+    model.learningCampaignMonitorEnabled = true
+    model.learningCampaignArtifactDirectory = "/tmp/kuyu-monitor-loader-stalled"
+    model.learningCampaignLastRunnerEventAt = now.addingTimeInterval(-5)
+    model.learningCampaignLastArtifactLoadStartedAt = now.addingTimeInterval(-360)
+    model.appendLearningCampaignLiveProgressRecord(
+        LearningCampaignProgressRecord(
+            event: "candidate-evaluated",
+            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-4)),
+            status: nil,
+            exitCode: nil,
+            phase: "candidate",
+            seed: "seed-1",
+            generationIndex: 2,
+            candidateID: "g2-c0",
+            workerThroughput: 12,
+            gpuAcceleration: true
+        )
+    )
+
+    let snapshot = TrainingMonitorSnapshot(model: model, now: now)
+
+    #expect(snapshot.health == .stale)
+    #expect(snapshot.artifactLoadStatus == "stalled")
+    #expect(snapshot.alerts.contains { $0.id == "artifact-loader-stalled" })
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func learningCampaignArtifactManualOperationsEmitUIActions() async throws {
+    let store = UILogStore(buffer: UILogBuffer())
+    let model = SimulationViewModel(logStore: store)
+    model.reloadLearningCampaignArtifactsFromUI()
+    model.recordLearningCampaignArtifactReveal(path: "/tmp/kuyu-monitor")
+
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(model.learningCampaignError == "Artifact directory is empty.")
+    #expect(store.entries.contains { entry in
+        entry.label == "kuyu.ui" &&
+            entry.metadata["action"] == "reloadLearningCampaignArtifacts" &&
+            entry.metadata["reason"] == "emptyArtifactDirectory"
+    })
+    #expect(store.entries.contains { entry in
+        entry.label == "kuyu.ui" &&
+            entry.metadata["action"] == "revealLearningCampaignArtifactRoot" &&
+            entry.metadata["path"] == "/tmp/kuyu-monitor"
+    })
+    await store.shutdownAndWait()
+}
+
 @Test(.timeLimit(.minutes(1))) func gpuActivitySnapshotSummarizesLiveAndBatchExecution() {
     let records = [
         LearningCampaignProgressRecord(

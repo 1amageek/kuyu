@@ -18,6 +18,9 @@ struct DashboardWorkspaceView: View {
                         firstRunCTA
                     }
 
+                    TrainingMonitorCommandCenterView(model: model)
+                        .frame(maxWidth: .infinity)
+
                     KeyTrainingChartsView(model: model)
                         .frame(maxWidth: .infinity)
 

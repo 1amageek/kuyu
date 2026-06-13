@@ -31,16 +31,7 @@ public struct ContentView: View {
                     max: KuyuLayout.sidebarMax
                 )
         } detail: {
-            BoundedMainContentView(model: model)
-                .frame(minWidth: 760, minHeight: 520)
-        }
-        .inspector(isPresented: $showInspector) {
-            BoundedInspectorView(model: model)
-                .inspectorColumnWidth(
-                    min: KuyuLayout.inspectorMin,
-                    ideal: 320,
-                    max: 420
-                )
+            projectDetail
         }
         .navigationTitle(model.currentProject?.package.manifest.name ?? "Bounded")
         .toolbar {
@@ -77,6 +68,67 @@ public struct ContentView: View {
         } message: { error in
             Text(error)
         }
+    }
+
+    private var projectDetail: some View {
+        GeometryReader { proxy in
+            let layoutSize = QuantizedLayoutSize(proxy.size)
+            HStack(spacing: 0) {
+                BoundedMainContentView(model: model)
+                    .frame(minWidth: 760, minHeight: 520)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if showInspector {
+                    Divider()
+                    BoundedInspectorView(model: model)
+                        .frame(
+                            minWidth: KuyuLayout.inspectorMin,
+                            idealWidth: KuyuLayout.inspectorIdeal,
+                            maxWidth: KuyuLayout.inspectorMax,
+                            maxHeight: .infinity
+                        )
+                        .background(.bar)
+                }
+            }
+            .onAppear {
+                recordContentLayoutState(reason: "appear", layoutSize: layoutSize)
+            }
+            .onChange(of: showInspector) { _, _ in
+                recordContentLayoutState(reason: "inspectorChanged", layoutSize: layoutSize)
+            }
+            .onChange(of: model.selectedWorkspace) { _, _ in
+                recordContentLayoutState(reason: "workspaceChanged", layoutSize: layoutSize)
+            }
+            .onChange(of: model.currentProject?.package.manifest.projectID) { _, _ in
+                recordContentLayoutState(reason: "projectChanged", layoutSize: layoutSize)
+            }
+            .onChange(of: layoutSize) { _, newValue in
+                recordContentLayoutState(reason: "detailResized", layoutSize: newValue)
+            }
+        }
+    }
+
+    private func recordContentLayoutState(reason: String, layoutSize: QuantizedLayoutSize) {
+        model.recordContentLayoutState(
+            reason: reason,
+            inspectorVisible: showInspector,
+            detailWidth: layoutSize.width,
+            detailHeight: layoutSize.height
+        )
+    }
+}
+
+private struct QuantizedLayoutSize: Equatable {
+    let width: Int
+    let height: Int
+
+    init(_ size: CGSize) {
+        width = Self.quantize(size.width)
+        height = Self.quantize(size.height)
+    }
+
+    private static func quantize(_ value: CGFloat) -> Int {
+        Int((value / 16).rounded() * 16)
     }
 }
 

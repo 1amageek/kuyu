@@ -10,8 +10,24 @@ import Observation
 public final class AppViewModel {
     // MARK: - Workspace Management
 
-    public var selectedWorkspace: BoundedWorkspace = .dashboard
-    public var selectedTrainingPhase: BoundedTrainingPhase = .template
+    public var selectedWorkspace: BoundedWorkspace = .dashboard {
+        didSet {
+            guard oldValue != selectedWorkspace else { return }
+            emitAppState(level: .info, message: "Workspace changed", action: "setWorkspace", metadata: [
+                "from": oldValue.rawValue,
+                "to": selectedWorkspace.rawValue
+            ])
+        }
+    }
+    public var selectedTrainingPhase: BoundedTrainingPhase = .template {
+        didSet {
+            guard oldValue != selectedTrainingPhase else { return }
+            emitAppState(level: .info, message: "Training phase changed", action: "setTrainingPhase", metadata: [
+                "from": oldValue.rawValue,
+                "to": selectedTrainingPhase.rawValue
+            ])
+        }
+    }
     public var selectedProjectName: String = "Bounded"
     public var availableProjectNames: [String] {
         if let currentProject {
@@ -19,11 +35,44 @@ public final class AppViewModel {
         }
         return []
     }
-    public var currentProject: KuyuProjectSession?
+    public var currentProject: KuyuProjectSession? {
+        didSet {
+            guard oldValue?.package.manifest.projectID != currentProject?.package.manifest.projectID ||
+                oldValue?.package.rootURL.path != currentProject?.package.rootURL.path else {
+                return
+            }
+            emitAppState(level: .notice, message: currentProject == nil ? "Project closed" : "Project session changed", action: "setCurrentProject", metadata: [
+                "fromProjectID": oldValue?.package.manifest.projectID ?? "none",
+                "toProjectID": currentProject?.package.manifest.projectID ?? "none",
+                "fromProjectPath": oldValue?.package.rootURL.path ?? "none",
+                "toProjectPath": currentProject?.package.rootURL.path ?? "none",
+                "isRunnable": currentProject.map { String($0.isRunnable) } ?? "false"
+            ])
+        }
+    }
     public var currentModelBundleURL: URL?
     public var recentProjectURLs: [URL] = []
-    public var projectCreationError: String?
-    public var isCreatingProject = false
+    public var projectCreationError: String? {
+        didSet {
+            guard oldValue != projectCreationError else { return }
+            if let projectCreationError {
+                emitAppState(level: .error, message: "Project error state updated", action: "setProjectCreationError", metadata: [
+                    "error": projectCreationError
+                ])
+            } else if oldValue != nil {
+                emitAppState(level: .info, message: "Project error state cleared", action: "clearProjectCreationError")
+            }
+        }
+    }
+    public var isCreatingProject = false {
+        didSet {
+            guard oldValue != isCreatingProject else { return }
+            emitAppState(level: .info, message: "Project creation state changed", action: "setProjectCreationState", metadata: [
+                "from": String(oldValue),
+                "to": String(isCreatingProject)
+            ])
+        }
+    }
     private var projectCreationTask: Task<Void, Never>?
     private var projectCreationSessionID: UUID?
     private let recentProjectsDefaults: UserDefaults
@@ -31,6 +80,7 @@ public final class AppViewModel {
     private var currentProjectAccessIsScoped = false
     private var currentModelBundleAccessURL: URL?
     private var currentModelBundleAccessIsScoped = false
+    private var lastContentLayoutStateLogKey: String?
     public var projectTemplates: [LearningProjectTemplate] {
         LearningProjectTemplateCatalog.defaultTemplates
     }
@@ -158,6 +208,35 @@ public final class AppViewModel {
 
     public func waitForProjectCreation() async {
         await projectCreationTask?.value
+    }
+
+    func recordContentLayoutState(
+        reason: String,
+        inspectorVisible: Bool,
+        detailWidth: Int,
+        detailHeight: Int
+    ) {
+        let key = [
+            reason,
+            selectedWorkspace.rawValue,
+            String(inspectorVisible),
+            String(detailWidth),
+            String(detailHeight),
+            currentProject?.package.manifest.projectID ?? "none"
+        ].joined(separator: "|")
+        guard key != lastContentLayoutStateLogKey else {
+            return
+        }
+        lastContentLayoutStateLogKey = key
+        emitAppState(level: .info, message: "Content layout state", action: "contentLayoutState", metadata: [
+            "reason": reason,
+            "inspectorVisible": String(inspectorVisible),
+            "detailWidth": String(detailWidth),
+            "detailHeight": String(detailHeight),
+            "inspectorMin": String(Int(KuyuLayout.inspectorMin)),
+            "inspectorIdeal": String(Int(KuyuLayout.inspectorIdeal)),
+            "inspectorMax": String(Int(KuyuLayout.inspectorMax))
+        ])
     }
 
     private func createProjectOperation(
@@ -419,6 +498,32 @@ public final class AppViewModel {
             message: message,
             metadata: metadata
         ))
+    }
+
+    private func emitAppState(
+        level: Logger.Level,
+        message: String,
+        action: String,
+        metadata: [String: String] = [:]
+    ) {
+        emitLog(level: level, message: message, metadata: appStateMetadata(action: action, extra: metadata))
+    }
+
+    private func appStateMetadata(action: String, extra: [String: String]) -> [String: String] {
+        var metadata = extra
+        metadata["action"] = action
+        metadata["workspace"] = selectedWorkspace.rawValue
+        metadata["trainingPhase"] = selectedTrainingPhase.rawValue
+        metadata["projectName"] = currentProject?.package.manifest.name ?? selectedProjectName
+        metadata["projectID"] = currentProject?.package.manifest.projectID ?? "none"
+        metadata["projectPath"] = currentProject?.package.rootURL.path ?? "none"
+        metadata["currentModelBundle"] = currentModelBundleURL?.path ?? "none"
+        metadata["task"] = simulationViewModel.taskMode.rawValue
+        metadata["controller"] = simulationViewModel.controllerSelection.rawValue
+        metadata["learningCampaignRunning"] = String(simulationViewModel.isLearningCampaignRunning)
+        metadata["runRunning"] = String(simulationViewModel.isRunning)
+        metadata["monitorEnabled"] = String(simulationViewModel.learningCampaignMonitorEnabled)
+        return metadata
     }
 
     private nonisolated static func makeAndWriteProjectPackage(

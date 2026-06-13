@@ -201,6 +201,12 @@ public final class SimulationViewModel {
     private(set) var learningCampaignProgressEventsForDisplay: [LearningCampaignProgressRecord] = []
     var isLearningCampaignRunning = false
     var learningCampaignMonitorEnabled = false
+    var learningCampaignLastRunnerEventAt: Date?
+    var learningCampaignLastArtifactLoadStartedAt: Date?
+    var learningCampaignLastArtifactLoadFinishedAt: Date?
+    var learningCampaignLastArtifactLoadChangedAt: Date?
+    var learningCampaignLastArtifactLoadFailureAt: Date?
+    var learningCampaignArtifactLoadFailureCount: Int = 0
     var learningCampaignState: LearningCampaignRunStoreState? {
         didSet { rebuildLearningCampaignProgressEventsForDisplay() }
     }
@@ -1934,6 +1940,12 @@ public final class SimulationViewModel {
             learningCampaignProgressFraction = 0
             learningCampaignCurrentPhase = "starting"
             learningCampaignLatestEvent = nil
+            learningCampaignLastRunnerEventAt = nil
+            learningCampaignLastArtifactLoadStartedAt = nil
+            learningCampaignLastArtifactLoadFinishedAt = nil
+            learningCampaignLastArtifactLoadChangedAt = nil
+            learningCampaignLastArtifactLoadFailureAt = nil
+            learningCampaignArtifactLoadFailureCount = 0
             learningCampaignRunLog = [
                 LearningCampaignRunLogRecord(
                     category: .lifecycle,
@@ -2099,6 +2111,27 @@ public final class SimulationViewModel {
         }
     }
 
+    func reloadLearningCampaignArtifactsFromUI() {
+        let path = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else {
+            emitUIAction(level: .warning, message: "Learning campaign artifact reload blocked", action: "reloadLearningCampaignArtifacts", metadata: [
+                "reason": "emptyArtifactDirectory"
+            ])
+            learningCampaignError = "Artifact directory is empty."
+            return
+        }
+        emitUIAction(level: .info, message: "Learning campaign artifact reload requested", action: "reloadLearningCampaignArtifacts", metadata: [
+            "path": path
+        ])
+        loadLearningCampaignArtifacts()
+    }
+
+    func recordLearningCampaignArtifactReveal(path: String) {
+        emitUIAction(level: .info, message: "Learning campaign artifact root reveal requested", action: "revealLearningCampaignArtifactRoot", metadata: [
+            "path": path
+        ])
+    }
+
     func loadLearningCampaignArtifacts() {
         let path = learningCampaignArtifactDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else {
@@ -2112,6 +2145,7 @@ public final class SimulationViewModel {
         let previousState = learningCampaignState
         let hadError = learningCampaignError != nil
         let formatsRunLog = learningCampaignHandle == nil
+        learningCampaignLastArtifactLoadStartedAt = Date()
         learningCampaignArtifactLoadTask?.cancel()
         learningCampaignArtifactLoadTask = Task { [weak self, directory, loadID] in
             do {
@@ -2166,6 +2200,12 @@ public final class SimulationViewModel {
         // @Observable fires invalidation on every assignment regardless of
         // value equality, so each mutation is guarded by an inequality check.
         let state = load.state
+        let stateChanged = learningCampaignState != state
+        let finishedAt = Date()
+        learningCampaignLastArtifactLoadFinishedAt = finishedAt
+        if stateChanged {
+            learningCampaignLastArtifactLoadChangedAt = finishedAt
+        }
         if learningCampaignState != state {
             learningCampaignState = state
         }
@@ -2198,6 +2238,7 @@ public final class SimulationViewModel {
 
     private func finishUnchangedLearningCampaignArtifactLoad(loadID: UInt64) {
         guard loadID == learningCampaignArtifactLoadID else { return }
+        learningCampaignLastArtifactLoadFinishedAt = Date()
         learningCampaignArtifactLoadTask = nil
     }
 
@@ -2209,6 +2250,10 @@ public final class SimulationViewModel {
         guard loadID == learningCampaignArtifactLoadID else { return }
         learningCampaignError = "\(error)"
         isLearningCampaignRunning = learningCampaignHandle != nil
+        let failedAt = Date()
+        learningCampaignLastArtifactLoadFinishedAt = failedAt
+        learningCampaignLastArtifactLoadFailureAt = failedAt
+        learningCampaignArtifactLoadFailureCount += 1
         learningCampaignArtifactLoadTask = nil
         emitTerminal(level: .warning, message: "Learning campaign artifacts unavailable", metadata: [
             "path": directory.path,
@@ -2280,6 +2325,7 @@ public final class SimulationViewModel {
         _ event: TrainingRunEvent,
         progress: Progress
     ) {
+        learningCampaignLastRunnerEventAt = Date()
         learningCampaignProgressFraction = boundedLearningCampaignProgress(progress.fractionCompleted)
         switch event {
         case .progress(let progressEvent):

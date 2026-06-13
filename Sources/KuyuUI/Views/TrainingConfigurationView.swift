@@ -203,7 +203,7 @@ public struct TrainingConfigurationView: View {
                             model.useCurrentLearningCampaignArtifactRoot()
                         }
                         Button("Load") {
-                            model.loadLearningCampaignArtifacts()
+                            model.reloadLearningCampaignArtifactsFromUI()
                         }
                         Button(model.learningCampaignMonitorEnabled ? "Stop Watch" : "Watch") {
                             if model.learningCampaignMonitorEnabled {
