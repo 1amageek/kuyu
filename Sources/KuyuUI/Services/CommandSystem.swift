@@ -287,10 +287,11 @@ extension CommandSystem: TrainingLoopCommandExecuting {
 }
 
 extension CommandSystem: TrainingScenarioExecuting {
-    public func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> KuyAtt1RunOutput {
+    public func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> TrainingScenarioRunOutput {
         let control = SimulationControl()
         withLock { activeControl = control }
         defer { withLock { activeControl = nil } }
-        return try await runSuite(request: request, control: control, telemetry: telemetry)
+        let output = try await runSuite(request: request, control: control, telemetry: telemetry)
+        return TrainingScenarioRunOutput(kuyAtt1: output)
     }
 }

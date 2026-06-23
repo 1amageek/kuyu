@@ -4411,14 +4411,15 @@ struct CLIScenarioExecutor: TrainingScenarioExecuting {
     let schedule: SimulationSchedule
     let embodiment: EmbodimentContract?
 
-    func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> KuyAtt1RunOutput {
-        try await store.runReferenceQuadrotor(
+    func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> TrainingScenarioRunOutput {
+        let output = try await store.runReferenceQuadrotor(
             parameters: parameters,
             schedule: schedule,
             request: request,
             embodiment: embodiment,
             control: nil
         )
+        return TrainingScenarioRunOutput(kuyAtt1: output)
     }
 }
 
@@ -4451,57 +4452,62 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
         stage: TrainingProbeStage,
         request: SimulationRunRequest,
         checkpointURL: URL?
-    ) async throws -> KuyAtt1RunOutput {
+    ) async throws -> TrainingScenarioRunOutput {
         switch stage {
         case .teacherActiveAltitudeHold:
-            return try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
+            let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
                 embodiment: embodiment,
                 control: nil
             )
+            return TrainingScenarioRunOutput(kuyAtt1: output)
         case .trainingIteration:
             if teacherRequest.taskMode == .singleLift {
-                return try await KuyuSingleLiftTeacherDatasetRunner().run(
+                let output = try await KuyuSingleLiftTeacherDatasetRunner().run(
                     request: teacherRequest,
                     parameters: parameters,
                     schedule: schedule,
                     control: nil
                 )
+                return TrainingScenarioRunOutput(kuyAtt1: output)
             }
-            return try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
+            let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
                 embodiment: embodiment,
                 control: nil
             )
+            return TrainingScenarioRunOutput(kuyAtt1: output)
         case .initialPolicy:
-            return try await initialStore.runReferenceQuadrotor(
+            let output = try await initialStore.runReferenceQuadrotor(
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
                 embodiment: embodiment,
                 control: nil
             )
+            return TrainingScenarioRunOutput(kuyAtt1: output)
         case .trainedPolicy:
             guard let checkpointURL else {
                 throw ValidationError("Accepted checkpoint URL is required before trained probe run.")
             }
             _ = try trainedStore.loadModel(from: checkpointURL)
-            return try await trainedStore.runReferenceQuadrotor(
+            let output = try await trainedStore.runReferenceQuadrotor(
                 parameters: parameters,
                 schedule: schedule,
                 request: request,
                 embodiment: embodiment,
                 control: nil
             )
+            return TrainingScenarioRunOutput(kuyAtt1: output)
         }
     }
 
     func writeRecoveryRelabelDataset(
-        output: KuyAtt1RunOutput,
+        output: TrainingScenarioRunOutput,
         request: SimulationRunRequest,
         to directory: URL,
         includeSuccessfulScenarios: Bool
