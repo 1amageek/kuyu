@@ -538,7 +538,8 @@ public final class AppViewModel {
         let package = try KuyuProjectFactory().makeRunnableStarterProject(
             rootURL: temporaryURL,
             name: projectName,
-            template: template
+            template: template,
+            sourceBundleURL: "model-bundles/source.manasbundle"
         )
         try KuyuProjectPackageWriter().write(package)
         return package

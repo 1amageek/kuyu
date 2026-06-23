@@ -171,7 +171,8 @@ import Testing
     let package = try KuyuProjectFactory().makeRunnableStarterProject(
         rootURL: projectURL,
         name: "Drone",
-        template: .droneAutonomyStarter
+        template: .droneAutonomyStarter,
+        sourceBundleURL: appSourceBundleReferencePath
     )
     try KuyuProjectPackageWriter().write(package)
 
@@ -193,7 +194,8 @@ import Testing
     let package = try KuyuProjectFactory().makeRunnableStarterProject(
         rootURL: root,
         name: "Drone",
-        template: .droneAutonomyStarter
+        template: .droneAutonomyStarter,
+        sourceBundleURL: appSourceBundleReferencePath
     )
     let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
 
@@ -403,7 +405,8 @@ import Testing
     let package = try KuyuProjectFactory().makeRunnableStarterProject(
         rootURL: root,
         name: "Drone",
-        template: .droneAutonomyStarter
+        template: .droneAutonomyStarter,
+        sourceBundleURL: appSourceBundleReferencePath
     )
     let checkpoint = root
         .appendingPathComponent("model-bundles", isDirectory: true)
@@ -497,6 +500,8 @@ private func removeTemporaryDirectory(_ url: URL) {
         Issue.record("Temporary directory cleanup failed: \(error)")
     }
 }
+
+private let appSourceBundleReferencePath = "model-bundles/source.manasbundle"
 
 private func writeCompleteCheckpointSkeleton(at url: URL) throws {
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -52,7 +52,7 @@ struct ProbeRoArmM1: ParsableCommand {
         try validateRoArmM1Manifest(loaded)
 
         let jointTargets = try parseJointTargets(joints)
-        let modelJointLimits = try jointLimits(from: embodiment.signals.actuator)
+        let modelJointLimits = try jointLimits(from: embodiment.signals.drive)
         let encoderJointLimits: [ClosedRange<Double>]
         if useModelLimits {
             encoderJointLimits = modelJointLimits
@@ -153,6 +153,11 @@ struct ProbeRoArmM1: ParsableCommand {
                     "RoARM M1 body reduction for \(attachment.actuatorID) is \(attachment.mechanicalReductionRatio), expected \(expectedReduction)."
                 )
             }
+            guard attachment.transmissionRatio == expectedReduction else {
+                throw ValidationError(
+                    "RoARM M1 body transmission ratio for \(attachment.actuatorID) is \(attachment.transmissionRatio), expected \(expectedReduction)."
+                )
+            }
             guard attachment.mountFrameID != nil else {
                 throw ValidationError("RoARM M1 actuator attachment \(attachment.actuatorID) is missing mountFrameID.")
             }
@@ -194,11 +199,11 @@ struct ProbeRoArmM1: ParsableCommand {
     private func jointLimits(from signals: [SignalDefinition]) throws -> [ClosedRange<Double>] {
         let sortedSignals = signals.sorted { $0.index < $1.index }
         guard sortedSignals.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 embodiment must expose five actuator ranges.")
+            throw ValidationError("RoARM M1 embodiment must expose five joint target ranges.")
         }
         return try sortedSignals.map { signal in
             guard let range = signal.range else {
-                throw ValidationError("Embodiment actuator signal \(signal.id) is missing a range.")
+                throw ValidationError("Embodiment joint target signal \(signal.id) is missing a range.")
             }
             return range.min...range.max
         }
@@ -206,7 +211,7 @@ struct ProbeRoArmM1: ParsableCommand {
 
     private func safeCommissioningLimits(within modelLimits: [ClosedRange<Double>]) throws -> [ClosedRange<Double>] {
         guard modelLimits.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 embodiment must expose five actuator ranges.")
+            throw ValidationError("RoARM M1 embodiment must expose five joint target ranges.")
         }
         return try zip(RoArmM1ServoCommandEncoder.safeCommissioningJointLimits, modelLimits)
             .enumerated()

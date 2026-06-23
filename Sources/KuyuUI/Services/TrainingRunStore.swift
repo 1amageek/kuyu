@@ -53,14 +53,14 @@ struct TrainingRunStoreState: Sendable, Equatable {
 }
 
 struct TrainingRunStore {
-    private let validator: TrainingRunArtifactValidator
+    private let artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier
 
-    init(validator: TrainingRunArtifactValidator = TrainingRunArtifactValidator()) {
-        self.validator = validator
+    init(artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier = GeneratedTrainingArtifactCompatibilityVerifier()) {
+        self.artifactVerifier = artifactVerifier
     }
 
     func load(from artifactDirectory: URL) throws -> TrainingRunStoreState {
-        let bundle = try validator.loadAndValidate(from: artifactDirectory)
+        let bundle = try artifactVerifier.loadRunArtifacts(from: artifactDirectory)
         return TrainingRunStoreState(
             artifactDirectory: bundle.artifactDirectory,
             manifest: bundle.manifest,

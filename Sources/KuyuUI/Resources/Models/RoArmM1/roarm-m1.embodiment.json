@@ -12,10 +12,10 @@
     ],
     "actuator": [
       { "id": "joint_1", "index": 0, "name": "base_to_L1 target", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "joint" },
-      { "id": "joint_2", "index": 1, "name": "L1_to_L2 target", "units": "rad", "rateHz": 50, "range": [-1.0467, 1.0467], "group": "joint" },
+      { "id": "joint_2", "index": 1, "name": "L1_to_L2 actuator command", "units": "rad", "rateHz": 50, "range": [-3.1401, 3.1401], "group": "joint-actuator" },
       { "id": "joint_3", "index": 2, "name": "L2_to_L3 target", "units": "rad", "rateHz": 50, "range": [-2.7, 2.7], "group": "joint" },
       { "id": "joint_4", "index": 3, "name": "L3_to_L4 target", "units": "rad", "rateHz": 50, "range": [-2.1, 2.1], "group": "joint" },
-      { "id": "joint_5", "index": 4, "name": "Gripper clamp target", "units": "rad", "rateHz": 50, "range": [-1.57, 0], "group": "gripper" }
+      { "id": "joint_5", "index": 4, "name": "Gripper clamp actuator command", "units": "rad", "rateHz": 50, "range": [0, 1.57], "group": "gripper-actuator" }
     ],
     "drive": [
       { "id": "drive_joint_1", "index": 0, "name": "Drive base_to_L1", "units": "rad", "rateHz": 50, "range": [-3.14, 3.14], "group": "joint-target" },
@@ -64,10 +64,10 @@
   ],
   "actuators": [
     { "id": "servo_1", "type": "ST3215 serial-bus-servo", "frameID": "servo_1_output", "channels": ["joint_1"], "limits": { "min": -3.14, "max": 3.14, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.025, "coulombFriction": 0.018 } },
-    { "id": "servo_2", "type": "ST3215 serial-bus-servo with 1:3 joint reduction", "frameID": "servo_2_output", "channels": ["joint_2"], "limits": { "min": -1.0467, "max": 1.0467, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.09, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.025, "coulombFriction": 0.018 } },
+    { "id": "servo_2", "type": "ST3215 serial-bus-servo with 1:3 joint reduction", "frameID": "servo_2_output", "channels": ["joint_2"], "limits": { "min": -3.1401, "max": 3.1401, "rateLimitPerSecond": 1.5 }, "dynamics": { "timeConstantSeconds": 0.09, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.025, "coulombFriction": 0.018 } },
     { "id": "servo_3", "type": "ST3215 serial-bus-servo", "frameID": "servo_3_output", "channels": ["joint_3"], "limits": { "min": -2.7, "max": 2.7, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.08, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.022, "coulombFriction": 0.016 } },
     { "id": "servo_4", "type": "ST3215 serial-bus-servo", "frameID": "servo_4_output", "channels": ["joint_4"], "limits": { "min": -2.1, "max": 2.1, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.07, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.018, "coulombFriction": 0.012 } },
-    { "id": "servo_5", "type": "ST3215 serial-bus-servo gripper drive", "frameID": "servo_5_output", "channels": ["joint_5"], "limits": { "min": -1.57, "max": 0, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.06, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.015, "coulombFriction": 0.01 } }
+    { "id": "servo_5", "type": "ST3215 serial-bus-servo gripper drive", "frameID": "servo_5_output", "channels": ["joint_5"], "limits": { "min": 0, "max": 1.57, "rateLimitPerSecond": 0.5 }, "dynamics": { "timeConstantSeconds": 0.06, "deadzone": 0.002, "torqueLimit": 2.941995, "damping": 0.015, "coulombFriction": 0.01 } }
   ],
   "control": {
     "driveChannels": ["drive_joint_1", "drive_joint_2", "drive_joint_3", "drive_joint_4", "drive_joint_5"],
@@ -104,9 +104,18 @@
     "stages": [
       {
         "id": "joint-direct",
-        "type": "direct",
+        "type": "matrix",
         "inputs": ["drive_joint_1", "drive_joint_2", "drive_joint_3", "drive_joint_4", "drive_joint_5"],
-        "outputs": ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5"]
+        "outputs": ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5"],
+        "mapping": {
+          "matrix": [
+            [-1, 0, 0, 0, 0],
+            [0, -3, 0, 0, 0],
+            [0, 0, -1, 0, 0],
+            [0, 0, 0, 1, 0],
+            [0, 0, 0, 0, -1]
+          ]
+        }
       }
     ]
   }

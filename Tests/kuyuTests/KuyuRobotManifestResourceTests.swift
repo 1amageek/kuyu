@@ -69,8 +69,8 @@ import KuyuScenarios
 
     #expect(sensors[gripperIndex].name == "Gripper clamp angle")
     #expect(sensors[gripperIndex].group == "gripper-proprioception")
-    #expect(actuators[gripperIndex].name == "Gripper clamp target")
-    #expect(actuators[gripperIndex].group == "gripper")
+    #expect(actuators[gripperIndex].name == "Gripper clamp actuator command")
+    #expect(actuators[gripperIndex].group == "gripper-actuator")
     #expect(drives[gripperIndex].name == "Drive gripper clamp")
     #expect(drives[gripperIndex].group == "gripper-target")
     #expect(reflexes[gripperIndex].name == "Gripper clamp reflex correction")
@@ -217,6 +217,7 @@ import KuyuScenarios
     #expect(mountsByActuatorID["servo_1"]?.frameID == "servo_1_output")
     #expect(mountsByActuatorID["servo_2"]?.outputAxis == KuyuVector3(x: 1, y: 0, z: 0))
     #expect(attachmentsByActuatorID["servo_2"]?.transmissionKind == .timingPulley)
+    #expect(attachmentsByActuatorID["servo_2"]?.transmissionRatio == 3)
     #expect(attachmentsByActuatorID["servo_2"]?.mechanicalReductionRatio == 3)
     #expect(attachmentsByActuatorID["servo_2"]?.torqueLimit == 8.825985)
     #expect(loaded.embodiment.actuators.first { $0.id == "servo_2" }?.dynamics?.torqueLimit == 2.941995)
@@ -330,6 +331,9 @@ import KuyuScenarios
     let actuatorsByChannel = Dictionary(uniqueKeysWithValues: loaded.embodiment.actuators.compactMap { actuator in
         actuator.channels.first.map { ($0, actuator) }
     })
+    let attachmentsByActuatorID = Dictionary(uniqueKeysWithValues: loaded.body.actuatorAttachments.map {
+        ($0.actuatorID, $0)
+    })
 
     #expect(drivenJoints.map(\.id) == manufacturerDrivenJoints.map(\.name))
     #expect(actuatorSignals.count == drivenJoints.count)
@@ -344,15 +348,21 @@ import KuyuScenarios
         let driveSignal = driveSignals[index]
         let sensorSignal = sensorSignals[index]
         let actuator = try #require(actuatorsByChannel[actuatorSignal.id])
+        let attachment = try #require(attachmentsByActuatorID[actuator.id])
+        let actuatorRange = actuatorPositionRange(
+            forJointRange: encoderLimit,
+            commandDirection: attachment.commandDirection,
+            transmissionRatio: attachment.transmissionRatio
+        )
 
         assertOptionalClose(joint.lowerLimit, encoderLimit.lowerBound)
         assertOptionalClose(joint.upperLimit, encoderLimit.upperBound)
-        assertSignalRange(actuatorSignal.range, equals: encoderLimit)
+        assertSignalRange(actuatorSignal.range, equals: actuatorRange)
         assertSignalRange(driveSignal.range, equals: encoderLimit)
         assertSignalRange(sensorSignal.range, equals: encoderLimit)
-        assertClose(actuator.limits.min, encoderLimit.lowerBound)
-        assertClose(actuator.limits.max, encoderLimit.upperBound)
-        assertClose(actuator.limits.rateLimitPerSecond, 0.5)
+        assertClose(actuator.limits.min, actuatorRange.lowerBound)
+        assertClose(actuator.limits.max, actuatorRange.upperBound)
+        assertClose(actuator.limits.rateLimitPerSecond, 0.5 * attachment.transmissionRatio)
 
         let lowerCommand = try RoArmM1ServoCommandEncoder(
             jointLimits: RoArmM1ServoCommandEncoder.manufacturerJointLimits
@@ -454,6 +464,9 @@ import KuyuScenarios
     let driveSignals = loaded.embodiment.signals.drive.sorted { $0.index < $1.index }
     let actuatorRangesByIndex = try rangesByIndex(actuatorSignals)
     let driveRangesByIndex = try rangesByIndex(driveSignals)
+    let attachmentsByActuatorID = Dictionary(uniqueKeysWithValues: loaded.body.actuatorAttachments.map {
+        ($0.actuatorID, $0)
+    })
     let encoder = try RoArmM1ServoCommandEncoder(
         jointLimits: RoArmM1ServoCommandEncoder.manufacturerJointLimits
     )
@@ -497,19 +510,24 @@ import KuyuScenarios
             let telemetryValue = try #require(telemetryByID[signal.id])
             let jointValue = try #require(event.plantState.scalars[drivenJoints[index].id])
             let signalScalarValue = try #require(event.plantState.scalars[signal.id])
-            assertClose(telemetryValue, jointValue)
-            assertClose(signalScalarValue, jointValue)
+            let actuator = try #require(loaded.embodiment.actuators.first { $0.channels.contains(signal.id) })
+            let attachment = try #require(attachmentsByActuatorID[actuator.id])
+            let expectedActuatorPosition = actuatorPosition(
+                forJointPosition: jointValue,
+                commandDirection: attachment.commandDirection,
+                transmissionRatio: attachment.transmissionRatio
+            )
+            assertClose(telemetryValue, expectedActuatorPosition)
+            assertClose(signalScalarValue, expectedActuatorPosition)
         }
 
         for sample in event.sensorSamples {
             let index = Int(sample.channelIndex)
-            guard drivenJoints.indices.contains(index), actuatorSignals.indices.contains(index) else {
+            guard drivenJoints.indices.contains(index) else {
                 continue
             }
             let jointValue = try #require(event.plantState.scalars[drivenJoints[index].id])
-            let signalValue = try #require(event.plantState.scalars[actuatorSignals[index].id])
             assertClose(sample.value, jointValue)
-            assertClose(sample.value, signalValue)
         }
     }
 
@@ -648,6 +666,32 @@ private func assertOptionalUpperBound(
 ) {
     guard let upper else { return }
     #expect(value <= upper + tolerance)
+}
+
+private func actuatorPositionRange(
+    forJointRange jointRange: ClosedRange<Double>,
+    commandDirection: Double,
+    transmissionRatio: Double
+) -> ClosedRange<Double> {
+    let lower = actuatorPosition(
+        forJointPosition: jointRange.lowerBound,
+        commandDirection: commandDirection,
+        transmissionRatio: transmissionRatio
+    )
+    let upper = actuatorPosition(
+        forJointPosition: jointRange.upperBound,
+        commandDirection: commandDirection,
+        transmissionRatio: transmissionRatio
+    )
+    return min(lower, upper)...max(lower, upper)
+}
+
+private func actuatorPosition(
+    forJointPosition jointPosition: Double,
+    commandDirection: Double,
+    transmissionRatio: Double
+) -> Double {
+    commandDirection * jointPosition * transmissionRatio
 }
 
 private func rangesByIndex(_ signals: [SignalDefinition]) throws -> [Int: ClosedRange<Double>] {

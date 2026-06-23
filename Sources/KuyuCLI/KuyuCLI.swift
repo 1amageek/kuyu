@@ -853,7 +853,7 @@ struct ProbeManas: AsyncParsableCommand {
         } else {
             print("[probe] trainedScore=n/a delta=n/a")
         }
-        let validated = try TrainingProbeArtifactValidator().loadAndValidate(from: artifactRoot)
+        let validated = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: artifactRoot)
         print("[probe] artifactValid=true trainingRun=\(validated.training.manifest.runID) metrics=\(validated.training.metrics.count)")
         print("[probe] trainingCheckpoint=\(result.comparison.checkpointDecision.rawValue) probeCheckpoint=\(result.probeCheckpointDecision.state.rawValue) reload=\(result.comparison.reloadSucceeded)")
         print("[probe] selectedCheckpoint role=\(result.comparison.selectedCheckpointRole.rawValue) path=\(result.comparison.selectedCheckpointURL?.path ?? "n/a")")
@@ -1479,7 +1479,7 @@ struct ProbeManasSuite: AsyncParsableCommand {
                 mlxSeed: mlxSeed.map { $0 + UInt64(taskIndex) },
                 printEvents: false
             )
-            let artifacts = try TrainingProbeArtifactValidator().loadAndValidate(from: taskRoot)
+            let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: taskRoot)
             let entry = ManasProbeSuiteEntry(
                 task: task.rawValue,
                 artifactPath: taskRoot.path,
@@ -1740,14 +1740,14 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
                 artifactRoot: artifactRoot
             )
         )
-        if requirePolicyPass {
-            try CheckpointEvaluationArtifactValidator.validate(
-                summary,
+        _ = try GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact(
+            CheckpointEvaluationArtifactCompatibilityRequest(
+                artifactDirectory: artifactRoot,
                 expectedProfile: profile,
                 expectedCheckpointPath: checkpointURL.path,
-                requiresPolicyPass: true
+                requiresPolicyPass: requirePolicyPass
             )
-        }
+        )
 
         print("[evaluate-manas-checkpoint] task=\(summary.task) profile=\(summary.profileID) policyPassed=\(summary.policyPassed) score=\(String(format: "%.6f", summary.policyScore)) teacherScore=\(String(format: "%.6f", summary.teacherScore))")
         print("[evaluate-manas-checkpoint] motorMAE=\(formatOptional(summary.motorMAE)) driveMAE=\(formatOptional(summary.driveMAE)) finalAltitudeDelta=\(formatOptional(summary.finalAltitudeDelta)) failures=\(summary.failureReasons.joined(separator: ","))")
@@ -1936,7 +1936,7 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
             let checkpointEvaluationReasons: [String]
             let checkpointEvaluationPassed: Bool
             do {
-                let checkpointEvaluation = try await checkpointEvaluator.evaluateCheckpoint(
+                _ = try await checkpointEvaluator.evaluateCheckpoint(
                     request: CheckpointEvaluationRequest(
                         profile: profile,
                         checkpointURL: candidateCheckpointURL,
@@ -1944,11 +1944,13 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
                     )
                 )
                 do {
-                    try CheckpointEvaluationArtifactValidator.validate(
-                        checkpointEvaluation,
-                        expectedProfile: profile,
-                        expectedCheckpointPath: candidateCheckpointURL.path,
-                        requiresPolicyPass: true
+                    _ = try GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact(
+                        CheckpointEvaluationArtifactCompatibilityRequest(
+                            artifactDirectory: evaluationRoot,
+                            expectedProfile: profile,
+                            expectedCheckpointPath: candidateCheckpointURL.path,
+                            requiresPolicyPass: true
+                        )
                     )
                     checkpointEvaluationPassed = true
                     checkpointEvaluationReasons = []
@@ -2468,7 +2470,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                 if let recoveryDatasetURL = acceptedRecoveryDatasetURL(from: result) {
                     recoveryDatasetURLs.append(recoveryDatasetURL)
                 }
-                let artifacts = try TrainingProbeArtifactValidator().loadAndValidate(from: taskRoot)
+                let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: taskRoot)
                 let taskSolved = TrainingHarnessPolicy.taskSolved(result: result)
                 let harnessSatisfied = harnessPolicySatisfied(result: result)
                 let gateReport = TrainingHarnessPolicy.report(
@@ -2782,7 +2784,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                     if let recoveryDatasetURL = acceptedRecoveryDatasetURL(from: result) {
                         recoveryDatasetURLs.append(recoveryDatasetURL)
                     }
-                    let artifacts = try TrainingProbeArtifactValidator().loadAndValidate(from: attemptRoot)
+                    let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: attemptRoot)
                     let taskSolved = TrainingHarnessPolicy.taskSolved(result: result)
                     let harnessSatisfied = TrainingHarnessPolicy.satisfied(result: result)
                     let preRegressionGateReport = TrainingHarnessPolicy.report(

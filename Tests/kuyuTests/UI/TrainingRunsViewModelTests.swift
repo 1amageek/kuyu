@@ -153,3 +153,64 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
     #expect(acknowledgment.rejected == false)
     #expect(acknowledgment.iteration == 0)
 }
+
+@Test(.timeLimit(.minutes(1))) func trainingRunStoreLoadsGeneratedRunArtifactsThroughCompatibilityVerifier() throws {
+    let artifactDirectory = makeRunsViewModelTestRoot(label: "generated-artifact")
+    defer { removeRunsViewModelTestRoot(artifactDirectory) }
+
+    let manifest = LearningRunManifest(
+        runID: "ui-generated-artifact-run",
+        mode: .supervised,
+        configHash: "ui-generated-artifact-config",
+        suiteID: "attitude",
+        seedSet: [1],
+        policyID: "policy",
+        outputCheckpointID: "candidate",
+        workerCount: 1,
+        startedAt: Date(timeIntervalSince1970: 1),
+        completedAt: Date(timeIntervalSince1970: 2),
+        terminalState: .completed
+    )
+    let metrics = [
+        TrainingMetricRecord(runID: manifest.runID, iteration: 1, kind: .loss, value: 0.2),
+        TrainingMetricRecord(runID: manifest.runID, iteration: 1, kind: .score, value: 0.8),
+    ]
+    let convergence = ConvergenceSummary(
+        runID: manifest.runID,
+        accepted: true,
+        reason: "accepted",
+        bestCheckpointID: "candidate",
+        finalTrainingLoss: 0.2,
+        finalValidationLoss: nil,
+        rewardMovingAverage: nil,
+        passRate: 1,
+        failureRate: 0,
+        safetyRegressionDetected: false,
+        plateauDetected: false,
+        overfitRiskDetected: false
+    )
+    let checkpointDecision = CheckpointDecision(
+        runID: manifest.runID,
+        state: .accepted,
+        reason: "accepted",
+        candidateCheckpointID: "candidate",
+        candidateCheckpointURL: artifactDirectory.appendingPathComponent("candidate", isDirectory: true),
+        publishedCheckpointURL: artifactDirectory.appendingPathComponent("published", isDirectory: true),
+        decidedAt: Date(timeIntervalSince1970: 3)
+    )
+    try TrainingArtifactWriter().write(
+        manifest: manifest,
+        metrics: metrics,
+        convergence: convergence,
+        checkpointDecision: checkpointDecision,
+        to: artifactDirectory
+    )
+
+    let state = try TrainingRunStore().load(from: artifactDirectory)
+
+    #expect(state.manifest.runID == manifest.runID)
+    #expect(state.metrics.count == metrics.count)
+    #expect(state.lossSamples.map(\.value) == [0.2])
+    #expect(state.scoreSamples.map(\.value) == [0.8])
+    #expect(state.checkpointDecision.state == .accepted)
+}

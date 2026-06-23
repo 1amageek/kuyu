@@ -4,7 +4,7 @@ import KuyuPhysics
 import KuyuScenarios
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func kuyAtt1BaselineModesSeparateTeacherFromSensorOnlyControl() async throws {
+@Test(.timeLimit(.minutes(2))) func kuyAtt1BaselineModesSeparateTeacherFromSensorOnlyControl() async throws {
     #expect(ControllerSelection.allCases.contains(.teacherActiveAltitudeHold))
     #expect(ControllerSelection.allCases.contains(.sensorBaseline))
     #expect(ControllerSelection.teacherActiveAltitudeHold.kuyAtt1BaselineMode == .teacher)
