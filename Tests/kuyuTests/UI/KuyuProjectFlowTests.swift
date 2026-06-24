@@ -251,10 +251,12 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("model.json").path))
     #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
 
-    let preflight = try ManasMLXE2EPreflight().check(
-        robotManifestPath: "",
-        sourceCheckpointURL: sourceBundleURL,
-        requireSourceCheckpoint: true
+    let preflight = try ManasMLXRuntimeReadinessService().report(
+        for: ManasMLXRuntimeReadinessRequest(
+            robotManifestPath: "",
+            sourceCheckpointURL: sourceBundleURL,
+            requireSourceCheckpoint: true
+        )
     )
     #expect(preflight.mlxRuntimeReady)
     #expect(preflight.sourceCheckpointLoadable)
@@ -295,10 +297,12 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("model.json").path))
         #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
 
-        let preflight = try ManasMLXE2EPreflight().check(
-            robotManifestPath: "",
-            sourceCheckpointURL: sourceBundleURL,
-            requireSourceCheckpoint: true
+        let preflight = try ManasMLXRuntimeReadinessService().report(
+            for: ManasMLXRuntimeReadinessRequest(
+                robotManifestPath: "",
+                sourceCheckpointURL: sourceBundleURL,
+                requireSourceCheckpoint: true
+            )
         )
         #expect(preflight.sourceCheckpointLoadable)
     }

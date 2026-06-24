@@ -25,21 +25,23 @@ import Testing
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func manasE2EPreflightRejectsMissingRequiredSourceCheckpoint() throws {
-    #expect(throws: ManasMLXE2EPreflightError.missingCheckpointFile("source checkpoint URL")) {
-        try ManasMLXE2EPreflight().check(
-            robotManifestPath: "",
-            sourceCheckpointURL: nil,
-            requireSourceCheckpoint: true,
-            executablePath: "/Applications/Kuyu.app/Contents/MacOS/kuyu"
+@Test(.timeLimit(.minutes(1))) func manasRuntimeReadinessRejectsMissingRequiredSourceCheckpoint() throws {
+    #expect(throws: ManasMLXRuntimeReadinessError.missingCheckpointFile("source checkpoint URL")) {
+        try ManasMLXRuntimeReadinessService().report(
+            for: ManasMLXRuntimeReadinessRequest(
+                robotManifestPath: "",
+                sourceCheckpointURL: nil,
+                requireSourceCheckpoint: true,
+                executablePath: "/Applications/Kuyu.app/Contents/MacOS/kuyu"
+            )
         )
     }
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func manasE2EPreflightRejectsIncompleteSourceCheckpoint() throws {
+@Test(.timeLimit(.minutes(1))) func manasRuntimeReadinessRejectsIncompleteSourceCheckpoint() throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("kuyu-manas-e2e-preflight-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("kuyu-manas-runtime-readiness-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer {
         do {
@@ -49,11 +51,13 @@ import Testing
         }
     }
 
-    #expect(throws: ManasMLXE2EPreflightError.missingCheckpointFile(root.appendingPathComponent("model.json").path)) {
-        try ManasMLXE2EPreflight().check(
-            robotManifestPath: "",
-            sourceCheckpointURL: root,
-            executablePath: "/Applications/Kuyu.app/Contents/MacOS/kuyu"
+    #expect(throws: ManasMLXRuntimeReadinessError.missingCheckpointFile(root.appendingPathComponent("model.json").path)) {
+        try ManasMLXRuntimeReadinessService().report(
+            for: ManasMLXRuntimeReadinessRequest(
+                robotManifestPath: "",
+                sourceCheckpointURL: root,
+                executablePath: "/Applications/Kuyu.app/Contents/MacOS/kuyu"
+            )
         )
     }
 }

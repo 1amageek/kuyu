@@ -49,9 +49,11 @@ struct Doctor: ParsableCommand {
             } else {
                 checkpointURL = URL(fileURLWithPath: trimmedCheckpoint, isDirectory: true)
             }
-            let report = try ManasMLXE2EPreflight().check(
-                robotManifestPath: model,
-                sourceCheckpointURL: checkpointURL
+            let report = try ManasMLXRuntimeReadinessService().report(
+                for: ManasMLXRuntimeReadinessRequest(
+                    robotManifestPath: model,
+                    sourceCheckpointURL: checkpointURL
+                )
             )
             if report.robotManifestLoaded, let path = report.robotManifestPath {
                 info("robot manifest loaded: \(path)")

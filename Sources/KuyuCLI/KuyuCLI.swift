@@ -693,9 +693,11 @@ struct ProbeManas: AsyncParsableCommand {
             ManasMLXRandomSeed.seed(mlxSeed)
             print("[probe] mlxSeed=\(mlxSeed)")
         }
-        let preflight = try ManasMLXE2EPreflight().check(
-            robotManifestPath: model,
-            sourceCheckpointURL: sourceCheckpointURL
+        let preflight = try ManasMLXRuntimeReadinessService().report(
+            for: ManasMLXRuntimeReadinessRequest(
+                robotManifestPath: model,
+                sourceCheckpointURL: sourceCheckpointURL
+            )
         )
         print("[probe] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
 
@@ -1332,10 +1334,12 @@ struct WriteCTBRCheckpoint: ParsableCommand {
                 hiddenSize: hiddenSize
             )
         )
-        _ = try ManasMLXE2EPreflight().check(
-            robotManifestPath: model,
-            sourceCheckpointURL: outputURL,
-            requireSourceCheckpoint: true
+        _ = try ManasMLXRuntimeReadinessService().report(
+            for: ManasMLXRuntimeReadinessRequest(
+                robotManifestPath: model,
+                sourceCheckpointURL: outputURL,
+                requireSourceCheckpoint: true
+            )
         )
 
         print("ctbrCheckpointWritten=true")
@@ -3351,7 +3355,7 @@ private func runKuyuRegression(
 
     if selectedController == .manasMLX {
         do {
-            _ = try await runManasMLXE2EPreflight(
+            _ = try await runManasMLXRuntimeReadiness(
                 robotManifestPath: model,
                 sourceCheckpointURL: snapshotURL,
                 requireSourceCheckpoint: true
@@ -3605,15 +3609,17 @@ private func runKuyuRegression(
 }
 
 @MainActor
-private func runManasMLXE2EPreflight(
+private func runManasMLXRuntimeReadiness(
     robotManifestPath: String,
     sourceCheckpointURL: URL?,
     requireSourceCheckpoint: Bool
-) throws -> ManasMLXE2EPreflightReport {
-    try ManasMLXE2EPreflight().check(
-        robotManifestPath: robotManifestPath,
-        sourceCheckpointURL: sourceCheckpointURL,
-        requireSourceCheckpoint: requireSourceCheckpoint
+) throws -> ManasMLXRuntimeReadinessReport {
+    try ManasMLXRuntimeReadinessService().report(
+        for: ManasMLXRuntimeReadinessRequest(
+            robotManifestPath: robotManifestPath,
+            sourceCheckpointURL: sourceCheckpointURL,
+            requireSourceCheckpoint: requireSourceCheckpoint
+        )
     )
 }
 
@@ -4240,9 +4246,11 @@ private func runCLIManasProbe(
             print("[probe] mlxSeed=\(mlxSeed)")
         }
     }
-    let preflight = try ManasMLXE2EPreflight().check(
-        robotManifestPath: model,
-        sourceCheckpointURL: sourceCheckpointURL
+    let preflight = try ManasMLXRuntimeReadinessService().report(
+        for: ManasMLXRuntimeReadinessRequest(
+            robotManifestPath: model,
+            sourceCheckpointURL: sourceCheckpointURL
+        )
     )
     if printEvents {
         print("[probe] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
@@ -4881,10 +4889,12 @@ struct EvolveManas: AsyncParsableCommand {
     private func checkEvolutionInputs(snapshotURL: URL) throws {
         let requiresMLXCheckpoint = variation == .gaussian || evaluation == .regression
         if requiresMLXCheckpoint {
-            let preflight = try ManasMLXE2EPreflight().check(
-                robotManifestPath: model,
-                sourceCheckpointURL: snapshotURL,
-                requireSourceCheckpoint: true
+            let preflight = try ManasMLXRuntimeReadinessService().report(
+                for: ManasMLXRuntimeReadinessRequest(
+                    robotManifestPath: model,
+                    sourceCheckpointURL: snapshotURL,
+                    requireSourceCheckpoint: true
+                )
             )
             print("[evolve] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
         } else {
@@ -5657,7 +5667,9 @@ struct Verify: AsyncParsableCommand {
         if !skipMLX {
             stage("MLX runtime preflight")
             do {
-                let report = try ManasMLXE2EPreflight().check(robotManifestPath: model)
+                let report = try ManasMLXRuntimeReadinessService().report(
+                    for: ManasMLXRuntimeReadinessRequest(robotManifestPath: model)
+                )
                 if report.mlxRuntimeReady {
                     pass("MLX/Metal runtime ready (robotManifestLoaded=\(report.robotManifestLoaded))")
                 } else {
