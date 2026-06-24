@@ -1007,7 +1007,9 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
         )
 
         if let checkpointURL = result.candidateCheckpointURL {
-            _ = try ManasModelBundleValidator().loadAndValidate(from: checkpointURL)
+            _ = try ManasMLXTemporalCheckpointReadinessService().report(
+                for: ManasMLXTemporalCheckpointReadinessRequest(checkpointURL: checkpointURL)
+            )
         }
 
         print("ctbrPPOBackendProbe=true")
