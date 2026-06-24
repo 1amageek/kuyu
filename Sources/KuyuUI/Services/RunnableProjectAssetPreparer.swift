@@ -55,9 +55,14 @@ public protocol RunnableProjectAssetPreparing {
 @MainActor
 public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparing {
     private let modelStore: ManasMLXModelStore
+    private let checkpointValidator: any StarterSourceCheckpointValidating
 
-    public init(modelStore: ManasMLXModelStore) {
+    public init(
+        modelStore: ManasMLXModelStore,
+        checkpointValidator: any StarterSourceCheckpointValidating = ManasMLXStarterSourceCheckpointValidator()
+    ) {
         self.modelStore = modelStore
+        self.checkpointValidator = checkpointValidator
     }
 
     public func prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
@@ -98,7 +103,14 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 lastTrainedAt: nil
             )
         }
-        try validateCheckpoint(request: request)
+        try checkpointValidator.validate(request: StarterSourceCheckpointValidationRequest(
+            checkpointURL: request.checkpointURL,
+            robotManifestPath: request.robotManifestPath,
+            policyContract: request.policyContract,
+            actionContract: request.actionContract,
+            expectedDriveCount: request.expectedDriveCount,
+            expectedObservationChannelCount: request.expectedObservationChannelCount
+        ))
     }
 
     private func starterActionMean(taskMode: SimulationTaskMode) -> [Double] {
@@ -112,19 +124,4 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
         }
     }
 
-    private func validateCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
-        _ = try ManasMLXE2EPreflight().check(
-            robotManifestPath: request.robotManifestPath,
-            sourceCheckpointURL: request.checkpointURL,
-            requireSourceCheckpoint: true
-        )
-        if request.policyContract.actionEncoding != .ctbr {
-            if let failure = try ManasMLXCheckpointCompatibility(
-                expectedDriveCount: request.expectedDriveCount,
-                expectedCoreInputSize: request.expectedObservationChannelCount * 4
-            ).validate(snapshotURL: request.checkpointURL) {
-                throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: \(failure.description)")
-            }
-        }
-    }
 }

@@ -244,6 +244,7 @@ public final class SimulationViewModel {
     private let trainingBootstrapCoordinator = TrainingBootstrapCoordinator()
     private let learningStarterProjectStore: LearningStarterProjectStore
     private let runnableProjectAssetPreparer: any RunnableProjectAssetPreparing
+    private let starterSourceCheckpointValidator: any StarterSourceCheckpointValidating
     private let trainingLoopReducer = TrainingLoopStateReducer()
     private let descendingIntentResolver = DescendingIntentResolver()
     private var telemetryPresenter = TelemetryPresenter()
@@ -274,12 +275,14 @@ public final class SimulationViewModel {
         commandSystem: CommandSystem? = nil,
         learningStarterProjectStore: LearningStarterProjectStore = LearningStarterProjectStore(),
         runnableProjectAssetPreparer: (any RunnableProjectAssetPreparing)? = nil,
+        starterSourceCheckpointValidator: (any StarterSourceCheckpointValidating)? = nil,
         prepareStarterProjectOnInit: Bool = false
     ) {
         self.logStore = logStore
         self.learningStarterProjectStore = learningStarterProjectStore
         let store = ManasMLXModelStore()
         self.modelStore = store
+        self.starterSourceCheckpointValidator = starterSourceCheckpointValidator ?? ManasMLXStarterSourceCheckpointValidator()
         self.runnableProjectAssetPreparer = runnableProjectAssetPreparer ?? ManasMLXRunnableProjectAssetPreparer(modelStore: store)
         self.commandSystem = commandSystem ?? CommandSystem(modelStore: store)
         self.logger = Logger(label: "kuyu.ui")
@@ -3007,33 +3010,14 @@ public final class SimulationViewModel {
         policyContract: LearningProjectPolicyContract,
         actionContract: LearningProjectActionContract
     ) throws {
-        _ = try ManasMLXE2EPreflight().check(
+        try starterSourceCheckpointValidator.validate(request: StarterSourceCheckpointValidationRequest(
+            checkpointURL: url,
             robotManifestPath: robotManifestPath,
-            sourceCheckpointURL: url,
-            requireSourceCheckpoint: true
-        )
-        if policyContract.actionEncoding == .ctbr {
-            let manifestURL = url.appendingPathComponent("model.json", isDirectory: false)
-            let data = try Data(contentsOf: manifestURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let manifest = try decoder.decode(ManasMLXTemporalCheckpointManifest.self, from: data)
-            let expectedConfig = try ManasMLXTemporalPolicyContractResolver().makeConfig(
-                from: policyContract,
-                action: actionContract,
-                hiddenSize: manifest.config.hiddenSize
-            )
-            guard manifest.config == expectedConfig else {
-                throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: ctbr policy config mismatch")
-            }
-            return
-        }
-        if let failure = try ManasMLXCheckpointCompatibility(
+            policyContract: policyContract,
+            actionContract: actionContract,
             expectedDriveCount: starterExpectedDriveCount(for: taskMode),
-            expectedCoreInputSize: starterObservationChannelCount(for: taskMode) * 4
-        ).validate(snapshotURL: url) {
-            throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: \(failure.description)")
-        }
+            expectedObservationChannelCount: starterObservationChannelCount(for: taskMode)
+        ))
     }
 
     private func starterDriveCount(for taskMode: SimulationTaskMode) -> Int? {

@@ -1,4 +1,7 @@
 import Foundation
+import KuyuCore
+import KuyuPhysics
+import KuyuScenarios
 import KuyuTraining
 import Testing
 @testable import KuyuUI
@@ -198,11 +201,13 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
         publishedCheckpointURL: artifactDirectory.appendingPathComponent("published", isDirectory: true),
         decidedAt: Date(timeIntervalSince1970: 3)
     )
+    let scenarioRuns = try makeGeneratedArtifactScenarioRuns(runID: manifest.runID)
     try TrainingArtifactWriter().write(
         manifest: manifest,
         metrics: metrics,
         convergence: convergence,
         checkpointDecision: checkpointDecision,
+        scenarioRuns: scenarioRuns,
         to: artifactDirectory
     )
 
@@ -213,4 +218,47 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
     #expect(state.lossSamples.map(\.value) == [0.2])
     #expect(state.scoreSamples.map(\.value) == [0.8])
     #expect(state.checkpointDecision.state == .accepted)
+}
+
+private func makeGeneratedArtifactScenarioRuns(runID: String) throws -> [TrainingScenarioRunArtifact] {
+    [
+        TrainingScenarioRunArtifact(
+            runID: runID,
+            iteration: 1,
+            summary: TrainingScenarioRunSummary(
+                suitePassed: true,
+                evaluations: [
+                    try TrainingScenarioEvaluationRecord(
+                        scenarioID: "ui-generated-artifact-scenario",
+                        seed: 1,
+                        passed: true,
+                        maxOmega: 0.1,
+                        maxTiltDegrees: 1,
+                        sustainedViolationSeconds: 0,
+                        recoveryTimeSeconds: 0.1,
+                        overshootDegrees: 1,
+                        hfStabilityScore: 0.9,
+                        failures: []
+                    )
+                ],
+                aggregate: TrainingScenarioEvaluationAggregate(
+                    averageRecoveryTime: 0.1,
+                    worstOvershootDegrees: 1,
+                    averageHfStabilityScore: 0.9
+                ),
+                replay: .performed([
+                    ReplayCheckResult(
+                        scenarioId: try ScenarioID("ui-generated-artifact-scenario"),
+                        seed: ScenarioSeed(1),
+                        tier: .tier0,
+                        passed: true,
+                        issues: [],
+                        residuals: .zero
+                    )
+                ])
+            ),
+            logCount: 1,
+            terminalFactCount: 1
+        )
+    ]
 }

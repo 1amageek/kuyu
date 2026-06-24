@@ -6,7 +6,7 @@ import KuyuTraining
 
 @MainActor
 @Test func coreConfigWithoutEmbodimentUsesUntypedMode() {
-    let config = ManasMLXModelStore.makeCoreConfig(
+    let config = ManasMLXCoreConfigBuilder.makeConfig(
         inputSize: 12,
         driveCount: 4,
         auxEnabled: true,
@@ -24,7 +24,7 @@ import KuyuTraining
 @MainActor
 @Test func coreConfigWithEmbodimentUsesSharedTypedMode() {
     let embodiment = makeEmbodiment(includeDescending: false)
-    let config = ManasMLXModelStore.makeCoreConfig(
+    let config = ManasMLXCoreConfigBuilder.makeConfig(
         inputSize: 8,
         driveCount: 2,
         auxEnabled: false,
@@ -42,7 +42,7 @@ import KuyuTraining
 @MainActor
 @Test func coreConfigWithDescendingChannelsSetsDescendingConfig() {
     let embodiment = makeEmbodiment(includeDescending: true)
-    let config = ManasMLXModelStore.makeCoreConfig(
+    let config = ManasMLXCoreConfigBuilder.makeConfig(
         inputSize: 8,
         driveCount: 2,
         auxEnabled: false,
