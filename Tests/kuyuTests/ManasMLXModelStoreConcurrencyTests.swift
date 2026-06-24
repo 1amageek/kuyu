@@ -117,11 +117,36 @@ func modelStoreInitializesSingleDriveStarterCheckpoint() throws {
 
     #expect(manifest.coreConfig.driveCount == 1)
     #expect(manifest.reflexConfig?.driveCount == 1)
-    #expect(try ManasMLXCheckpointCompatibility(expectedDriveCount: 1).validate(snapshotURL: directory) == nil)
-    #expect(
-        try ManasMLXCheckpointCompatibility(expectedDriveCount: 4).validate(snapshotURL: directory)
-            == .incompatibleDriveCount(expected: 4, actual: 1)
+    let checkpointPath = directory.path
+    let savedDriveCount = manifest.coreConfig.driveCount
+    let compatibility = ManasMLXStarterSourceCheckpointCompatibility(
+        preflight: { _ in },
+        directMotorCompatibility: { request in
+            guard request.checkpointURL.path == checkpointPath else {
+                return .invalidModelBundle("unexpected-checkpoint-url")
+            }
+            guard request.expectedDriveCount == savedDriveCount else {
+                return .incompatibleDriveCount(
+                    expected: request.expectedDriveCount,
+                    actual: savedDriveCount
+                )
+            }
+            return nil
+        },
+        temporalManifestLoader: { _ in
+            throw StarterCheckpointCompatibilityUnexpectedCall.temporalManifest
+        },
+        temporalConfigResolver: { _, _, _ in
+            throw StarterCheckpointCompatibilityUnexpectedCall.temporalConfig
+        }
     )
+    try compatibility.validate(singleDriveStarterRequest(checkpointURL: directory, expectedDriveCount: 1))
+    do {
+        try compatibility.validate(singleDriveStarterRequest(checkpointURL: directory, expectedDriveCount: 4))
+        Issue.record("Expected starter checkpoint compatibility service to reject drive mismatch.")
+    } catch ManasMLXStarterSourceCheckpointCompatibilityError.directMotorIncompatible(let reason) {
+        #expect(reason.contains("incompatible-checkpoint-drive-count"))
+    }
 }
 
 @MainActor
@@ -178,6 +203,44 @@ func trainedCoreCheckpointIncludesReflexSnapshotForRollout() async throws {
     #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("core.safetensors").path))
     #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("reflex.safetensors").path))
     #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("manas-bundle.json").path))
+}
+
+private func singleDriveStarterRequest(
+    checkpointURL: URL,
+    expectedDriveCount: Int
+) -> ManasMLXStarterSourceCheckpointCompatibilityRequest {
+    let action = LearningProjectActionContract(
+        schemaID: "single-drive-direct-motor-v1",
+        kind: .continuous,
+        driveCount: expectedDriveCount,
+        actuatorCount: expectedDriveCount,
+        isBounded: true,
+        channels: LearningProjectActionContract.indexedBoundedChannels(
+            prefix: "drive",
+            count: expectedDriveCount,
+            unit: nil,
+            lowerBound: -1,
+            upperBound: 1,
+            transform: .tanh
+        )
+    )
+    return ManasMLXStarterSourceCheckpointCompatibilityRequest(
+        checkpointURL: checkpointURL,
+        robotManifestPath: "/tmp/reference-single-drive.json",
+        policyContract: .simpleFeedForward(
+            observationDimension: 8,
+            actionDimension: expectedDriveCount,
+            actionEncoding: .directMotor
+        ),
+        actionContract: action,
+        expectedDriveCount: expectedDriveCount,
+        expectedObservationChannelCount: 8
+    )
+}
+
+private enum StarterCheckpointCompatibilityUnexpectedCall: Error {
+    case temporalManifest
+    case temporalConfig
 }
 
 #if Xcode
