@@ -1740,7 +1740,7 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
                 artifactRoot: artifactRoot
             )
         )
-        _ = try GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact(
+        let verifiedArtifact = try GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact(
             CheckpointEvaluationArtifactCompatibilityRequest(
                 artifactDirectory: artifactRoot,
                 expectedProfile: profile,
@@ -1748,9 +1748,17 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
                 requiresPolicyPass: requirePolicyPass
             )
         )
+        let g1AcceptanceReport = try evaluateG1AcceptanceIfNeeded(
+            task: task,
+            artifact: verifiedArtifact,
+            artifactRoot: artifactRoot
+        )
 
         print("[evaluate-manas-checkpoint] task=\(summary.task) profile=\(summary.profileID) policyPassed=\(summary.policyPassed) score=\(String(format: "%.6f", summary.policyScore)) teacherScore=\(String(format: "%.6f", summary.teacherScore))")
         print("[evaluate-manas-checkpoint] motorMAE=\(formatOptional(summary.motorMAE)) driveMAE=\(formatOptional(summary.driveMAE)) finalAltitudeDelta=\(formatOptional(summary.finalAltitudeDelta)) failures=\(summary.failureReasons.joined(separator: ","))")
+        if let g1AcceptanceReport {
+            print("[evaluate-manas-checkpoint] g1Acceptance accepted=\(g1AcceptanceReport.accepted) taskPassRate=\(String(format: "%.6f", g1AcceptanceReport.taskPassRate)) safetyViolationRate=\(String(format: "%.6f", g1AcceptanceReport.safetyViolationRate)) failures=\(g1AcceptanceReport.failureReasons.joined(separator: ",")) artifact=\(artifactRoot.appendingPathComponent(ReferenceQuadrotorG1AttitudeAcceptanceReport.fileName).path)")
+        }
         if let diagnostics = summary.diagnostics {
             print("[evaluate-manas-checkpoint] diagnostics worstAltitudeDelta=\(formatOptional(diagnostics.worstFinalAltitudeDelta)) worstVzDelta=\(formatOptional(diagnostics.worstFinalVerticalVelocityDelta)) earliestAltitudeDivergence=\(formatOptional(diagnostics.earliestAltitudeDivergenceTime))")
             if let failed = diagnostics.scenarioComparisons.first(where: { $0.policyFailureReason != nil }) {
@@ -1758,6 +1766,17 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
             }
         }
         print("[evaluate-manas-checkpoint] artifacts path=\(artifactRoot.path)")
+    }
+
+    private func evaluateG1AcceptanceIfNeeded(
+        task: RolloutTaskChoice,
+        artifact: CheckpointEvaluationArtifact,
+        artifactRoot: URL
+    ) throws -> ReferenceQuadrotorG1AttitudeAcceptanceReport? {
+        guard task == .attitude else {
+            return nil
+        }
+        return try ReferenceQuadrotorG1AttitudeAcceptanceGate().evaluateAndWrite(artifact, to: artifactRoot)
     }
 }
 
