@@ -3670,18 +3670,10 @@ private func regressionSnapshotCompatibilityFailure(
     snapshotURL: URL,
     task: RolloutTaskChoice
 ) throws -> String? {
-    try ManasMLXCheckpointCompatibility(expectedDriveCount: regressionExpectedDriveCount(task: task))
-        .validate(snapshotURL: snapshotURL)?
-        .description
-}
-
-private func regressionExpectedDriveCount(task: RolloutTaskChoice) -> Int {
-    switch task {
-    case .singleLift:
-        return 1
-    case .attitude, .lift:
-        return 4
-    }
+    try ReferenceQuadrotorRegressionCheckpointCompatibility().failureDescription(
+        snapshotURL: snapshotURL,
+        task: learningCampaignRolloutTask(from: task)
+    )
 }
 
 private func parseRegressionSuites(_ raw: String) throws -> [Int] {
