@@ -1890,7 +1890,6 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
         }
 
         let sourceCheckpointURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
-        try validateCheckpointDirectory(sourceCheckpointURL)
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
         try createFreshArtifactRoot(artifactRoot)
 
@@ -2030,16 +2029,6 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
             print("[select-manas-bias-calibration] selected=false accepted=false")
         }
         print("[select-manas-bias-calibration] artifacts path=\(artifactRoot.path)")
-    }
-}
-
-private func validateCheckpointDirectory(_ checkpointURL: URL) throws {
-    let requiredFiles = ["model.json", "core.safetensors", "reflex.safetensors"]
-    for fileName in requiredFiles {
-        let fileURL = checkpointURL.appendingPathComponent(fileName)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            throw ValidationError("Checkpoint is missing required file: \(fileURL.path)")
-        }
     }
 }
 
@@ -2383,6 +2372,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
             probeTasks.insert(.lift, at: 0)
         }
         let initialSourceCheckpointURL = sourceCheckpointURL(from: sourceCheckpointPath)
+        let harnessGateService = ReferenceQuadrotorTrainingHarnessGateService()
 
         var probeEntries: [CheckTrainingHarnessProbeEntry] = []
         for task in probeTasks {
@@ -2425,9 +2415,9 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                     recoveryDatasetURLs.append(recoveryDatasetURL)
                 }
                 let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: taskRoot)
-                let taskSolved = TrainingHarnessPolicy.taskSolved(result: result)
-                let harnessSatisfied = harnessPolicySatisfied(result: result)
-                let gateReport = TrainingHarnessPolicy.report(
+                let taskSolved = harnessGateService.taskSolved(result: result)
+                let harnessSatisfied = harnessGateService.satisfied(result: result)
+                let gateReport = harnessGateService.report(
                     result: result,
                     requireTaskSolved: requireTaskSolved,
                     postRegression: nil
@@ -2507,10 +2497,6 @@ struct CheckTrainingHarness: AsyncParsableCommand {
             to: artifactRoot.appendingPathComponent("training-harness-summary.json"),
             options: [.atomic]
         )
-    }
-
-    private func harnessPolicySatisfied(result: TrainingProbeResult) -> Bool {
-        TrainingHarnessPolicy.satisfied(result: result)
     }
 }
 
@@ -2694,6 +2680,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
 
         var seedEntries: [CheckTrainingHarnessSeedEntry] = []
         let initialSourceCheckpointURL = sourceCheckpointURL(from: sourceCheckpointPath)
+        let harnessGateService = ReferenceQuadrotorTrainingHarnessGateService()
         for seedIndex in 0..<seeds {
             let seedBase = mlxSeed + UInt64(seedIndex * attempts * max(selectedTasks.count, 1))
             var probeEntries: [CheckTrainingHarnessProbeEntry] = []
@@ -2739,15 +2726,15 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                         recoveryDatasetURLs.append(recoveryDatasetURL)
                     }
                     let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: attemptRoot)
-                    let taskSolved = TrainingHarnessPolicy.taskSolved(result: result)
-                    let harnessSatisfied = TrainingHarnessPolicy.satisfied(result: result)
-                    let preRegressionGateReport = TrainingHarnessPolicy.report(
+                    let taskSolved = harnessGateService.taskSolved(result: result)
+                    let harnessSatisfied = harnessGateService.satisfied(result: result)
+                    let preRegressionGateReport = harnessGateService.report(
                         result: result,
                         requireTaskSolved: requireTaskSolved,
                         postRegression: nil
                     )
                     let accepted = preRegressionGateReport.accepted
-                    let postRegressionEntry: KuyuPostTrainingRegressionEntry?
+                    let postRegressionEntry: ReferenceQuadrotorPostTrainingRegressionEntry?
                     if accepted, postRegression {
                         let checkpointURL = selectedCandidateCheckpointURL(result.comparison)
                         if let checkpointURL {
@@ -2775,43 +2762,22 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                             )
                             let validatedRegression = try ReferenceQuadrotorRegressionArtifactLoader()
                                 .loadSummary(from: regressionRoot)
-                            postRegressionEntry = makePostTrainingRegressionEntry(
+                            postRegressionEntry = harnessGateService.postRegressionEntry(
                                 regression: validatedRegression,
                                 artifactPath: regressionRoot.path,
                                 minimumRewardAverage: validatedRegression.gateReport.minimumRewardAverage
                             )
                             print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) postRegression=\(validatedRegression.allPassed)")
                         } else {
-                            let defaultMinimumRewardAverage = try ReferenceQuadrotorRegressionQualityGatePolicy
-                                .defaultMinimumRewardAverage(for: task.rawValue)
-                            postRegressionEntry = KuyuPostTrainingRegressionEntry(
-                                attempted: false,
-                                applicable: true,
-                                artifactPath: nil,
-                                allPassed: false,
-                                failureReasons: ["missing-checkpoint-url"],
-                                rewardAverageMinimum: postRegressionMinRewardAverage ?? defaultMinimumRewardAverage,
-                                worstRewardAverage: nil,
-                                rewardAverageSatisfied: (postRegressionMinRewardAverage ?? defaultMinimumRewardAverage) == nil,
-                                qualityTask: task.rawValue,
-                                rolloutCount: 0,
-                                episodeCount: 0,
-                                taskPassRate: nil,
-                                achievedHoldTime: nil,
-                                requiredHoldTime: nil,
-                                minimumHoldTimeRatio: nil,
-                                maxAltitudeErrorAfterWarmup: nil,
-                                tolerance: nil,
-                                maximumAltitudeErrorRatio: nil,
-                                worstTrack: nil,
-                                worstScenarioID: nil,
-                                primaryRejectReason: "missing-checkpoint-url"
+                            postRegressionEntry = try harnessGateService.missingCheckpointPostRegressionEntry(
+                                task: task.rawValue,
+                                minimumRewardAverageOverride: postRegressionMinRewardAverage
                             )
                         }
                     } else {
                         postRegressionEntry = nil
                     }
-                    let gateReport = TrainingHarnessPolicy.report(
+                    let gateReport = harnessGateService.report(
                         result: result,
                         requireTaskSolved: requireTaskSolved,
                         postRegression: postRegressionEntry
@@ -3364,153 +3330,6 @@ private func rolloutTaskChoice(from task: SimulationTaskMode) -> RolloutTaskChoi
     }
 }
 
-private func regressionFailureReasons(from summary: ReferenceQuadrotorRegressionSummary) -> [String] {
-    var reasons: [String] = []
-    if let preflightFailure = summary.preflightFailure {
-        reasons.append(preflightFailure)
-    }
-    reasons.append(contentsOf: summary.environmentTasks.filter { !$0.ready }.map { "environment:\($0.task)" })
-    reasons.append(contentsOf: summary.rolloutSuites.flatMap(\.failureReasons))
-    reasons.append(contentsOf: summary.rolloutSuites.flatMap(\.taskFailureReasons))
-    reasons.append(contentsOf: summary.gateReport.reasons)
-    return Array(Set(reasons)).sorted()
-}
-
-private func postRegressionApplicable(_ summary: ReferenceQuadrotorRegressionSummary) -> Bool {
-    let reasons = regressionFailureReasons(from: summary)
-    guard !reasons.isEmpty else {
-        return true
-    }
-    return !reasons.allSatisfy { $0.contains("incompatible-checkpoint-drive-count") }
-}
-
-private func makePostTrainingRegressionEntry(
-    regression: ReferenceQuadrotorRegressionSummary,
-    artifactPath: String,
-    minimumRewardAverage: Double?
-) -> KuyuPostTrainingRegressionEntry {
-    let rewardAverageSatisfied: Bool
-    let rewardFailureReasons: [String]
-    if let minimumRewardAverage {
-        if regression.rolloutSuites.isEmpty {
-            rewardAverageSatisfied = false
-            rewardFailureReasons = ["post-regression-reward-average-missing"]
-        } else {
-            let failures = regression.rolloutSuites
-                .filter { $0.rewardAverage < minimumRewardAverage }
-                .map { entry in
-                    "post-regression-reward-average-below-min:\(entry.track):\(entry.rewardAverage)<\(minimumRewardAverage)"
-                }
-            rewardAverageSatisfied = failures.isEmpty
-            rewardFailureReasons = failures
-        }
-    } else {
-        rewardAverageSatisfied = true
-        rewardFailureReasons = []
-    }
-    let failureReasons = regressionFailureReasons(from: regression) + rewardFailureReasons
-    let totalEpisodes = regression.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
-    let totalTaskPassCount = regression.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
-    let taskPassRate = totalEpisodes > 0 ? Double(totalTaskPassCount) / Double(totalEpisodes) : nil
-    let qualitiesByTrack = regression.rolloutSuites.flatMap { entry in
-        entry.taskQuality.map { quality in
-            (track: entry.track, quality: quality)
-        }
-    }
-    let worstHold = qualitiesByTrack
-        .compactMap { item -> (track: String, quality: ReferenceQuadrotorTaskQualitySummary, ratio: Double)? in
-            guard let achieved = item.quality.achievedHoldTime,
-                  let required = item.quality.requiredHoldTime,
-                  required > 0 else {
-                return nil
-            }
-            return (item.track, item.quality, achieved / required)
-        }
-        .min { lhs, rhs in
-            lhs.ratio < rhs.ratio
-        }
-    let worstAltitude = qualitiesByTrack
-        .compactMap { item -> (track: String, quality: ReferenceQuadrotorTaskQualitySummary, ratio: Double)? in
-            guard let error = item.quality.maxAltitudeErrorAfterWarmup,
-                  let tolerance = item.quality.tolerance,
-                  tolerance > 0 else {
-                return nil
-            }
-            return (item.track, item.quality, error / tolerance)
-        }
-        .max { lhs, rhs in
-            lhs.ratio < rhs.ratio
-        }
-    let worstQuality = worstAltitude?.quality ?? worstHold?.quality
-    let worstTrack = worstAltitude?.track ?? worstHold?.track
-    return KuyuPostTrainingRegressionEntry(
-        attempted: true,
-        applicable: postRegressionApplicable(regression),
-        artifactPath: artifactPath,
-        allPassed: regression.allPassed && rewardAverageSatisfied,
-        failureReasons: failureReasons,
-        rewardAverageMinimum: minimumRewardAverage,
-        worstRewardAverage: regression.rolloutSuites.map(\.rewardAverage).min(),
-        rewardAverageSatisfied: rewardAverageSatisfied,
-        qualityTask: regression.gateReport.qualityGateTask,
-        rolloutCount: regression.rolloutSuites.count,
-        episodeCount: totalEpisodes,
-        taskPassRate: taskPassRate,
-        achievedHoldTime: worstHold?.quality.achievedHoldTime,
-        requiredHoldTime: worstHold?.quality.requiredHoldTime,
-        minimumHoldTimeRatio: worstHold?.ratio,
-        maxAltitudeErrorAfterWarmup: worstAltitude?.quality.maxAltitudeErrorAfterWarmup,
-        tolerance: worstAltitude?.quality.tolerance,
-        maximumAltitudeErrorRatio: worstAltitude?.ratio,
-        worstTrack: worstTrack,
-        worstScenarioID: worstQuality?.scenarioID,
-        primaryRejectReason: failureReasons.first
-    )
-}
-
-private func postRegressionAcceptanceSatisfied(_ entry: KuyuPostTrainingRegressionEntry?) -> Bool {
-    guard let entry else {
-        return true
-    }
-    return !entry.applicable || entry.allPassed
-}
-
-// Core harness acceptance logic + thresholds now live in the shared
-// `KuyuTraining.TrainingHarnessPolicy` API (kuyu/SPEC.md "API-First Application
-// Boundary"). This CLI enum is a thin adapter that delegates the gate decision to the
-// shared policy and only composes the CLI-specific post-training-regression step on top.
-private enum TrainingHarnessPolicy {
-    static func report(
-        result: TrainingProbeResult,
-        requireTaskSolved: Bool,
-        postRegression: KuyuPostTrainingRegressionEntry?
-    ) -> TrainingHarnessGateReport {
-        let base = KuyuTraining.TrainingHarnessPolicy.report(
-            result: result,
-            requireTaskSolved: requireTaskSolved
-        )
-        var reasons = base.reasons
-        if let postRegression, !postRegressionAcceptanceSatisfied(postRegression) {
-            reasons.append("post-regression-failed")
-            reasons.append(contentsOf: postRegression.failureReasons.map { "post-regression:\($0)" })
-        }
-        let requirement = postRegression != nil ? "\(base.requirement)+postRegression" : base.requirement
-        return TrainingHarnessGateReport(
-            requirement: requirement,
-            accepted: reasons.isEmpty,
-            reasons: reasons
-        )
-    }
-
-    static func taskSolved(result: TrainingProbeResult) -> Bool {
-        KuyuTraining.TrainingHarnessPolicy.taskSolved(result: result)
-    }
-
-    static func satisfied(result: TrainingProbeResult) -> Bool {
-        KuyuTraining.TrainingHarnessPolicy.satisfied(result: result)
-    }
-}
-
 private func selectedCandidateCheckpointURL(_ comparison: TrainingProbeComparison) -> URL? {
     guard comparison.selectedCheckpointRole == .candidate else {
         return nil
@@ -3667,31 +3486,7 @@ private struct CheckTrainingHarnessProbeEntry: Codable {
     let recoveryRelabelEntryCount: Int?
     let recoveryRelabelCutStepCount: Int?
     let gateReport: TrainingHarnessGateReport
-    let postRegression: KuyuPostTrainingRegressionEntry?
-}
-
-private struct KuyuPostTrainingRegressionEntry: Codable {
-    let attempted: Bool
-    let applicable: Bool
-    let artifactPath: String?
-    let allPassed: Bool
-    let failureReasons: [String]
-    let rewardAverageMinimum: Double?
-    let worstRewardAverage: Double?
-    let rewardAverageSatisfied: Bool
-    let qualityTask: String?
-    let rolloutCount: Int
-    let episodeCount: Int
-    let taskPassRate: Double?
-    let achievedHoldTime: Double?
-    let requiredHoldTime: Double?
-    let minimumHoldTimeRatio: Double?
-    let maxAltitudeErrorAfterWarmup: Double?
-    let tolerance: Double?
-    let maximumAltitudeErrorRatio: Double?
-    let worstTrack: String?
-    let worstScenarioID: String?
-    let primaryRejectReason: String?
+    let postRegression: ReferenceQuadrotorPostTrainingRegressionEntry?
 }
 
 @MainActor
