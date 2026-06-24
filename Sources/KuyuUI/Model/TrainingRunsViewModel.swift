@@ -174,7 +174,7 @@ public final class TrainingRunsViewModel {
         let liveness = try reader.liveness()
         let outcome = try reader.loadOutcome()
         let heartbeat = try reader.loadHeartbeat()
-        let journal = try reader.readJournal()
+        let journal = try reader.readJournalValidatingEvaluationArtifacts()
         var control: TrainingRunDetailSnapshot.ControlStatus?
         if let sequence = try reader.latestControlSequence() {
             control = TrainingRunDetailSnapshot.ControlStatus(

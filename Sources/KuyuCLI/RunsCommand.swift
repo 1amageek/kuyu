@@ -134,7 +134,7 @@ struct Runs: AsyncParsableCommand {
                 print("Heartbeat:   none")
             }
 
-            let journal = try reader.readJournal()
+            let journal = try reader.readJournalValidatingEvaluationArtifacts()
             var journalLine = "Journal:     \(journal.records.count) records"
             if journal.truncatedTailBytes > 0 {
                 journalLine += " (torn tail: \(journal.truncatedTailBytes) bytes)"

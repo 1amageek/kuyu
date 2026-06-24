@@ -100,6 +100,41 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
 }
 
 @MainActor
+@Test(.timeLimit(.minutes(1))) func trainingRunsViewModelRejectsMissingEvaluationArtifactReferences() async throws {
+    let runRoot = makeRunsViewModelTestRoot(label: "missing-eval-artifact")
+    defer { removeRunsViewModelTestRoot(runRoot) }
+
+    let driver = try beginRunsViewModelTestRun(runRoot: runRoot)
+    try driver.recordIteration(TrainingRunIterationRecord(
+        iteration: 0,
+        recordedAt: Date(),
+        evaluation: TrainingRunIterationRecord.EvaluationRecord(
+            evaluationHorizon: 20_000,
+            metrics: ["policyPassed": 0],
+            artifacts: [
+                TrainingRunIterationRecord.EvaluationRecord.ArtifactReference(
+                    kind: "checkpoint-evaluation",
+                    path: "evaluations/iteration-0/missing.json"
+                ),
+            ]
+        )
+    ))
+    try driver.finishCancelled(acceptedCheckpointPath: nil)
+
+    let model = TrainingRunsViewModel(environment: ["KUYU_RUN_ROOT": runRoot.path])
+    await model.refresh()
+    #expect(model.lastError == nil)
+    #expect(model.items.count == 1)
+
+    model.selectedRunID = driver.runIDString
+    await model.refresh()
+
+    let lastError = try #require(model.lastError)
+    #expect(lastError.contains("missing artifact file"))
+    #expect(lastError.contains("evaluations/iteration-0/missing.json"))
+}
+
+@MainActor
 @Test(.timeLimit(.minutes(1))) func trainingRunsViewModelRejectsControlOnFinishedRun() async throws {
     let runRoot = makeRunsViewModelTestRoot(label: "rejected-control")
     defer { removeRunsViewModelTestRoot(runRoot) }
