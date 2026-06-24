@@ -51,6 +51,32 @@ import Testing
     }
 }
 
+@Test func learningStarterProjectStoreAcceptsCTBRStarterWithoutReflexWeights() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-starter-ctbr-\(UUID().uuidString)", isDirectory: true)
+    let store = LearningStarterProjectStore(
+        projectRoot: root,
+        now: { Date(timeIntervalSince1970: 1_778_400_000) }
+    )
+    let policy = LearningProjectPolicyContract.simpleFeedForward(
+        observationDimension: 64,
+        actionDimension: 4,
+        actionEncoding: .ctbr
+    )
+
+    let project = try store.prepareStarterProject(policyContract: policy) { checkpoint in
+        try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
+        for fileName in ["model.json", "core.safetensors", "manas-bundle.json"] {
+            try Data(fileName.utf8).write(to: checkpoint.appendingPathComponent(fileName), options: .atomic)
+        }
+    }
+
+    #expect(store.checkpointIsComplete(at: project.sourceCheckpoint, policyContract: policy))
+    #expect(!FileManager.default.fileExists(
+        atPath: project.sourceCheckpoint.appendingPathComponent("reflex.safetensors").path
+    ))
+}
+
 @Test func learningStarterProjectStoreMakesUniqueRunRoots() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-starter-unique-\(UUID().uuidString)", isDirectory: true)

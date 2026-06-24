@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLX
 import KuyuTraining
 
 public enum LearningStarterProjectStoreError: Error, Equatable, LocalizedError, Sendable {
@@ -15,13 +16,16 @@ public enum LearningStarterProjectStoreError: Error, Equatable, LocalizedError, 
 public struct LearningStarterProjectStore: Sendable {
     public let projectRoot: URL
     private let now: @Sendable () -> Date
+    private let checkpointRequirements: ManasMLXStarterCheckpointFileRequirements
 
     public init(
         projectRoot: URL? = nil,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        checkpointRequirements: ManasMLXStarterCheckpointFileRequirements? = nil
     ) {
         self.projectRoot = projectRoot ?? Self.defaultProjectRoot()
         self.now = now
+        self.checkpointRequirements = checkpointRequirements ?? ManasMLXStarterCheckpointFileRequirements()
     }
 
     public func prepareStarterProject(
@@ -91,52 +95,29 @@ public struct LearningStarterProjectStore: Sendable {
     }
 
     public func checkpointIsComplete(at url: URL) -> Bool {
-        missingCheckpointFiles(at: url).isEmpty
+        checkpointIsComplete(
+            at: url,
+            policyContract: .simpleFeedForward(
+                observationDimension: 1,
+                actionDimension: 1,
+                actionEncoding: .directMotor
+            )
+        )
     }
 
     public func checkpointIsComplete(
         at url: URL,
         policyContract: LearningProjectPolicyContract
     ) -> Bool {
-        missingCheckpointFiles(at: url, policyContract: policyContract).isEmpty
-    }
-
-    private func missingCheckpointFiles(at url: URL) -> [String] {
-        Self.requiredCheckpointFiles.filter { fileName in
-            !FileManager.default.fileExists(atPath: url.appendingPathComponent(fileName).path)
-        }
+        checkpointRequirements.isComplete(at: url, policyContract: policyContract)
     }
 
     private func missingCheckpointFiles(
         at url: URL,
         policyContract: LearningProjectPolicyContract
     ) -> [String] {
-        requiredCheckpointFiles(policyContract: policyContract).filter { fileName in
-            !FileManager.default.fileExists(atPath: url.appendingPathComponent(fileName).path)
-        }
+        checkpointRequirements.missingFiles(at: url, policyContract: policyContract)
     }
-
-    private func requiredCheckpointFiles(policyContract: LearningProjectPolicyContract) -> [String] {
-        switch policyContract.actionEncoding {
-        case .ctbr:
-            return Self.ctbrCheckpointFiles
-        case .directMotor, .jointTargets, .vehicleSteerThrottleBrake:
-            return Self.requiredCheckpointFiles
-        }
-    }
-
-    private static let requiredCheckpointFiles = [
-        "model.json",
-        "core.safetensors",
-        "reflex.safetensors",
-        "manas-bundle.json",
-    ]
-
-    private static let ctbrCheckpointFiles = [
-        "model.json",
-        "core.safetensors",
-        "manas-bundle.json",
-    ]
 
     private static func defaultProjectRoot() -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
