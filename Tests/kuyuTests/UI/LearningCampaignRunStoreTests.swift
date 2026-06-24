@@ -375,7 +375,7 @@ import Testing
     do {
         _ = try LearningCampaignRunStore().load(from: root)
         Issue.record("Expected standalone accepted checkpoint to fail without a validated evolution artifact.")
-    } catch EvolutionRunArtifactValidator.ValidationError.missingFile(let fileName) {
+    } catch GeneratedTrainingArtifactCompatibilityVerifier.VerificationError.missingEvolutionArtifact(let fileName) {
         #expect(fileName == EvolutionRunArtifactContract.fileName)
     }
 }
