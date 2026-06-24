@@ -50,16 +50,9 @@ struct ProbeRoArmM1: ParsableCommand {
     func run() throws {
         let loaded = try KuyuModelLoader().loadRobot(path: model)
         let embodiment = loaded.embodiment
-        try validateRoArmM1Manifest(loaded)
-
-        let jointTargets = try parseJointTargets(joints)
-        let modelJointLimits = try jointLimits(from: embodiment.signals.drive)
-        let encoderJointLimits: [ClosedRange<Double>]
-        if useModelLimits {
-            encoderJointLimits = modelJointLimits
-        } else {
-            encoderJointLimits = try safeCommissioningLimits(within: modelJointLimits)
-        }
+        let readiness = try hardwareProbeReadiness(for: loaded)
+        let encoderJointLimits = readiness.activeJointLimits
+        let jointTargets = try parseJointTargets(joints, expectedCount: encoderJointLimits.count)
 
         if let calibrationReportPath {
             try validateCalibrationReport(path: calibrationReportPath, loaded: loaded)
@@ -125,51 +118,22 @@ struct ProbeRoArmM1: ParsableCommand {
         print("[roarm-m1] motion=sent device=\(trimmedDevice) bytes=\(data.count)")
     }
 
-    private func validateRoArmM1Manifest(_ loaded: LoadedKuyuRobot) throws {
-        let embodiment = loaded.embodiment
-        let body = loaded.body
-        guard loaded.manifest.robotID == "roarm-m1-v0" else {
-            throw ValidationError("Expected roarm-m1-v0 robot, got \(loaded.manifest.robotID).")
-        }
-        guard embodiment.control.driveChannels.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 embodiment must define exactly five drive channels.")
-        }
-        guard embodiment.signals.actuator.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 embodiment must define exactly five actuator channels.")
-        }
-        let attachments = body.actuatorAttachments.sorted { $0.actuatorID < $1.actuatorID }
-        guard attachments.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 body must define exactly five actuator attachments.")
-        }
-        for (index, attachment) in attachments.enumerated() {
-            let expectedDirection = RoArmM1ServoCommandEncoder.commandDirections[index]
-            let expectedReduction = RoArmM1ServoCommandEncoder.mechanicalReductionRatios[index]
-            guard attachment.commandDirection == expectedDirection else {
-                throw ValidationError(
-                    "RoARM M1 body command direction for \(attachment.actuatorID) is \(attachment.commandDirection), expected \(expectedDirection)."
-                )
-            }
-            guard attachment.mechanicalReductionRatio == expectedReduction else {
-                throw ValidationError(
-                    "RoARM M1 body reduction for \(attachment.actuatorID) is \(attachment.mechanicalReductionRatio), expected \(expectedReduction)."
-                )
-            }
-            guard attachment.transmissionRatio == expectedReduction else {
-                throw ValidationError(
-                    "RoARM M1 body transmission ratio for \(attachment.actuatorID) is \(attachment.transmissionRatio), expected \(expectedReduction)."
-                )
-            }
-            guard attachment.mountFrameID != nil else {
-                throw ValidationError("RoARM M1 actuator attachment \(attachment.actuatorID) is missing mountFrameID.")
-            }
+    private func hardwareProbeReadiness(for loaded: LoadedKuyuRobot) throws -> RoArmM1HardwareProbeReadiness {
+        do {
+            return try RoArmM1HardwareProbeReadinessService().validate(
+                robot: loaded,
+                useModelLimits: useModelLimits
+            )
+        } catch {
+            throw ValidationError("RoARM M1 hardware probe readiness failed: \(error)")
         }
     }
 
-    private func parseJointTargets(_ raw: String) throws -> [Double] {
+    private func parseJointTargets(_ raw: String, expectedCount: Int) throws -> [Double] {
         let parts = raw.split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard parts.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("--joints must contain exactly five comma-separated finite numbers.")
+        guard parts.count == expectedCount else {
+            throw ValidationError("--joints must contain exactly \(expectedCount) comma-separated finite numbers.")
         }
 
         var values: [Double] = []
@@ -195,35 +159,6 @@ struct ProbeRoArmM1: ParsableCommand {
                 )
             }
         }
-    }
-
-    private func jointLimits(from signals: [SignalDefinition]) throws -> [ClosedRange<Double>] {
-        let sortedSignals = signals.sorted { $0.index < $1.index }
-        guard sortedSignals.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 embodiment must expose five joint target ranges.")
-        }
-        return try sortedSignals.map { signal in
-            guard let range = signal.range else {
-                throw ValidationError("Embodiment joint target signal \(signal.id) is missing a range.")
-            }
-            return range.min...range.max
-        }
-    }
-
-    private func safeCommissioningLimits(within modelLimits: [ClosedRange<Double>]) throws -> [ClosedRange<Double>] {
-        guard modelLimits.count == RoArmM1ServoCommandEncoder.jointCount else {
-            throw ValidationError("RoARM M1 embodiment must expose five joint target ranges.")
-        }
-        return try zip(RoArmM1ServoCommandEncoder.safeCommissioningJointLimits, modelLimits)
-            .enumerated()
-            .map { index, pair in
-                let lower = max(pair.0.lowerBound, pair.1.lowerBound)
-                let upper = min(pair.0.upperBound, pair.1.upperBound)
-                guard lower <= upper else {
-                    throw ValidationError("Safe commissioning range does not overlap joint \(index + 1) model range.")
-                }
-                return lower...upper
-            }
     }
 
     private func validateCalibrationReport(path: String, loaded: LoadedKuyuRobot) throws {
