@@ -856,7 +856,13 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
 }
 
 public struct LearningCampaignRunStore {
-    public init() {}
+    private let artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier
+
+    public init(
+        artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier = GeneratedTrainingArtifactCompatibilityVerifier()
+    ) {
+        self.artifactVerifier = artifactVerifier
+    }
 
     public func load(from artifactDirectory: URL) throws -> LearningCampaignRunStoreState {
         let decodedPlan: LearningCampaignPlan? = try decodeIfPresent(
@@ -914,11 +920,11 @@ public struct LearningCampaignRunStore {
 
     private func loadAcceptedCheckpoints(from artifactDirectory: URL) throws -> [LearningCampaignAcceptedCheckpointState] {
         var states: [LearningCampaignAcceptedCheckpointState] = []
-        if let rootDecision = try decodeIfPresent(
-            EvolutionAcceptedCheckpointDecision.self,
-            from: artifactDirectory.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
+        if let rootDecision = try loadAcceptedCheckpointDecision(
+            seed: "evolution",
+            from: artifactDirectory
         ) {
-            states.append(LearningCampaignAcceptedCheckpointState(seed: "evolution", decision: rootDecision))
+            states.append(rootDecision)
         }
 
         let seedsRoot = artifactDirectory.appendingPathComponent("seeds", isDirectory: true)
@@ -932,20 +938,30 @@ public struct LearningCampaignRunStore {
         )
         for seedDirectory in seedDirectories {
             guard try isDirectory(seedDirectory) else { continue }
-            let decisionURL = seedDirectory
-                .appendingPathComponent("evolution", isDirectory: true)
-                .appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
-            if let decision = try decodeIfPresent(EvolutionAcceptedCheckpointDecision.self, from: decisionURL) {
-                states.append(LearningCampaignAcceptedCheckpointState(
-                    seed: seedDirectory.lastPathComponent,
-                    decision: decision
-                ))
+            if let decision = try loadAcceptedCheckpointDecision(
+                seed: seedDirectory.lastPathComponent,
+                from: seedDirectory.appendingPathComponent("evolution", isDirectory: true)
+            ) {
+                states.append(decision)
             }
         }
         return states.sorted { lhs, rhs in
             if lhs.seed != rhs.seed { return lhs.seed < rhs.seed }
             return lhs.id < rhs.id
         }
+    }
+
+    private func loadAcceptedCheckpointDecision(
+        seed: String,
+        from evolutionDirectory: URL
+    ) throws -> LearningCampaignAcceptedCheckpointState? {
+        let decisionURL = evolutionDirectory.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
+        guard FileManager.default.fileExists(atPath: decisionURL.path) else { return nil }
+        let bundle = try artifactVerifier.loadEvolutionArtifacts(from: evolutionDirectory)
+        return LearningCampaignAcceptedCheckpointState(
+            seed: seed,
+            decision: bundle.acceptedCheckpoint
+        )
     }
 
     private func loadVectorizedBatches(from artifactDirectory: URL) throws -> [LearningCampaignVectorizedBatchState] {

@@ -326,6 +326,28 @@ import Testing
         .appendingPathComponent("seeds", isDirectory: true)
         .appendingPathComponent("seed-1", isDirectory: true)
         .appendingPathComponent("evolution", isDirectory: true)
+    try writeRejectedEvolutionArtifact(to: evolutionRoot)
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.acceptedCheckpoints.count == 1)
+    #expect(state.acceptedCheckpoints.first?.accepted == false)
+    #expect(state.primaryFailureReason == "accepted-checkpoint:seed-1: incumbent-improvement-below-min:g12-c7:-287.3--287.3<0.001")
+    #expect(state.failureReasons.contains("No checkpoint was accepted by the gate."))
+    #expect(state.diagnosticText.contains("accepted-checkpoint:seed-1"))
+    #expect(state.diagnosticText.contains("incumbent-improvement-below-min"))
+}
+
+@Test func learningCampaignRunStoreRejectsStandaloneAcceptedCheckpointWithoutValidatedEvolutionArtifact() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-campaign-standalone-accepted-checkpoint-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    try writeJSON(makePlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
+    let evolutionRoot = root
+        .appendingPathComponent("seeds", isDirectory: true)
+        .appendingPathComponent("seed-1", isDirectory: true)
+        .appendingPathComponent("evolution", isDirectory: true)
     try FileManager.default.createDirectory(at: evolutionRoot, withIntermediateDirectories: true)
     try writeJSON(
         EvolutionAcceptedCheckpointDecision(
@@ -350,14 +372,12 @@ import Testing
         to: evolutionRoot.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
     )
 
-    let state = try LearningCampaignRunStore().load(from: root)
-
-    #expect(state.acceptedCheckpoints.count == 1)
-    #expect(state.acceptedCheckpoints.first?.accepted == false)
-    #expect(state.primaryFailureReason == "accepted-checkpoint:seed-1: incumbent-improvement-below-min:g12-c7:-287.3--287.3<0.001")
-    #expect(state.failureReasons.contains("No checkpoint was accepted by the gate."))
-    #expect(state.diagnosticText.contains("accepted-checkpoint:seed-1"))
-    #expect(state.diagnosticText.contains("incumbent-improvement-below-min"))
+    do {
+        _ = try LearningCampaignRunStore().load(from: root)
+        Issue.record("Expected standalone accepted checkpoint to fail without a validated evolution artifact.")
+    } catch EvolutionRunArtifactValidator.ValidationError.missingFile(let fileName) {
+        #expect(fileName == EvolutionRunArtifactContract.fileName)
+    }
 }
 
 @Test func learningCampaignRunStoreExplainsCancelledPartialEvolutionAsCancellation() throws {
@@ -631,6 +651,150 @@ private func makeFiveGenerationPlan(root: URL) -> LearningCampaignPlan {
         plannedCandidateEvaluations: 40,
         plannedRegressionRollouts: 40,
         plannedRegressionEpisodes: 40
+    )
+}
+
+private func writeRejectedEvolutionArtifact(to directory: URL) throws {
+    let runID = "run-1"
+    let bestCandidateID = "g12-c7"
+    let incumbentCandidateID = "parent"
+    let checkpointURL = URL(fileURLWithPath: "/tmp/checkpoint-g12-c7", isDirectory: true)
+    let manifest = EvolutionRunManifest(
+        runID: runID,
+        taskID: "singleLift",
+        configHash: "config-hash",
+        policyID: "manasMLX",
+        populationSize: 2,
+        generationCount: 13,
+        eliteCount: 1,
+        workerCount: 1,
+        candidateEvaluationConcurrency: 2,
+        startedAt: Date(timeIntervalSince1970: 1),
+        completedAt: Date(timeIntervalSince1970: 2),
+        terminalState: .completed
+    )
+    let generation = PopulationGenerationRecord(
+        runID: runID,
+        generationIndex: 12,
+        candidateCount: 2,
+        evaluatedCandidateCount: 2,
+        eliteCandidateIDs: [bestCandidateID],
+        bestCandidateID: bestCandidateID,
+        bestFitness: -287.3,
+        incumbentCandidateID: incumbentCandidateID,
+        incumbentFitness: -287.3,
+        bestVsIncumbentDelta: 0,
+        minimumImprovementOverIncumbent: 0.001,
+        incumbentImproved: false,
+        mutationRate: 0.08,
+        mutationNoiseScale: 0.01,
+        accepted: false,
+        rejectionReasons: [],
+        createdAt: Date(timeIntervalSince1970: 2)
+    )
+    let incumbent = GenomeCandidate(
+        runID: runID,
+        generationIndex: 0,
+        candidateID: incumbentCandidateID,
+        genomeID: "genome-parent",
+        checkpointID: "checkpoint-parent",
+        checkpointURL: URL(fileURLWithPath: "/tmp/checkpoint-parent", isDirectory: true),
+        mutationRate: 0,
+        mutationNoiseScale: 0,
+        isIncumbent: true
+    )
+    let best = GenomeCandidate(
+        runID: runID,
+        generationIndex: 12,
+        candidateID: bestCandidateID,
+        genomeID: "genome-g12-c7",
+        parentCandidateIDs: [incumbentCandidateID],
+        checkpointID: "checkpoint-g12-c7",
+        checkpointURL: checkpointURL,
+        mutationRate: 0.08,
+        mutationNoiseScale: 0.01
+    )
+    let incumbentFitness = FitnessSummary(
+        runID: runID,
+        generationIndex: 0,
+        candidateID: incumbentCandidateID,
+        taskID: "singleLift",
+        scalarFitness: -287.3,
+        rewardAverage: -287.3,
+        taskPassRate: 1,
+        safetyViolationRate: 0
+    )
+    let bestFitness = FitnessSummary(
+        runID: runID,
+        generationIndex: 12,
+        candidateID: bestCandidateID,
+        taskID: "singleLift",
+        scalarFitness: -287.3,
+        rewardAverage: -287.3,
+        taskPassRate: 1,
+        safetyViolationRate: 0
+    )
+    try EvolutionArtifactWriter().write(
+        manifest: manifest,
+        generations: [generation],
+        candidates: [incumbent, best],
+        fitness: [incumbentFitness, bestFitness],
+        eliteArchive: EvolutionEliteArchive(
+            runID: runID,
+            eliteCandidateIDs: [bestCandidateID],
+            bestCandidateID: bestCandidateID,
+            bestFitness: -287.3
+        ),
+        qualityDiversityArchive: EvolutionQualityDiversityArchive(
+            runID: runID,
+            descriptorKeys: ["taskPassRate"],
+            cells: [
+                EvolutionQualityDiversityCell(
+                    cellID: "taskPassRate=1",
+                    candidateID: bestCandidateID,
+                    generationIndex: 12,
+                    fitness: -287.3,
+                    behaviorDescriptor: ["taskPassRate": 1]
+                )
+            ]
+        ),
+        lineage: [
+            EvolutionLineageRecord(
+                runID: runID,
+                generationIndex: 0,
+                candidateID: incumbentCandidateID,
+                genomeID: "genome-parent",
+                parentCandidateIDs: []
+            ),
+            EvolutionLineageRecord(
+                runID: runID,
+                generationIndex: 12,
+                candidateID: bestCandidateID,
+                genomeID: "genome-g12-c7",
+                parentCandidateIDs: [incumbentCandidateID]
+            )
+        ],
+        evaluationTraces: [
+            EvolutionCandidateEvaluationTrace(
+                runID: runID,
+                generationIndex: 0,
+                candidateID: incumbentCandidateID,
+                requestedConcurrency: 2,
+                activeEvaluationCountAtStart: 1,
+                startedAt: Date(timeIntervalSince1970: 1),
+                completedAt: Date(timeIntervalSince1970: 2)
+            ),
+            EvolutionCandidateEvaluationTrace(
+                runID: runID,
+                generationIndex: 12,
+                candidateID: bestCandidateID,
+                requestedConcurrency: 2,
+                activeEvaluationCountAtStart: 2,
+                startedAt: Date(timeIntervalSince1970: 1),
+                completedAt: Date(timeIntervalSince1970: 2)
+            )
+        ],
+        to: directory
     )
 }
 
