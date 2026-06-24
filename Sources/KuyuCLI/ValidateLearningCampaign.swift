@@ -19,19 +19,21 @@ struct ValidateLearningCampaign: AsyncParsableCommand {
 
     mutating func run() async throws {
         let root = URL(fileURLWithPath: artifactRoot, isDirectory: true)
-        do {
-            let validation = try LearningCampaignArtifactValidator().validate(
+        let validation = try LearningCampaignArtifactValidationService().report(
+            for: LearningCampaignArtifactValidationService.Request(
                 artifactRoot: root,
                 allowFailed: allowFailed,
                 allowRunning: allowRunning
             )
+        )
+        if validation.valid {
             print("[learning-campaign-validation] valid artifactRoot=\(validation.artifactRoot)")
-        } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
-            print("[learning-campaign-validation] invalid issueCount=\(validation.issueCount)")
-            for issue in validation.issues {
-                print("[learning-campaign-validation] \(issue.code): \(issue.detail)")
-            }
-            throw ExitCode.failure
+            return
         }
+        print("[learning-campaign-validation] invalid issueCount=\(validation.issueCount)")
+        for issue in validation.issues {
+            print("[learning-campaign-validation] \(issue.code): \(issue.detail)")
+        }
+        throw ExitCode.failure
     }
 }

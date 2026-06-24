@@ -40,26 +40,16 @@ import Testing
 }
 
 private func rejectedValidation(root: URL) throws -> LearningCampaignValidation {
-    do {
-        _ = try LearningCampaignArtifactValidator().validate(
+    let validation = try LearningCampaignArtifactValidationService().report(
+        for: LearningCampaignArtifactValidationService.Request(
             artifactRoot: root,
             allowFailed: true,
             allowRunning: true,
             writesValidationArtifact: false
         )
-        #expect(Bool(false), "Expected learning campaign validation to reject the artifact root.")
-        return LearningCampaignValidation(
-            timestamp: "",
-            artifactRoot: root.path,
-            valid: true,
-            issueCount: 0,
-            issues: []
-        )
-    } catch LearningCampaignArtifactValidator.ValidationError.invalid(let validation) {
-        return validation
-    } catch {
-        throw error
-    }
+    )
+    #expect(!validation.valid)
+    return validation
 }
 
 private func writePlan(_ plan: LearningCampaignPlan, to root: URL) throws {
