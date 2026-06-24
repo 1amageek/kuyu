@@ -1754,8 +1754,8 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
                 requiresPolicyPass: requirePolicyPass
             )
         )
-        let g1AcceptanceReport = try evaluateG1AcceptanceIfNeeded(
-            task: task,
+        let g1AcceptanceReport = try evaluateCheckpointAcceptanceIfNeeded(
+            profile: profile,
             artifact: verifiedArtifact,
             artifactRoot: artifactRoot
         )
@@ -1774,15 +1774,18 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
         print("[evaluate-manas-checkpoint] artifacts path=\(artifactRoot.path)")
     }
 
-    private func evaluateG1AcceptanceIfNeeded(
-        task: RolloutTaskChoice,
+    private func evaluateCheckpointAcceptanceIfNeeded(
+        profile: TaskEvaluationProfile,
         artifact: CheckpointEvaluationArtifact,
         artifactRoot: URL
     ) throws -> ReferenceQuadrotorG1AttitudeAcceptanceReport? {
-        guard task == .attitude else {
-            return nil
-        }
-        return try ReferenceQuadrotorG1AttitudeAcceptanceGate().evaluateAndWrite(artifact, to: artifactRoot)
+        try ReferenceQuadrotorCheckpointEvaluationAcceptanceService()
+            .evaluate(request: ReferenceQuadrotorCheckpointEvaluationAcceptanceRequest(
+                profile: profile,
+                artifact: artifact,
+                artifactRoot: artifactRoot
+            ))
+            .g1Attitude
     }
 }
 
