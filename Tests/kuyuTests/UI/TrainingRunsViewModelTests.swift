@@ -135,6 +135,58 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
 }
 
 @MainActor
+@Test(.timeLimit(.minutes(1))) func trainingRunsViewModelRejectsDuplicateEvaluationArtifactKinds() async throws {
+    let runRoot = makeRunsViewModelTestRoot(label: "duplicate-eval-artifact")
+    defer { removeRunsViewModelTestRoot(runRoot) }
+
+    let driver = try beginRunsViewModelTestRun(runRoot: runRoot)
+    let runDirectory = URL(fileURLWithPath: driver.runDirectoryPath, isDirectory: true)
+    let artifactDirectory = runDirectory
+        .appendingPathComponent("evaluations", isDirectory: true)
+        .appendingPathComponent("iteration-0", isDirectory: true)
+    try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(
+        to: artifactDirectory.appendingPathComponent("checkpoint-evaluation.json"),
+        options: [.atomic]
+    )
+    try Data("{}".utf8).write(
+        to: artifactDirectory.appendingPathComponent("checkpoint-evaluation-copy.json"),
+        options: [.atomic]
+    )
+    try driver.recordIteration(TrainingRunIterationRecord(
+        iteration: 0,
+        recordedAt: Date(),
+        evaluation: TrainingRunIterationRecord.EvaluationRecord(
+            evaluationHorizon: 20_000,
+            metrics: ["policyPassed": 0],
+            artifacts: [
+                TrainingRunIterationRecord.EvaluationRecord.ArtifactReference(
+                    kind: "checkpoint-evaluation",
+                    path: "evaluations/iteration-0/checkpoint-evaluation.json"
+                ),
+                TrainingRunIterationRecord.EvaluationRecord.ArtifactReference(
+                    kind: "checkpoint-evaluation",
+                    path: "evaluations/iteration-0/checkpoint-evaluation-copy.json"
+                ),
+            ]
+        )
+    ))
+    try driver.finishCancelled(acceptedCheckpointPath: nil)
+
+    let model = TrainingRunsViewModel(environment: ["KUYU_RUN_ROOT": runRoot.path])
+    await model.refresh()
+    #expect(model.lastError == nil)
+    #expect(model.items.count == 1)
+
+    model.selectedRunID = driver.runIDString
+    await model.refresh()
+
+    let lastError = try #require(model.lastError)
+    #expect(lastError.contains("duplicate artifact kind"))
+    #expect(lastError.contains("checkpoint-evaluation"))
+}
+
+@MainActor
 @Test(.timeLimit(.minutes(1))) func trainingRunsViewModelRejectsControlOnFinishedRun() async throws {
     let runRoot = makeRunsViewModelTestRoot(label: "rejected-control")
     defer { removeRunsViewModelTestRoot(runRoot) }
