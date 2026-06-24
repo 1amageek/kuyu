@@ -4814,7 +4814,7 @@ struct EvolveManas: AsyncParsableCommand {
             ),
             artifactDirectory: artifactRoot
         )
-        let artifacts = try EvolutionRunArtifactValidator().loadAndValidate(from: artifactRoot)
+        let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadEvolutionArtifacts(from: artifactRoot)
         let displayBestCandidateID = artifacts.eliteArchive.bestCandidateID
             ?? artifacts.generations.last?.bestCandidateID
             ?? "n/a"
