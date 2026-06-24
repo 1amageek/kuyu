@@ -34,39 +34,32 @@ public protocol StarterSourceCheckpointValidating {
 
 @MainActor
 public struct ManasMLXStarterSourceCheckpointValidator: StarterSourceCheckpointValidating {
-    public init() {}
+    private let compatibility: ManasMLXStarterSourceCheckpointCompatibility
 
-    public func validate(request: StarterSourceCheckpointValidationRequest) throws {
-        _ = try ManasMLXE2EPreflight().check(
-            robotManifestPath: request.robotManifestPath,
-            sourceCheckpointURL: request.checkpointURL,
-            requireSourceCheckpoint: true
-        )
-        if request.policyContract.actionEncoding == .ctbr {
-            try validateTemporalPolicyCheckpoint(request: request)
-            return
-        }
-        if let failure = try ManasMLXCheckpointCompatibility(
-            expectedDriveCount: request.expectedDriveCount,
-            expectedCoreInputSize: request.expectedObservationChannelCount * 4
-        ).validate(snapshotURL: request.checkpointURL) {
-            throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: \(failure.description)")
-        }
+    public init() {
+        self.init(compatibility: ManasMLXStarterSourceCheckpointCompatibility())
     }
 
-    private func validateTemporalPolicyCheckpoint(request: StarterSourceCheckpointValidationRequest) throws {
-        let manifestURL = request.checkpointURL.appendingPathComponent("model.json", isDirectory: false)
-        let data = try Data(contentsOf: manifestURL)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let manifest = try decoder.decode(ManasMLXTemporalCheckpointManifest.self, from: data)
-        let expectedConfig = try ManasMLXTemporalPolicyContractResolver().makeConfig(
-            from: request.policyContract,
-            action: request.actionContract,
-            hiddenSize: manifest.config.hiddenSize
-        )
-        guard manifest.config == expectedConfig else {
-            throw LearningCampaignLaunchError.invalidConfiguration("starter checkpoint incompatible: ctbr policy config mismatch")
+    public init(compatibility: ManasMLXStarterSourceCheckpointCompatibility) {
+        self.compatibility = compatibility
+    }
+
+    public func validate(request: StarterSourceCheckpointValidationRequest) throws {
+        do {
+            try compatibility.validate(
+                ManasMLXStarterSourceCheckpointCompatibilityRequest(
+                    checkpointURL: request.checkpointURL,
+                    robotManifestPath: request.robotManifestPath,
+                    policyContract: request.policyContract,
+                    actionContract: request.actionContract,
+                    expectedDriveCount: request.expectedDriveCount,
+                    expectedObservationChannelCount: request.expectedObservationChannelCount
+                )
+            )
+        } catch {
+            throw LearningCampaignLaunchError.invalidConfiguration(
+                "starter checkpoint incompatible: \(error)"
+            )
         }
     }
 }
