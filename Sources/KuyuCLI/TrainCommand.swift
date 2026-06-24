@@ -144,7 +144,7 @@ struct Train: AsyncParsableCommand {
 
         let scenarioStore = ManasMLXModelStore()
         let workerStore = ManasMLXModelStore()
-        try MLXRuntimePreflight().check()
+        try MLXRuntimeReadinessService().check()
 
         let orchestrator = TrainingRunOrchestrator(
             scenarioExecutor: CLIScenarioExecutor(

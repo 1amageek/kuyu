@@ -130,7 +130,7 @@ public struct SimulationRunnerService: Sendable {
             )
             return try await runner.runWithLogs(control: control)
         case .manasMLX:
-            try MLXRuntimePreflight().check()
+            try MLXRuntimeReadinessService().check()
             return try await modelStore.runReferenceQuadrotor(
                 parameters: parameters,
                 schedule: schedule,

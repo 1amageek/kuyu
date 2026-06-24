@@ -519,7 +519,7 @@ struct Loop: AsyncParsableCommand {
 
         let scenarioStore = ManasMLXModelStore()
         let workerStore = ManasMLXModelStore()
-        try MLXRuntimePreflight().check()
+        try MLXRuntimeReadinessService().check()
 
         let checkpointDirectory = saveModelPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
         let orchestrator = TrainingRunOrchestrator(
@@ -5524,7 +5524,7 @@ struct TrainWorldModel: AsyncParsableCommand {
     var maxBatches: Int?
 
     mutating func run() async throws {
-        try MLXRuntimePreflight().check()
+        try MLXRuntimeReadinessService().check()
         guard sequenceLength > 0 else {
             throw ValidationError("--sequence must be greater than 0.")
         }
@@ -5570,7 +5570,7 @@ struct ImagineTrain: AsyncParsableCommand {
     var epochs: Int = 1
 
     mutating func run() async throws {
-        try MLXRuntimePreflight().check()
+        try MLXRuntimeReadinessService().check()
         guard horizon > 0 else {
             throw ValidationError("--horizon must be greater than 0.")
         }
