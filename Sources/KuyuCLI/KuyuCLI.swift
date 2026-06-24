@@ -3129,31 +3129,6 @@ struct CheckKuyuRegression: AsyncParsableCommand {
         }
     }
 
-    private func regressionTrackName(for suite: Int) -> String {
-        if let level = A1ConformanceSuite.Level(rawValue: suite) {
-            return level.suiteID
-        }
-        switch suite {
-        case 6:
-            return LongHorizonBenchmarkTrack.longHorizonTask.rawValue
-        case 7:
-            return LongHorizonBenchmarkTrack.morphologyTransfer.rawValue
-        case 8:
-            return LongHorizonBenchmarkTrack.disturbanceDelayPartialObservability.rawValue
-        default:
-            return "unknown"
-        }
-    }
-
-    private func writeRegressionSummary(_ summary: ReferenceQuadrotorRegressionSummary, to artifactRoot: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(summary).write(
-            to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
-            options: [.atomic]
-        )
-    }
 }
 
 struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
@@ -3340,312 +3315,42 @@ private func runKuyuRegression(
     minimumRewardAverage: Double?,
     useQualityGating: Bool
 ) async throws -> ReferenceQuadrotorRegressionSummary {
-    try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
-
-    let environmentController: ControllerSelection = selectedController.isBaselineController
-        ? selectedController
-        : .teacherActiveAltitudeHold
-    let snapshotPath = snapshotURL?.path
-    let regressionTask = regressionRolloutTask(selectedTasks)
-    let regressionProfile = try TaskEvaluationProfile.profile(task: regressionTask.rawValue)
-    let effectiveMinimumRewardAverage = try ReferenceQuadrotorRegressionQualityGatePolicy.minimumRewardAverage(
-        override: minimumRewardAverage,
-        task: regressionProfile.task
-    )
-
-    if selectedController == .manasMLX {
-        do {
-            _ = try await runManasMLXRuntimeReadiness(
-                robotManifestPath: model,
-                sourceCheckpointURL: snapshotURL,
-                requireSourceCheckpoint: true
-            )
-        } catch {
-            let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
-                preflightFailure: String(describing: error),
-                environmentTasks: [],
-                rolloutSuites: [],
-                failOnTruncation: failOnTruncation,
-                minimumRewardAverage: effectiveMinimumRewardAverage,
-                qualityGateTask: regressionProfile.task
-            )
-            let summary = ReferenceQuadrotorRegressionSummary(
-                schemaVersion: ReferenceQuadrotorRegressionSummary.currentSchemaVersion,
-                artifactRoot: artifactRoot.path,
-                startedAt: Date(),
-                controller: selectedController.rawValue,
-                environmentController: environmentController.rawValue,
-                snapshot: snapshotPath,
-                preflightPassed: false,
-                preflightFailure: String(describing: error),
-                environmentReady: false,
-                environmentTasks: [],
-                rolloutPassed: false,
-                rolloutSuites: [],
-                gateReport: gateReport,
-                allPassed: gateReport.accepted
-            )
-            try writeReferenceQuadrotorRegressionSummary(summary, to: artifactRoot)
-            return summary
-        }
+    let rolloutTask = regressionRolloutTask(selectedTasks)
+    let environmentTasks = selectedTasks.map { task in
+        learningCampaignRolloutTask(from: rolloutTaskChoice(from: task))
     }
-
-    let determinism = try makeDeterminism(tier: tier)
-    let schedule = try SimulationSchedule.baseline(cutPeriodSteps: cutPeriodSteps)
-    let embodiment = try loadEmbodiment(modelPath: model)
-    let loadedRobot = try loadLoadedRobot(modelPath: model)
-    let parameters = try makeRolloutParameters(
-        task: regressionTask,
-        loadedRobot: loadedRobot,
-        hoverThrustScale: hoverScale
-    )
-    let gains = try ImuRateDampingCutGains(
-        kp: kp,
-        kd: kd,
-        yawDamping: yawDamping,
-        hoverThrustScale: hoverScale
-    )
-
-    let environmentRoot = artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
-    let environmentReport = try await runRegressionEnvironmentReadiness(
-        tasks: selectedTasks,
-        controller: environmentController,
-        parameters: parameters,
-        schedule: schedule,
-        determinism: determinism,
-        gains: gains,
-        robotManifestPath: model,
-        embodiment: embodiment,
-        artifactRoot: environmentRoot
-    )
-
-    if
-        selectedController == .manasMLX,
-        let snapshotURL,
-        let compatibilityFailure = try regressionSnapshotCompatibilityFailure(
-            snapshotURL: snapshotURL,
-            task: regressionTask
-        )
-    {
-        let rolloutEntries = selectedSuites.map { suite in
-            ReferenceQuadrotorRegressionRolloutEntry(
-                suite: suite,
-                track: regressionTrackName(for: suite),
-                policyID: "manasMLX-regression",
-                episodeCount: 0,
-                rewardSum: 0,
-                rewardAverage: 0,
-                doneCount: 0,
-                truncatedCount: 0,
-                failureCount: 1,
-                cancelledCount: 0,
-                failureReasons: [compatibilityFailure],
-                taskPassCount: 0,
-                taskFailureCount: 1,
-                taskFailureReasons: [compatibilityFailure],
-                taskQuality: [],
-                workerSummaries: [],
-                artifactPath: nil
-            )
-        }
-        let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
-            preflightFailure: nil,
-            environmentTasks: environmentReport.tasks,
-            rolloutSuites: rolloutEntries,
-            failOnTruncation: failOnTruncation,
-            minimumRewardAverage: effectiveMinimumRewardAverage,
-            qualityGateTask: regressionProfile.task
-        )
-        let summary = ReferenceQuadrotorRegressionSummary(
-            schemaVersion: ReferenceQuadrotorRegressionSummary.currentSchemaVersion,
-            artifactRoot: artifactRoot.path,
-            startedAt: Date(),
-            controller: selectedController.rawValue,
-            environmentController: environmentController.rawValue,
-            snapshot: snapshotPath,
-            preflightPassed: true,
-            preflightFailure: nil,
-            environmentReady: environmentReport.allReady,
-            environmentTasks: environmentReport.tasks,
-            rolloutPassed: false,
-            rolloutSuites: rolloutEntries,
-            gateReport: gateReport,
-            allPassed: gateReport.accepted
-        )
-        try writeReferenceQuadrotorRegressionSummary(summary, to: artifactRoot)
-        print("[regression] skipped rollout reason=\(compatibilityFailure)")
-        return summary
-    }
-
-    var rolloutEntries: [ReferenceQuadrotorRegressionRolloutEntry] = []
-    for suite in selectedSuites {
-        let definitions = try makeRegressionRolloutDefinitions(
-            task: regressionTask,
-            suite: suite,
-            episodes: episodes
-        )
-        let track = regressionTrackName(for: suite)
-        let motorNerveSettings = regressionProfile.motorNerveSettings(controllerRawValue: selectedController.rawValue)
-        let runner = RolloutRunner(
-            parameters: parameters,
-            schedule: schedule,
-            determinism: determinism,
-            hoverThrustScale: hoverScale,
-            loadedRobot: loadedRobot,
-            motorNerveRateLimitPerSecond: motorNerveSettings.rateLimitPerSecond,
-            motorNerveSmoothingTimeConstant: motorNerveSettings.smoothingTimeConstant,
-            limits: try RolloutRunner.Limits.validated(
-                maxStepsPerEpisode: maxSteps,
-                maxWallTimeSeconds: maxWallTime
-            )
-        )
-        let policyFactory = try makeRegressionPolicyFactory(
+    let summary = try await ReferenceQuadrotorRegressionRunner().run(
+        config: ReferenceQuadrotorRegressionRunConfig(
             controller: selectedController,
             snapshotURL: snapshotURL,
-            parameters: parameters,
-            gains: gains,
+            tier: learningCampaignTier(from: tier),
+            cutPeriodSteps: cutPeriodSteps,
+            task: learningCampaignRolloutTask(from: rolloutTask),
+            environmentTasks: environmentTasks,
+            suites: selectedSuites,
+            episodes: episodes,
+            workers: workers,
+            maxSteps: maxSteps,
+            maxWallTime: maxWallTime,
+            robotManifestPath: model,
+            artifactRoot: artifactRoot,
+            kp: kp,
+            kd: kd,
+            yawDamping: yawDamping,
+            hoverScale: hoverScale,
+            failOnTruncation: failOnTruncation,
+            minimumRewardAverage: minimumRewardAverage,
             useQualityGating: useQualityGating
         )
-
-        do {
-            let episodesOut: [RolloutEpisode]
-            if workers == 1 {
-                episodesOut = try await runner.run(definitions: definitions, policyFactory: policyFactory)
-            } else {
-                let collector = try ParallelRolloutCollector(runner: runner, workerCount: workers)
-                episodesOut = try await collector.collect(definitions: definitions, policyFactory: policyFactory)
-            }
-
-            let summary = RolloutSummary(episodes: episodesOut)
-            let rewardAverage = summary.episodeCount > 0 ? summary.rewardSum / Double(summary.episodeCount) : 0
-            let taskEvaluation = evaluateRegressionEpisodes(
-                definitions: definitions,
-                episodes: episodesOut,
-                determinism: determinism
-            )
-            let entry = ReferenceQuadrotorRegressionRolloutEntry(
-                suite: suite,
-                track: track,
-                policyID: policyFactory.policyID,
-                episodeCount: summary.episodeCount,
-                rewardSum: summary.rewardSum,
-                rewardAverage: rewardAverage,
-                doneCount: summary.doneCount,
-                truncatedCount: summary.truncatedCount,
-                failureCount: summary.failureCount,
-                cancelledCount: summary.cancelledCount,
-                failureReasons: Array(Set(episodesOut.compactMap(\.failureReason))).sorted(),
-                taskPassCount: taskEvaluation.passCount,
-                taskFailureCount: taskEvaluation.failureCount,
-                taskFailureReasons: taskEvaluation.failureReasons,
-                taskQuality: taskEvaluation.taskQuality,
-                workerSummaries: regressionWorkerSummaries(
-                    episodes: episodesOut,
-                    snapshotURL: snapshotURL,
-                    rolloutRoot: artifactRoot.appendingPathComponent("rollouts/\(track)", isDirectory: true)
-                ),
-                artifactPath: nil
-            )
-            rolloutEntries.append(entry)
-            print("[regression] suite=\(suite) track=\(track) episodes=\(entry.episodeCount) workers=\(entry.workerSummaries.count) rewardAvg=\(String(format: "%.3f", rewardAverage)) failures=\(entry.failureCount) taskFailures=\(entry.taskFailureCount) taskPassRate=\(String(format: "%.3f", regressionTaskPassRate(entry))) truncated=\(entry.truncatedCount) \(regressionQualityText(entry.taskQuality)) \(regressionWorkerText(entry.workerSummaries))")
-        } catch {
-            let entry = ReferenceQuadrotorRegressionRolloutEntry(
-                suite: suite,
-                track: track,
-                policyID: policyFactory.policyID,
-                episodeCount: 0,
-                rewardSum: 0,
-                rewardAverage: 0,
-                doneCount: 0,
-                truncatedCount: 0,
-                failureCount: 1,
-                cancelledCount: 0,
-                failureReasons: [String(describing: error)],
-                taskPassCount: 0,
-                taskFailureCount: 1,
-                taskFailureReasons: [String(describing: error)],
-                taskQuality: [],
-                workerSummaries: [],
-                artifactPath: nil
-            )
-            rolloutEntries.append(entry)
-            print("[regression] suite=\(suite) track=\(track) failed reason=\(entry.failureReasons.joined(separator: " | "))")
+    )
+    for entry in summary.rolloutSuites {
+        if entry.episodeCount == 0, !entry.failureReasons.isEmpty {
+            print("[regression] suite=\(entry.suite) track=\(entry.track) failed reason=\(entry.failureReasons.joined(separator: " | "))")
+        } else {
+            print("[regression] suite=\(entry.suite) track=\(entry.track) episodes=\(entry.episodeCount) workers=\(entry.workerSummaries.count) rewardAvg=\(String(format: "%.3f", entry.rewardAverage)) failures=\(entry.failureCount) taskFailures=\(entry.taskFailureCount) taskPassRate=\(String(format: "%.3f", regressionTaskPassRate(entry))) truncated=\(entry.truncatedCount) \(regressionQualityText(entry.taskQuality)) \(regressionWorkerText(entry.workerSummaries))")
         }
     }
-
-    let rolloutPassed = rolloutEntries.allSatisfy { entry in
-        entry.failureCount == 0
-            && entry.cancelledCount == 0
-            && entry.taskFailureCount == 0
-            && entry.taskPassCount == entry.episodeCount
-            && (!failOnTruncation || entry.truncatedCount == 0)
-    }
-    let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
-        preflightFailure: nil,
-        environmentTasks: environmentReport.tasks,
-        rolloutSuites: rolloutEntries,
-        failOnTruncation: failOnTruncation,
-        minimumRewardAverage: effectiveMinimumRewardAverage,
-        qualityGateTask: regressionProfile.task
-    )
-    let summary = ReferenceQuadrotorRegressionSummary(
-        schemaVersion: ReferenceQuadrotorRegressionSummary.currentSchemaVersion,
-        artifactRoot: artifactRoot.path,
-        startedAt: Date(),
-        controller: selectedController.rawValue,
-        environmentController: environmentController.rawValue,
-        snapshot: snapshotPath,
-        preflightPassed: true,
-        preflightFailure: nil,
-        environmentReady: environmentReport.allReady,
-        environmentTasks: environmentReport.tasks,
-        rolloutPassed: rolloutPassed,
-        rolloutSuites: rolloutEntries,
-        gateReport: gateReport,
-        allPassed: gateReport.accepted
-    )
-    try writeReferenceQuadrotorRegressionSummary(summary, to: artifactRoot)
     return summary
-}
-
-@MainActor
-private func runManasMLXRuntimeReadiness(
-    robotManifestPath: String,
-    sourceCheckpointURL: URL?,
-    requireSourceCheckpoint: Bool
-) throws -> ManasMLXRuntimeReadinessReport {
-    try ManasMLXRuntimeReadinessService().report(
-        for: ManasMLXRuntimeReadinessRequest(
-            robotManifestPath: robotManifestPath,
-            sourceCheckpointURL: sourceCheckpointURL,
-            requireSourceCheckpoint: requireSourceCheckpoint
-        )
-    )
-}
-
-@MainActor
-private func runRegressionEnvironmentReadiness(
-    tasks: [SimulationTaskMode],
-    controller: ControllerSelection,
-    parameters: ReferenceQuadrotorParameters,
-    schedule: SimulationSchedule,
-    determinism: DeterminismConfig,
-    gains: ImuRateDampingCutGains,
-    robotManifestPath: String,
-    embodiment: EmbodimentContract?,
-    artifactRoot: URL?
-) async throws -> ReferenceQuadrotorEnvironmentReadinessReport {
-    try await ReferenceQuadrotorEnvironmentReadinessChecker().check(
-        tasks: tasks,
-        controller: controller,
-        parameters: parameters,
-        schedule: schedule,
-        determinism: determinism,
-        gains: gains,
-        robotManifestPath: robotManifestPath,
-        embodiment: embodiment,
-        artifactRoot: artifactRoot
-    )
 }
 
 private func regressionSnapshotURL(_ raw: String, controller: ControllerSelection) throws -> URL? {
@@ -3657,48 +3362,6 @@ private func regressionSnapshotURL(_ raw: String, controller: ControllerSelectio
         throw ValidationError("--snapshot is required when --controller manasMLX.")
     }
     return URL(fileURLWithPath: trimmed, isDirectory: true)
-}
-
-private func makeRegressionPolicyFactory(
-    controller selectedController: ControllerSelection,
-    snapshotURL: URL?,
-    parameters: ReferenceQuadrotorParameters,
-    gains: ImuRateDampingCutGains,
-    useQualityGating: Bool
-) throws -> any ReferenceQuadrotorPolicyFactory {
-    switch selectedController {
-    case .teacherActiveAltitudeHold:
-        return KuyAtt1BaselinePolicyFactory(
-            parameters: parameters,
-            gains: gains,
-            mode: .teacher
-        )
-    case .sensorBaseline:
-        return KuyAtt1BaselinePolicyFactory(
-            parameters: parameters,
-            gains: gains,
-            mode: .sensor
-        )
-    case .manasMLX:
-        guard let snapshotURL else {
-            throw ValidationError("--snapshot is required when --controller manasMLX.")
-        }
-        return ManasMLXReferenceQuadrotorRolloutPolicyFactory(
-            snapshotDirectory: snapshotURL,
-            policyID: "manasMLX-regression",
-            useQualityGating: useQualityGating
-        )
-    }
-}
-
-private func regressionSnapshotCompatibilityFailure(
-    snapshotURL: URL,
-    task: RolloutTaskChoice
-) throws -> String? {
-    try ReferenceQuadrotorRegressionCheckpointCompatibility().failureDescription(
-        snapshotURL: snapshotURL,
-        task: learningCampaignRolloutTask(from: task)
-    )
 }
 
 private func parseRegressionSuites(_ raw: String) throws -> [Int] {
@@ -3721,64 +3384,6 @@ private func parseRegressionSuites(_ raw: String) throws -> [Int] {
     }
 }
 
-private struct RegressionTaskEvaluation {
-    let passCount: Int
-    let failureCount: Int
-    let failureReasons: [String]
-    let taskQuality: [ReferenceQuadrotorTaskQualitySummary]
-}
-
-private func evaluateRegressionEpisodes(
-    definitions: [ReferenceQuadrotorScenarioDefinition],
-    episodes: [RolloutEpisode],
-    determinism: DeterminismConfig
-) -> RegressionTaskEvaluation {
-    let definitionByKey = Dictionary(
-        uniqueKeysWithValues: definitions.map {
-            (rolloutDefinitionKey(scenarioId: $0.config.id.rawValue, seed: $0.config.seed.rawValue), $0)
-        }
-    )
-    let evaluator = ReferenceQuadrotorScenarioEvaluator()
-    let qualityEvaluator = ReferenceQuadrotorTaskQualityEvaluator()
-    var passCount = 0
-    var failureReasons: [String] = []
-    var taskQuality: [ReferenceQuadrotorTaskQualitySummary] = []
-
-    for episode in episodes {
-        guard let definition = definitionByKey[rolloutDefinitionKey(scenarioId: episode.scenarioId, seed: episode.seed)] else {
-            failureReasons.append("missing-definition")
-            continue
-        }
-        let failureReason = episode.failureReason.flatMap(FailureReason.init(rawValue:))
-        let log = SimulationLog(
-            scenarioId: definition.config.id,
-            seed: definition.config.seed,
-            timeStep: definition.config.timeStep,
-            determinism: determinism,
-            configHash: episode.configHash,
-            events: episode.steps.map(\.log),
-            failureReason: failureReason,
-            failureTime: episode.failureTime
-        )
-        let evaluation = evaluator.evaluate(definition: definition, log: log)
-        let quality = qualityEvaluator.evaluate(definition: definition, log: log)
-        taskQuality.append(quality)
-        if evaluation.passed {
-            passCount += 1
-        } else {
-            failureReasons.append(contentsOf: evaluation.failures.map { "task:\($0)" })
-        }
-    }
-
-    let uniqueReasons = Array(Set(failureReasons)).sorted()
-    return RegressionTaskEvaluation(
-        passCount: passCount,
-        failureCount: episodes.count - passCount,
-        failureReasons: uniqueReasons,
-        taskQuality: taskQuality
-    )
-}
-
 private func regressionTaskPassRate(_ entry: ReferenceQuadrotorRegressionRolloutEntry) -> Double {
     guard entry.episodeCount > 0 else { return 0 }
     return Double(entry.taskPassCount) / Double(entry.episodeCount)
@@ -3795,35 +3400,6 @@ private func regressionQualityText(_ summaries: [ReferenceQuadrotorTaskQualitySu
     let altitudeError = summary.maxAltitudeErrorAfterWarmup.map { String(format: "%.3f", $0) } ?? "--"
     let tolerance = summary.tolerance.map { String(format: "%.3f", $0) } ?? "--"
     return "qualityGateTask=\(summary.task) achievedHoldTime=\(hold.achieved) requiredHoldTime=\(hold.required) maxAltitudeErrorAfterWarmup=\(altitudeError) tolerance=\(tolerance)"
-}
-
-private func regressionWorkerSummaries(
-    episodes: [RolloutEpisode],
-    snapshotURL: URL?,
-    rolloutRoot: URL
-) -> [ReferenceQuadrotorRegressionWorkerSummary] {
-    let grouped = Dictionary(grouping: episodes, by: \.workerIndex)
-    return grouped.keys.sorted().map { workerIndex in
-        let workerEpisodes = grouped[workerIndex] ?? []
-        let rewardSum = workerEpisodes.reduce(0.0) { $0 + $1.rewardSum }
-        let episodeCount = workerEpisodes.count
-        let rewardAverage = episodeCount > 0 ? rewardSum / Double(episodeCount) : 0
-        let durationSeconds = workerEpisodes.reduce(0.0) { $0 + max($1.durationSeconds, 0) }
-        let throughput = durationSeconds > 0 ? Double(episodeCount) / durationSeconds : Double(episodeCount)
-        return ReferenceQuadrotorRegressionWorkerSummary(
-            workerIndex: workerIndex,
-            snapshotID: snapshotURL?.lastPathComponent,
-            rolloutShardPath: rolloutRoot.appendingPathComponent("worker-\(workerIndex)", isDirectory: true).path,
-            episodeCount: episodeCount,
-            rewardSum: rewardSum,
-            rewardAverage: rewardAverage,
-            throughput: throughput,
-            doneCount: workerEpisodes.filter(\.done).count,
-            truncatedCount: workerEpisodes.filter(\.truncated).count,
-            failureCount: workerEpisodes.filter { $0.failureReason != nil }.count,
-            cancelledCount: workerEpisodes.filter(\.cancelled).count
-        )
-    }
 }
 
 private func regressionWorkerText(_ summaries: [ReferenceQuadrotorRegressionWorkerSummary]) -> String {
@@ -3854,22 +3430,6 @@ private func rolloutTaskChoice(from task: SimulationTaskMode) -> RolloutTaskChoi
         return .lift
     case .singleLift:
         return .singleLift
-    }
-}
-
-private func regressionTrackName(for suite: Int) -> String {
-    if let level = A1ConformanceSuite.Level(rawValue: suite) {
-        return level.suiteID
-    }
-    switch suite {
-    case 6:
-        return LongHorizonBenchmarkTrack.longHorizonTask.rawValue
-    case 7:
-        return LongHorizonBenchmarkTrack.morphologyTransfer.rawValue
-    case 8:
-        return LongHorizonBenchmarkTrack.disturbanceDelayPartialObservability.rawValue
-    default:
-        return "unknown"
     }
 }
 
@@ -3982,17 +3542,6 @@ private func postRegressionAcceptanceSatisfied(_ entry: KuyuPostTrainingRegressi
         return true
     }
     return !entry.applicable || entry.allPassed
-}
-
-private func writeReferenceQuadrotorRegressionSummary(_ summary: ReferenceQuadrotorRegressionSummary, to artifactRoot: URL) throws {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    encoder.dateEncodingStrategy = .iso8601
-    try encoder.encode(summary).write(
-        to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
-        options: [.atomic]
-    )
-    _ = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: artifactRoot)
 }
 
 // Core harness acceptance logic + thresholds now live in the shared
@@ -5935,17 +5484,6 @@ private func singleLiftTrainingDefinition(
         swapEvents: definition.swapEvents,
         hfEvents: definition.hfEvents
     )
-}
-
-private func makeRegressionRolloutDefinitions(
-    task: RolloutTaskChoice,
-    suite: Int,
-    episodes: Int
-) throws -> [ReferenceQuadrotorScenarioDefinition] {
-    guard episodes > 0 else {
-        throw ValidationError("--episodes must be greater than 0.")
-    }
-    return try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
 }
 
 private func simulationTaskMode(from task: RolloutTaskChoice) -> SimulationTaskMode {
