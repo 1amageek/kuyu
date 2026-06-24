@@ -2409,9 +2409,9 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                     additionalDatasetRepeatCount: recoveryRepeat,
                     printEvents: true
                 )
-                let repairSourceCheckpointURL = repairSourceCheckpointURL(from: result)
+                let repairSourceCheckpointURL = harnessGateService.repairSourceCheckpointURL(result: result)
                 currentSourceCheckpointURL = repairSourceCheckpointURL
-                if let recoveryDatasetURL = acceptedRecoveryDatasetURL(from: result) {
+                if let recoveryDatasetURL = harnessGateService.acceptedRecoveryDatasetURL(result: result) {
                     recoveryDatasetURLs.append(recoveryDatasetURL)
                 }
                 let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: taskRoot)
@@ -2720,9 +2720,9 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                         additionalDatasetRepeatCount: recoveryRepeat,
                         printEvents: false
                     )
-                    let repairSourceCheckpointURL = repairSourceCheckpointURL(from: result)
+                    let repairSourceCheckpointURL = harnessGateService.repairSourceCheckpointURL(result: result)
                     currentSourceCheckpointURL = repairSourceCheckpointURL
-                    if let recoveryDatasetURL = acceptedRecoveryDatasetURL(from: result) {
+                    if let recoveryDatasetURL = harnessGateService.acceptedRecoveryDatasetURL(result: result) {
                         recoveryDatasetURLs.append(recoveryDatasetURL)
                     }
                     let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: attemptRoot)
@@ -3352,53 +3352,6 @@ private func selectedHarnessCandidate(from entries: [CheckTrainingHarnessProbeEn
         )
     }
     return nil
-}
-
-private func repairSourceCheckpointURL(from result: TrainingProbeResult) -> URL? {
-    if result.comparison.probeAccepted, let selected = result.comparison.selectedCheckpointURL {
-        return selected
-    }
-    if let repairCandidate = rejectedCandidateRepairSourceCheckpointURL(from: result) {
-        return repairCandidate
-    }
-    if result.comparison.selectedCheckpointRole == .source {
-        return result.comparison.selectedCheckpointURL
-    }
-    guard result.comparison.policySatisfied,
-          result.comparison.trainedPassed == true,
-          !result.comparison.teacherDivergenceNonRegression
-    else {
-        return nil
-    }
-    return result.training.checkpointDecision.candidateCheckpointURL
-}
-
-private func rejectedCandidateRepairSourceCheckpointURL(from result: TrainingProbeResult) -> URL? {
-    guard result.comparison.reloadSucceeded, result.trained != nil else {
-        return nil
-    }
-    guard !hasHardSafetyFailure(result.trained?.diagnostics.failureReasons ?? []) else {
-        return nil
-    }
-    return result.probeCheckpointDecision.candidateCheckpointURL
-}
-
-private func hasHardSafetyFailure(_ reasons: [String]) -> Bool {
-    let hardFailures: Set<String> = ["ground-violation", "sustained-fall", "sustained-violation"]
-    return reasons.contains { hardFailures.contains($0) }
-}
-
-private func acceptedRecoveryDatasetURL(from result: TrainingProbeResult) -> URL? {
-    guard result.recoveryRelabelStatus.attempted else {
-        return nil
-    }
-    guard result.recoveryRelabelStatus.failureReason == nil else {
-        return nil
-    }
-    guard let report = result.recoveryRelabelStatus.report, report.relabeledEntryCount > 0 else {
-        return nil
-    }
-    return result.recoveryRelabelStatus.datasetDirectory
 }
 
 private func sourceCheckpointURL(from rawPath: String?) -> URL? {

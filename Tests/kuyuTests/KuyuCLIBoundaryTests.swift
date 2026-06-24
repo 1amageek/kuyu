@@ -16,6 +16,20 @@ import Testing
     #expect(!cliSource.contains("safetyViolationRate: 0"))
 }
 
+@Test func trainingHarnessRetryPolicyDelegatesToReferenceOwnerService() throws {
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(cliSource.contains("harnessGateService.repairSourceCheckpointURL(result: result)"))
+    #expect(cliSource.contains("harnessGateService.acceptedRecoveryDatasetURL(result: result)"))
+    #expect(!cliSource.contains("private func repairSourceCheckpointURL(from result: TrainingProbeResult)"))
+    #expect(!cliSource.contains("private func acceptedRecoveryDatasetURL(from result: TrainingProbeResult)"))
+    #expect(!cliSource.contains("private func hasHardSafetyFailure"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
