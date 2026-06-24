@@ -2838,8 +2838,8 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                                 minimumRewardAverage: postRegressionMinRewardAverage,
                                 useQualityGating: !noQualityGate
                             )
-                            let validatedRegression = try ReferenceQuadrotorRegressionArtifactValidator()
-                                .loadAndValidate(from: regressionRoot)
+                            let validatedRegression = try ReferenceQuadrotorRegressionArtifactLoader()
+                                .loadSummary(from: regressionRoot)
                             postRegressionEntry = makePostTrainingRegressionEntry(
                                 regression: validatedRegression,
                                 artifactPath: regressionRoot.path,
@@ -3097,7 +3097,7 @@ struct CheckKuyuRegression: AsyncParsableCommand {
             minimumRewardAverage: minimumRewardAverage,
             useQualityGating: !noQualityGate
         )
-        let validatedSummary = try ReferenceQuadrotorRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
+        let validatedSummary = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: artifactRoot)
         print("[regression] artifacts path=\(artifactRoot.path)")
         print("[regression] environmentReady=\(validatedSummary.environmentReady) rolloutPassed=\(validatedSummary.rolloutPassed) gateAccepted=\(validatedSummary.gateReport.accepted) reasons=\(validatedSummary.gateReport.reasons.joined(separator: "|")) allPassed=\(validatedSummary.allPassed)")
         if !validatedSummary.allPassed {
@@ -3249,7 +3249,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
                         minimumRewardAverage: minimumRewardAverage,
                         useQualityGating: true
                     )
-                    let summary = try ReferenceQuadrotorRegressionArtifactValidator().loadAndValidate(from: cellRoot)
+                    let summary = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: cellRoot)
                     entries.append(KuyuRegressionMatrixEntry(
                         controller: controller.rawValue,
                         task: taskName,
@@ -3986,7 +3986,7 @@ private func writeReferenceQuadrotorRegressionSummary(_ summary: ReferenceQuadro
         to: artifactRoot.appendingPathComponent("kuyu-regression-summary.json"),
         options: [.atomic]
     )
-    _ = try ReferenceQuadrotorRegressionArtifactValidator().loadAndValidate(from: artifactRoot)
+    _ = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: artifactRoot)
 }
 
 // Core harness acceptance logic + thresholds now live in the shared

@@ -27,14 +27,14 @@ struct PostRegressionGateState: Sendable, Equatable {
 }
 
 struct RegressionRunStore: Sendable {
-    private let validator: ReferenceQuadrotorRegressionArtifactValidator
+    private let loader: ReferenceQuadrotorRegressionArtifactLoader
 
-    init(validator: ReferenceQuadrotorRegressionArtifactValidator = ReferenceQuadrotorRegressionArtifactValidator()) {
-        self.validator = validator
+    init(loader: ReferenceQuadrotorRegressionArtifactLoader = ReferenceQuadrotorRegressionArtifactLoader()) {
+        self.loader = loader
     }
 
     func load(from artifactDirectory: URL) throws -> PostRegressionGateState {
-        let summary = try validator.loadAndValidate(from: artifactDirectory)
+        let summary = try loader.loadSummary(from: artifactDirectory)
         let totalEpisodes = summary.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
         let totalReward = summary.rolloutSuites.reduce(0.0) { $0 + $1.rewardSum }
         let totalTaskPassCount = summary.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
