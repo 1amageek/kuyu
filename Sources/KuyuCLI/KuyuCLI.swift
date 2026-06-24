@@ -1920,7 +1920,7 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
         )
         let selectedTasks = [simulationTaskMode(from: rolloutTask)]
 
-        var candidates: [ManasMLXBiasCalibrationCandidateSummary] = []
+        var candidates: [ReferenceQuadrotorBiasCalibrationCandidateEvaluation] = []
         let calibrationService = ManasMLXCheckpointBiasCalibrationService()
         for rawBiasDelta in rawBiasDeltas {
             let candidateID = safePathComponent("bias-\(String(format: "%.6f", rawBiasDelta))")
@@ -1992,7 +1992,7 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
                 checkpointEvaluationReasons = [String(describing: error)]
             }
             candidates.append(
-                makeBiasCalibrationCandidateSummary(
+                ReferenceQuadrotorBiasCalibrationCandidateEvaluation(
                     rawBiasDelta: rawBiasDelta,
                     checkpointURL: candidateCheckpointURL,
                     regressionRoot: regressionRoot,
@@ -2004,19 +2004,18 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
             )
         }
 
-        let selectedCandidate = selectAcceptedBiasCalibrationCandidate(candidates)
-        let summary = ManasMLXBiasCalibrationSelectionSummary(
-            sourceCheckpointPath: sourceCheckpointURL.path,
-            selectedCheckpointPath: selectedCandidate?.checkpointPath,
-            selectedRawBiasDelta: selectedCandidate?.rawBiasDelta,
-            selectedAccepted: selectedCandidate?.accepted ?? false,
-            task: rolloutTask.rawValue,
-            suites: selectedSuites,
-            episodes: episodes,
-            workers: workers,
-            candidates: candidates
+        let selectionService = ReferenceQuadrotorBiasCalibrationSelectionService()
+        let summary = try selectionService.summarize(
+            ReferenceQuadrotorBiasCalibrationSelectionRequest(
+                sourceCheckpointURL: sourceCheckpointURL,
+                task: rolloutTask.rawValue,
+                suites: selectedSuites,
+                episodes: episodes,
+                workers: workers,
+                candidates: candidates
+            )
         )
-        try ManasMLXBiasCalibrationSelectionValidator.validate(summary)
+        let selectedCandidate = selectionService.selectedCandidate(in: summary)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -2097,80 +2096,6 @@ private func parseCalibrationSuites(_ raw: String) throws -> [Int] {
         }
         return suite
     }
-}
-
-private func makeBiasCalibrationCandidateSummary(
-    rawBiasDelta: Double,
-    checkpointURL: URL,
-    regressionRoot: URL,
-    checkpointEvaluationRoot: URL,
-    regressionSummary: ReferenceQuadrotorRegressionSummary,
-    checkpointEvaluationPassed: Bool,
-    checkpointEvaluationReasons: [String]
-) -> ManasMLXBiasCalibrationCandidateSummary {
-    let episodeCount = regressionSummary.rolloutSuites.reduce(0) { $0 + $1.episodeCount }
-    let rewardSum = regressionSummary.rolloutSuites.reduce(0.0) { $0 + $1.rewardSum }
-    let taskPassCount = regressionSummary.rolloutSuites.reduce(0) { $0 + $1.taskPassCount }
-    let rewardAverage = episodeCount > 0 ? rewardSum / Double(episodeCount) : nil
-    let taskPassRate = episodeCount > 0 ? Double(taskPassCount) / Double(episodeCount) : nil
-    let quality = regressionSummary.rolloutSuites.flatMap(\.taskQuality)
-    let holdTimeRatios = quality.compactMap { summary -> Double? in
-        guard let achieved = summary.achievedHoldTime,
-              let required = summary.requiredHoldTime,
-              required > 0 else {
-            return nil
-        }
-        return achieved / required
-    }
-    let altitudeErrorRatios = quality.compactMap { summary -> Double? in
-        guard let error = summary.maxAltitudeErrorAfterWarmup,
-              let tolerance = summary.tolerance,
-              tolerance > 0 else {
-            return nil
-        }
-        return error / tolerance
-    }
-    return ManasMLXBiasCalibrationCandidateSummary(
-        rawBiasDelta: rawBiasDelta,
-        checkpointPath: checkpointURL.path,
-        regressionArtifactRoot: regressionRoot.path,
-        checkpointEvaluationArtifactRoot: checkpointEvaluationRoot.path,
-        accepted: regressionSummary.allPassed && checkpointEvaluationPassed,
-        regressionAccepted: regressionSummary.allPassed,
-        checkpointEvaluationPassed: checkpointEvaluationPassed,
-        rewardAverage: rewardAverage?.isFinite == true ? rewardAverage : nil,
-        taskPassRate: taskPassRate?.isFinite == true ? taskPassRate : nil,
-        minimumHoldTimeRatio: holdTimeRatios.min(),
-        maximumAltitudeErrorRatio: altitudeErrorRatios.max(),
-        reasons: regressionSummary.gateReport.reasons,
-        checkpointEvaluationReasons: checkpointEvaluationReasons
-    )
-}
-
-private func selectAcceptedBiasCalibrationCandidate(
-    _ candidates: [ManasMLXBiasCalibrationCandidateSummary]
-) -> ManasMLXBiasCalibrationCandidateSummary? {
-    candidates
-        .filter(\.accepted)
-        .sorted { lhs, rhs in
-            let lhsReward = lhs.rewardAverage ?? -Double.infinity
-            let rhsReward = rhs.rewardAverage ?? -Double.infinity
-            if lhsReward != rhsReward {
-                return lhsReward > rhsReward
-            }
-            let lhsAltitudeError = lhs.maximumAltitudeErrorRatio ?? Double.infinity
-            let rhsAltitudeError = rhs.maximumAltitudeErrorRatio ?? Double.infinity
-            if lhsAltitudeError != rhsAltitudeError {
-                return lhsAltitudeError < rhsAltitudeError
-            }
-            let lhsHold = lhs.minimumHoldTimeRatio ?? -Double.infinity
-            let rhsHold = rhs.minimumHoldTimeRatio ?? -Double.infinity
-            if lhsHold != rhsHold {
-                return lhsHold > rhsHold
-            }
-            return abs(lhs.rawBiasDelta) < abs(rhs.rawBiasDelta)
-        }
-        .first
 }
 
 private func formatOptional(_ value: Double?) -> String {

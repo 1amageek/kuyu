@@ -1157,7 +1157,7 @@ public final class SimulationViewModel {
             "hoverThrustScale": String(format: "%.3f", hoverThrustScale)
         ])
 
-        Task {
+        Task { [self] in
             commandSystem.startTrainingLoop(
                 config: preparation.loopConfig,
                 runRequest: preparation.runRequest,
