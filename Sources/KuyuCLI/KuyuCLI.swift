@@ -3932,7 +3932,7 @@ struct EvolveManas: AsyncParsableCommand {
     @Option(help: "Candidate variation mode: gaussian or copy.")
     var variation: EvolutionVariationChoice = .gaussian
 
-    @Option(help: "Candidate evaluation mode: regression or candidateOnly.")
+    @Option(help: "Candidate evaluation mode: regression.")
     var evaluation: EvolutionEvaluationChoice = .regression
 
     @Flag(name: .customLong("no-crossover"), help: "Disable elite checkpoint averaging before mutation.")
@@ -3981,6 +3981,9 @@ struct EvolveManas: AsyncParsableCommand {
         }
         if let minimumRewardAverage, !minimumRewardAverage.isFinite {
             throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+        guard evaluation == .regression else {
+            throw ValidationError("--evaluation candidateOnly is unsupported because evolution artifacts require physical regression evidence.")
         }
         let evolutionProfile = try TaskEvaluationProfile.profile(task: task.rawValue)
         let effectiveMinimumRewardAverage = try ReferenceQuadrotorRegressionQualityGatePolicy.minimumRewardAverage(
@@ -4034,24 +4037,18 @@ struct EvolveManas: AsyncParsableCommand {
             rootDirectory: artifactRoot.appendingPathComponent("candidates", isDirectory: true),
             variationProvider: makeVariationProvider()
         )
-        let evaluator: any EvolutionCandidateEvaluating
-        switch evaluation {
-        case .regression:
-            evaluator = ReferenceQuadrotorEvolutionRegressionEvaluator(
-                task: learningCampaignRolloutTask(from: task),
-                tier: learningCampaignTier(from: tier),
-                cutPeriodSteps: cutPeriodSteps,
-                suites: selectedSuites,
-                episodes: episodes,
-                workers: effectiveWorkers,
-                robotManifestPath: model,
-                artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
-                minimumRewardAverage: effectiveMinimumRewardAverage,
-                useQualityGating: !noQualityGate
-            )
-        case .candidateOnly:
-            evaluator = CLICandidateOnlyEvolutionEvaluator(task: task.rawValue)
-        }
+        let evaluator: any EvolutionCandidateEvaluating = ReferenceQuadrotorEvolutionRegressionEvaluator(
+            task: learningCampaignRolloutTask(from: task),
+            tier: learningCampaignTier(from: tier),
+            cutPeriodSteps: cutPeriodSteps,
+            suites: selectedSuites,
+            episodes: episodes,
+            workers: effectiveWorkers,
+            robotManifestPath: model,
+            artifactRoot: artifactRoot.appendingPathComponent("candidate-evaluations", isDirectory: true),
+            minimumRewardAverage: effectiveMinimumRewardAverage,
+            useQualityGating: !noQualityGate
+        )
         let orchestrator = EvolutionRunOrchestrator(
             backend: backend,
             evaluator: evaluator
@@ -4162,24 +4159,14 @@ struct EvolveManas: AsyncParsableCommand {
 
     @MainActor
     private func checkEvolutionInputs(snapshotURL: URL) throws {
-        let requiresMLXCheckpoint = variation == .gaussian || evaluation == .regression
-        if requiresMLXCheckpoint {
-            let preflight = try ManasMLXRuntimeReadinessService().report(
-                for: ManasMLXRuntimeReadinessRequest(
-                    robotManifestPath: model,
-                    sourceCheckpointURL: snapshotURL,
-                    requireSourceCheckpoint: true
-                )
+        let preflight = try ManasMLXRuntimeReadinessService().report(
+            for: ManasMLXRuntimeReadinessRequest(
+                robotManifestPath: model,
+                sourceCheckpointURL: snapshotURL,
+                requireSourceCheckpoint: true
             )
-            print("[evolve] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
-        } else {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: snapshotURL.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                throw ValidationError("--snapshot must point to an existing checkpoint directory.")
-            }
-            print("[evolve] preflight mode=lightweight sourceDirectory=true")
-        }
+        )
+        print("[evolve] preflight mlx=\(preflight.mlxRuntimeReady) robotManifestLoaded=\(preflight.robotManifestLoaded) sourceCheckpointLoadable=\(preflight.sourceCheckpointLoadable)")
     }
 }
 
@@ -4644,40 +4631,6 @@ struct RunLearningCampaign: AsyncParsableCommand {
             print("[learning-campaign] completed terminalState=\(result.manifest.terminalState.rawValue) checkpointDecision=\(result.checkpointDecision.state.rawValue) reason=\(result.checkpointDecision.reason)")
             return (accepted, result.checkpointDecision.reason)
         }
-    }
-}
-
-private struct CLICandidateOnlyEvolutionEvaluator: EvolutionCandidateEvaluating {
-    private let task: String
-
-    init(task: String) {
-        self.task = task
-    }
-
-    func evaluateCandidate(request: EvolutionCandidateEvaluationRequest) async throws -> FitnessSummary {
-        let candidateIndex = request.candidate.candidateID
-            .split(separator: "c")
-            .last
-            .flatMap { Int(String($0)) } ?? 0
-        let candidateScore = Double(candidateIndex)
-        return FitnessSummary(
-            runID: request.config.runID,
-            generationIndex: request.candidate.generationIndex,
-            candidateID: request.candidate.candidateID,
-            taskID: task,
-            scalarFitness: candidateScore,
-            rewardAverage: candidateScore,
-            taskPassRate: 1,
-            safetyViolationRate: 0,
-            holdTimeRatio: 1,
-            altitudeErrorRatio: 0,
-            noveltyScore: candidateScore,
-            workerThroughput: Double(request.workerCount),
-            behaviorDescriptor: [
-                "candidateIndex": candidateScore,
-            ],
-            failureReasons: []
-        )
     }
 }
 
