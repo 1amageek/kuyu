@@ -1807,16 +1807,15 @@ struct CalibrateManasCheckpoint: ParsableCommand {
     mutating func run() throws {
         let sourceURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
         let outputURL = URL(fileURLWithPath: outputPath, isDirectory: true)
-        let summary = try ManasMLXCheckpointBiasCalibrator().calibrate(
-            sourceCheckpointURL: sourceURL,
-            outputCheckpointURL: outputURL,
-            rawBiasDelta: rawBiasDelta
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(summary).write(
-            to: outputURL.appendingPathComponent("bias-calibration.json"),
-            options: [.atomic]
+        let summary = try ManasMLXCheckpointBiasCalibrationService().calibrate(
+            ManasMLXCheckpointBiasCalibrationRequest(
+                sourceCheckpointURL: sourceURL,
+                outputCheckpointURL: outputURL,
+                rawBiasDelta: rawBiasDelta,
+                summaryArtifactURL: ManasMLXCheckpointBiasCalibrationService.defaultSummaryURL(
+                    for: outputURL
+                )
+            )
         )
         print("[calibrate-manas-checkpoint] source=\(summary.sourceCheckpointPath)")
         print("[calibrate-manas-checkpoint] output=\(summary.outputCheckpointPath)")
@@ -1922,16 +1921,18 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
         let selectedTasks = [simulationTaskMode(from: rolloutTask)]
 
         var candidates: [ManasMLXBiasCalibrationCandidateSummary] = []
-        let calibrator = ManasMLXCheckpointBiasCalibrator()
+        let calibrationService = ManasMLXCheckpointBiasCalibrationService()
         for rawBiasDelta in rawBiasDeltas {
             let candidateID = safePathComponent("bias-\(String(format: "%.6f", rawBiasDelta))")
             let candidateCheckpointURL = artifactRoot
                 .appendingPathComponent("candidate-checkpoints", isDirectory: true)
                 .appendingPathComponent(candidateID, isDirectory: true)
-            _ = try calibrator.calibrate(
-                sourceCheckpointURL: sourceCheckpointURL,
-                outputCheckpointURL: candidateCheckpointURL,
-                rawBiasDelta: rawBiasDelta
+            _ = try calibrationService.calibrate(
+                ManasMLXCheckpointBiasCalibrationRequest(
+                    sourceCheckpointURL: sourceCheckpointURL,
+                    outputCheckpointURL: candidateCheckpointURL,
+                    rawBiasDelta: rawBiasDelta
+                )
             )
 
             let regressionRoot = artifactRoot
