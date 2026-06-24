@@ -2,6 +2,7 @@ import ArgumentParser
 import Darwin
 import Foundation
 import KuyuCore
+import KuyuMLX
 import KuyuPhysics
 
 struct ProbeRoArmM1: ParsableCommand {
@@ -226,30 +227,16 @@ struct ProbeRoArmM1: ParsableCommand {
     }
 
     private func validateCalibrationReport(path: String, loaded: LoadedKuyuRobot) throws {
-        let url = URL(fileURLWithPath: path)
-        let data: Data
         do {
-            data = try Data(contentsOf: url)
-        } catch {
-            throw ValidationError("Failed to read hardware calibration report \(path): \(error)")
-        }
-        let report: HardwareCalibrationReport
-        do {
-            report = try JSONDecoder().decode(HardwareCalibrationReport.self, from: data)
-        } catch {
-            throw ValidationError("Failed to decode hardware calibration report \(path): \(error)")
-        }
-        do {
-            _ = try ReadinessGate().validate(
+            _ = try RoArmM1HardwareParityReadinessService().validateReport(
+                path: path,
                 body: loaded.body,
                 world: loaded.world,
                 embodiment: loaded.embodiment,
-                report: loaded.compatibilityReport,
-                requiredLevel: .hardwareParity,
-                hardwareReport: report
+                compatibilityReport: loaded.compatibilityReport
             )
         } catch {
-            throw ValidationError("Hardware calibration report does not satisfy hardwareParity: \(error)")
+            throw ValidationError("Hardware calibration report validation failed: \(error)")
         }
         print("[roarm-m1] calibrationReport=\(path)")
         print("[roarm-m1] hardwareParity=validated")
