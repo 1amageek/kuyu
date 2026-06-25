@@ -353,6 +353,24 @@ import Testing
     #expect(!source.contains("evaluations.allSatisfy"))
 }
 
+@Test func regressionMatrixDelegatesSummaryPassClassificationToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let regressionMatrixSource = try String(extractSource(
+        source,
+        from: "struct CheckKuyuRegressionMatrix",
+        to: "private func runKuyuRegression("
+    ))
+
+    #expect(regressionMatrixSource.contains("ReferenceQuadrotorRegressionMatrixSummaryService().makeSummary"))
+    #expect(regressionMatrixSource.contains("ReferenceQuadrotorRegressionMatrixSummaryRequest"))
+    #expect(!regressionMatrixSource.contains("entries.allSatisfy(\\.accepted)"))
+    #expect(!regressionMatrixSource.contains("private struct KuyuRegressionMatrixSummary"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

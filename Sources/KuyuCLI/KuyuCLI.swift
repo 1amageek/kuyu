@@ -3042,7 +3042,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
         }
         try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
 
-        var entries: [KuyuRegressionMatrixEntry] = []
+        var entries: [ReferenceQuadrotorRegressionMatrixEntry] = []
         for controller in selectedControllers {
             let selectedController = controllerSelection(from: controller)
             for task in selectedTasks {
@@ -3074,7 +3074,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
                         useQualityGating: true
                     )
                     let summary = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: cellRoot)
-                    entries.append(KuyuRegressionMatrixEntry(
+                    entries.append(ReferenceQuadrotorRegressionMatrixEntry(
                         controller: controller.rawValue,
                         task: taskName,
                         artifactPath: cellRoot.path,
@@ -3083,7 +3083,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
                     ))
                     print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=\(summary.gateReport.accepted) artifact=\(cellRoot.path)")
                 } catch {
-                    entries.append(KuyuRegressionMatrixEntry(
+                    entries.append(ReferenceQuadrotorRegressionMatrixEntry(
                         controller: controller.rawValue,
                         task: taskName,
                         artifactPath: cellRoot.path,
@@ -3095,14 +3095,15 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
             }
         }
 
-        let summary = KuyuRegressionMatrixSummary(
-            artifactRoot: artifactRoot.path,
-            controllers: selectedControllers.map(\.rawValue),
-            tasks: selectedTasks.map { rolloutTaskChoice(from: $0).rawValue },
-            suites: selectedSuites,
-            episodes: episodes,
-            allPassed: entries.allSatisfy(\.accepted),
-            entries: entries
+        let summary = ReferenceQuadrotorRegressionMatrixSummaryService().makeSummary(
+            request: ReferenceQuadrotorRegressionMatrixSummaryRequest(
+                artifactRoot: artifactRoot.path,
+                controllers: selectedControllers.map(\.rawValue),
+                tasks: selectedTasks.map { rolloutTaskChoice(from: $0).rawValue },
+                suites: selectedSuites,
+                episodes: episodes,
+                entries: entries
+            )
         )
         try writeRegressionMatrixSummary(summary, to: artifactRoot)
         print("[regression-matrix] artifacts path=\(artifactRoot.path) allPassed=\(summary.allPassed)")
@@ -3112,29 +3113,14 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
     }
 }
 
-private struct KuyuRegressionMatrixSummary: Codable {
-    let artifactRoot: String
-    let controllers: [String]
-    let tasks: [String]
-    let suites: [Int]
-    let episodes: Int
-    let allPassed: Bool
-    let entries: [KuyuRegressionMatrixEntry]
-}
-
-private struct KuyuRegressionMatrixEntry: Codable {
-    let controller: String
-    let task: String
-    let artifactPath: String
-    let accepted: Bool
-    let reasons: [String]
-}
-
-private func writeRegressionMatrixSummary(_ summary: KuyuRegressionMatrixSummary, to artifactRoot: URL) throws {
+private func writeRegressionMatrixSummary(
+    _ summary: ReferenceQuadrotorRegressionMatrixSummary,
+    to artifactRoot: URL
+) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try encoder.encode(summary).write(
-        to: artifactRoot.appendingPathComponent("kuyu-regression-matrix-summary.json"),
+        to: artifactRoot.appendingPathComponent(ReferenceQuadrotorRegressionMatrixSummary.fileName),
         options: [.atomic]
     )
 }
