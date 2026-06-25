@@ -342,6 +342,17 @@ import Testing
     #expect(!validatorSource.contains("public let expectedObservationChannelCount"))
 }
 
+@Test func simulationRunnerDelegatesSuiteResultPassClassificationToScenarios() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/SimulationRunnerService.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("SuiteRunResultFactory().makeEvaluationOnly"))
+    #expect(!source.contains("evaluations.allSatisfy"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
