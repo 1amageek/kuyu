@@ -30,6 +30,26 @@ import Testing
     #expect(!cliSource.contains("private func hasHardSafetyFailure"))
 }
 
+@Test func trainingHarnessSummaryDelegatesCandidateSelectionToReferenceOwnerService() throws {
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        cliSource,
+        from: "struct CheckTrainingHarness",
+        to: "struct CheckTrainingHarnessSweep"
+    )
+
+    #expect(commandSource.contains("harnessGateService.requiredTasksSatisfied"))
+    #expect(commandSource.contains("harnessGateService.selectedCandidate"))
+    #expect(cliSource.contains("ReferenceQuadrotorTrainingHarnessProbeSelectionInput"))
+    #expect(!cliSource.contains("selectedHarnessCandidate"))
+    #expect(!cliSource.contains("CheckTrainingHarnessSelectedCandidate"))
+    #expect(!cliSource.contains("selectedCheckpointRole == \"candidate\""))
+}
+
 @Test func trainCommandDelegatesRunOutcomeCompletionToTrainingRunDriver() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()

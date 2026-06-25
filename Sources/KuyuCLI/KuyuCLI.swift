@@ -2300,6 +2300,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
         let harnessGateService = ReferenceQuadrotorTrainingHarnessGateService()
 
         var probeEntries: [CheckTrainingHarnessProbeEntry] = []
+        var acceptedAttempts: [String: Int] = [:]
         for task in probeTasks {
             var taskAccepted = false
             var currentSourceCheckpointURL = initialSourceCheckpointURL
@@ -2385,17 +2386,24 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                 probeEntries.append(entry)
                 print("[harness] probe task=\(task.rawValue) attempt=\(attempt) terminal=\(entry.terminalState) trainingCheckpoint=\(entry.trainingCheckpoint) probeCheckpoint=\(entry.probeCheckpoint) selected=\(entry.selectedCheckpointRole) repairSource=\(entry.repairSourceCheckpointPath ?? "n/a") recoveryDatasets=\(recoveryDatasetURLs.count) reload=\(entry.reloadSucceeded) harnessSatisfied=\(entry.harnessSatisfied) taskSolved=\(entry.taskSolved)")
                 if accepted {
+                    acceptedAttempts[task.rawValue] = attempt
                     taskAccepted = true
                     break
                 }
             }
             if !taskAccepted {
+                let allPassed = try harnessGateService.requiredTasksSatisfied(
+                    acceptedAttempts: acceptedAttempts,
+                    requiredTasks: probeTasks.map(\.rawValue)
+                )
                 let summary = CheckTrainingHarnessSummary(
                     artifactRoot: artifactRoot.path,
                     environmentReady: true,
                     probes: probeEntries,
-                    selectedCandidate: selectedHarnessCandidate(from: probeEntries),
-                    allPassed: false
+                    selectedCandidate: harnessGateService.selectedCandidate(
+                        from: probeEntries.map(\.harnessSelectionInput)
+                    ),
+                    allPassed: allPassed
                 )
                 try writeHarnessSummary(summary, to: artifactRoot)
                 print("[harness] artifacts path=\(artifactRoot.path)")
@@ -2403,16 +2411,25 @@ struct CheckTrainingHarness: AsyncParsableCommand {
             }
         }
 
+        let allPassed = try harnessGateService.requiredTasksSatisfied(
+            acceptedAttempts: acceptedAttempts,
+            requiredTasks: probeTasks.map(\.rawValue)
+        )
         let summary = CheckTrainingHarnessSummary(
             artifactRoot: artifactRoot.path,
             environmentReady: true,
             probes: probeEntries,
-            selectedCandidate: selectedHarnessCandidate(from: probeEntries),
-            allPassed: true
+            selectedCandidate: harnessGateService.selectedCandidate(
+                from: probeEntries.map(\.harnessSelectionInput)
+            ),
+            allPassed: allPassed
         )
         try writeHarnessSummary(summary, to: artifactRoot)
         print("[harness] artifacts path=\(artifactRoot.path)")
-        print("[harness] allPassed=true")
+        print("[harness] allPassed=\(allPassed)")
+        if !allPassed {
+            throw ExitCode.failure
+        }
     }
 
     private func writeHarnessSummary(_ summary: CheckTrainingHarnessSummary, to artifactRoot: URL) throws {
@@ -3268,23 +3285,6 @@ private func selectedCandidateCheckpointURL(_ comparison: TrainingProbeCompariso
     return comparison.selectedCheckpointURL
 }
 
-private func selectedHarnessCandidate(from entries: [CheckTrainingHarnessProbeEntry]) -> CheckTrainingHarnessSelectedCandidate? {
-    for entry in entries.reversed() where entry.gateReport.accepted && entry.selectedCheckpointRole == "candidate" {
-        guard let checkpointPath = entry.selectedCheckpointPath else {
-            continue
-        }
-        return CheckTrainingHarnessSelectedCandidate(
-            task: entry.task,
-            attempt: entry.attempt,
-            checkpoint: checkpointPath,
-            artifactPath: entry.artifactPath,
-            score: entry.trainedScore,
-            scoreDelta: entry.scoreDelta
-        )
-    }
-    return nil
-}
-
 private func sourceCheckpointURL(from rawPath: String?) -> URL? {
     guard let rawPath else {
         return nil
@@ -3300,17 +3300,8 @@ private struct CheckTrainingHarnessSummary: Codable {
     let artifactRoot: String
     let environmentReady: Bool
     let probes: [CheckTrainingHarnessProbeEntry]
-    let selectedCandidate: CheckTrainingHarnessSelectedCandidate?
+    let selectedCandidate: ReferenceQuadrotorTrainingHarnessSelectedCandidate?
     let allPassed: Bool
-}
-
-private struct CheckTrainingHarnessSelectedCandidate: Codable {
-    let task: String
-    let attempt: Int
-    let checkpoint: String
-    let artifactPath: String
-    let score: Double?
-    let scoreDelta: Double?
 }
 
 private struct CheckTrainingHarnessSweepSummary: Codable {
@@ -3371,6 +3362,21 @@ private struct CheckTrainingHarnessProbeEntry: Codable {
     let recoveryRelabelCutStepCount: Int?
     let gateReport: TrainingHarnessGateReport
     let postRegression: ReferenceQuadrotorPostTrainingRegressionEntry?
+
+    var harnessSelectionInput: ReferenceQuadrotorTrainingHarnessProbeSelectionInput {
+        ReferenceQuadrotorTrainingHarnessProbeSelectionInput(
+            task: task,
+            attempt: attempt,
+            artifactPath: artifactPath,
+            accepted: gateReport.accepted,
+            selectedCheckpointRole: TrainingProbeComparison.SelectedCheckpointRole(
+                rawValue: selectedCheckpointRole
+            ) ?? .none,
+            selectedCheckpointPath: selectedCheckpointPath,
+            score: trainedScore,
+            scoreDelta: scoreDelta
+        )
+    }
 }
 
 @MainActor
