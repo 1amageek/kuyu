@@ -43,6 +43,17 @@ import Testing
     #expect(!source.contains("finishCancelled(acceptedCheckpointPath:"))
 }
 
+@Test func learningCampaignDelegatesTerminalAcceptanceToTrainingRunClassifier() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(!source.contains("result.checkpointDecision.state == .accepted"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

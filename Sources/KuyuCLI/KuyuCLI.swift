@@ -4542,7 +4542,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
         return parsedSeeds
     }
 
-    private func printTrainingRunEvent(_ event: TrainingRunEvent) -> (accepted: Bool, reason: String?)? {
+    private func printTrainingRunEvent(_ event: TrainingRunEvent) -> TrainingRunResultTerminalClassifier.Classification? {
         switch event {
         case .progress:
             return nil
@@ -4580,9 +4580,9 @@ struct RunLearningCampaign: AsyncParsableCommand {
             print("[learning-campaign] convergence accepted=\(summary.accepted) reason=\(summary.reason)")
             return nil
         case .completed(let result):
-            let accepted = result.checkpointDecision.state == .accepted
-            print("[learning-campaign] completed terminalState=\(result.manifest.terminalState.rawValue) checkpointDecision=\(result.checkpointDecision.state.rawValue) reason=\(result.checkpointDecision.reason)")
-            return (accepted, result.checkpointDecision.reason)
+            let classification = TrainingRunResultTerminalClassifier().classify(result: result)
+            print("[learning-campaign] completed terminalState=\(result.manifest.terminalState.rawValue) checkpointDecision=\(result.checkpointDecision.state.rawValue) terminalAcceptance=\(classification.status.rawValue) reason=\(classification.reason)")
+            return classification
         }
     }
 }
