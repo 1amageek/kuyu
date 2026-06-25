@@ -385,6 +385,26 @@ import Testing
     }
 }
 
+@Test func cliGracefulStopSignalHandlingUsesTaskInsteadOfDispatchSources() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let signalSource = try String(extractSource(
+        source,
+        from: "static func installStopSignalHandlers",
+        to: "private func parseCampaignSeeds"
+    ))
+
+    #expect(signalSource.contains("Task<Void, Never>?"))
+    #expect(signalSource.contains("learningCampaignStopSignalRequested"))
+    #expect(signalSource.contains("Task.sleep"))
+    #expect(!signalSource.contains("DispatchQueue"))
+    #expect(!signalSource.contains("DispatchSource"))
+    #expect(!signalSource.contains("EventLoopFuture"))
+}
+
 @Test func regressionMatrixDelegatesSummaryPassClassificationToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()

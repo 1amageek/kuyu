@@ -9,6 +9,12 @@ import KuyuTraining
 import KuyuUI
 import ManasCore
 
+nonisolated(unsafe) private var learningCampaignStopSignalRequested: sig_atomic_t = 0
+
+private func requestLearningCampaignStop(_ signal: Int32) {
+    learningCampaignStopSignalRequested = 1
+}
+
 @main
 struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -4316,8 +4322,8 @@ struct RunLearningCampaign: AsyncParsableCommand {
         // boundary by creating the stop sentinel the campaign polls. Per-generation
         // checkpoints already make a hard kill resumable; this makes an intentional
         // stop clean (terminal state .paused rather than a crash).
-        let stopSignalSources = Self.installStopSignalHandlers(stopSentinelPath: stopSentinelPath)
-        defer { stopSignalSources.forEach { $0.cancel() } }
+        let stopSignalMonitor = Self.installStopSignalHandlers(stopSentinelPath: stopSentinelPath)
+        defer { stopSignalMonitor?.cancel() }
         let handle: any TrainingRunHandle
         if trimmedContinuationRoot.isEmpty == false {
             handle = try await executor.resume(TrainingResumeRequest(
@@ -4388,21 +4394,28 @@ struct RunLearningCampaign: AsyncParsableCommand {
         }
     }
 
-    /// Installs SIGINT/SIGTERM handlers that create the stop sentinel on a
-    /// background queue (outside signal context, so file I/O is safe). Returns the
-    /// sources to keep alive for the run's duration.
-    static func installStopSignalHandlers(stopSentinelPath: String?) -> [any DispatchSourceSignal] {
-        guard let stopSentinelPath else { return [] }
-        let queue = DispatchQueue(label: "team.stamp.kuyu.stop-signal")
-        return [SIGINT, SIGTERM].map { sig -> any DispatchSourceSignal in
-            signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
-            source.setEventHandler {
-                createStopSentinel(at: stopSentinelPath)
-                print("\n[learning-campaign] stop requested — finishing the current generation, then pausing (resume with --resume).")
+    /// Installs SIGINT/SIGTERM handlers that only set a signal-safe flag. A task
+    /// performs the file I/O outside signal context and is kept alive for the
+    /// run's duration.
+    static func installStopSignalHandlers(stopSentinelPath: String?) -> Task<Void, Never>? {
+        guard let stopSentinelPath else { return nil }
+        learningCampaignStopSignalRequested = 0
+        signal(SIGINT, requestLearningCampaignStop)
+        signal(SIGTERM, requestLearningCampaignStop)
+
+        return Task {
+            while !Task.isCancelled {
+                if learningCampaignStopSignalRequested != 0 {
+                    learningCampaignStopSignalRequested = 0
+                    createStopSentinel(at: stopSentinelPath)
+                    print("\n[learning-campaign] stop requested — finishing the current generation, then pausing (resume with --resume).")
+                }
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    return
+                }
             }
-            source.resume()
-            return source
         }
     }
 
