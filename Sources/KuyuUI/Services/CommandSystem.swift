@@ -35,7 +35,6 @@ public final class CommandSystem {
         let continuation: CheckedContinuation<KuyuCommandResult, Error>
     }
 
-    private let lock = NSLock()
     private var queue: [QueuedCommand] = []
     private var isProcessing = false
     private var activeControl: SimulationControl?
@@ -123,44 +122,29 @@ public final class CommandSystem {
     public func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {
         switch command {
         case .pause:
-            let control = withLock { activeControl }
-            if let control {
-                await control.togglePause()
-            }
+            await activeControl?.togglePause()
             return .runPaused
         case .stop:
-            let control = withLock { activeControl }
-            if let control {
-                await control.requestStop()
-            }
+            await activeControl?.requestStop()
             return .runStopped
         default:
             break
         }
         return try await withCheckedThrowingContinuation { continuation in
-            let shouldStart = withLock {
-                queue.append(QueuedCommand(command: command, continuation: continuation))
-                if !isProcessing {
-                    isProcessing = true
-                    return true
-                }
-                return false
-            }
-            if shouldStart {
+            queue.append(QueuedCommand(command: command, continuation: continuation))
+            if !isProcessing {
+                isProcessing = true
                 Task { await processNext() }
             }
         }
     }
 
     private func processNext() async {
-        let next: QueuedCommand? = withLock {
-            guard !queue.isEmpty else {
-                isProcessing = false
-                return nil
-            }
-            return queue.removeFirst()
+        guard !queue.isEmpty else {
+            isProcessing = false
+            return
         }
-        guard let next else { return }
+        let next = queue.removeFirst()
         do {
             let result = try await execute(next.command)
             next.continuation.resume(returning: result)
@@ -174,21 +158,15 @@ public final class CommandSystem {
         switch command {
         case .runSuite(let request):
             let control = SimulationControl()
-            withLock { activeControl = control }
-            defer { withLock { activeControl = nil } }
+            activeControl = control
+            defer { activeControl = nil }
             let output = try await runSuite(request: request, control: control, telemetry: telemetry)
             return .runCompleted(output)
         case .pause:
-            let control = withLock { activeControl }
-            if let control {
-                await control.togglePause()
-            }
+            await activeControl?.togglePause()
             return .runPaused
         case .stop:
-            let control = withLock { activeControl }
-            if let control {
-                await control.requestStop()
-            }
+            await activeControl?.requestStop()
             return .runStopped
         case .exportLogs(let output, let directory):
             let bundle = try logWriter.write(output: output, to: directory)
@@ -213,13 +191,6 @@ public final class CommandSystem {
     ) async throws -> KuyAtt1RunOutput {
         let runnerService = self.runnerService
         return try await runnerService.run(request: request, control: control, telemetry: telemetry)
-    }
-
-    @discardableResult
-    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return try body()
     }
 }
 
@@ -266,32 +237,23 @@ extension CommandSystem: TrainingLoopCommandExecuting {
     }
 
     public func pauseActiveTrainingRun() async {
-        let control = withLock { activeControl }
-        if let control {
-            await control.requestPause()
-        }
+        await activeControl?.requestPause()
     }
 
     public func resumeActiveTrainingRun() async {
-        let control = withLock { activeControl }
-        if let control {
-            await control.requestResume()
-        }
+        await activeControl?.requestResume()
     }
 
     public func stopActiveTrainingRun() async {
-        let control = withLock { activeControl }
-        if let control {
-            await control.requestStop()
-        }
+        await activeControl?.requestStop()
     }
 }
 
 extension CommandSystem: TrainingScenarioExecuting {
     public func runSuiteForTrainingRun(request: SimulationRunRequest) async throws -> TrainingScenarioRunOutput {
         let control = SimulationControl()
-        withLock { activeControl = control }
-        defer { withLock { activeControl = nil } }
+        activeControl = control
+        defer { activeControl = nil }
         let output = try await runSuite(request: request, control: control, telemetry: telemetry)
         return TrainingScenarioRunOutput(kuyAtt1: output)
     }

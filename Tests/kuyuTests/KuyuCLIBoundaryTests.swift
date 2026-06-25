@@ -369,6 +369,22 @@ import Testing
     #expect(!source.contains("ManasMLXTrainingBackendFactory("))
 }
 
+@Test func uiCommandControllersUseMainActorIsolationInsteadOfNSLock() throws {
+    let serviceFiles = [
+        "Sources/KuyuUI/Services/CommandSystem.swift",
+        "Sources/KuyuUI/Services/TrainingLoopController.swift",
+    ]
+
+    for file in serviceFiles {
+        let source = try String(
+            contentsOf: kuyuPackageRoot().appendingPathComponent(file, isDirectory: false),
+            encoding: .utf8
+        )
+        #expect(source.contains("@MainActor"))
+        #expect(!source.contains("NSLock"))
+    }
+}
+
 @Test func regressionMatrixDelegatesSummaryPassClassificationToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
