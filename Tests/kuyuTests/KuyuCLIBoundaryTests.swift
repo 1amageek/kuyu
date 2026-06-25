@@ -331,6 +331,8 @@ import Testing
     #expect(preparerSource.contains("starterContract.starterActionMean"))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorStarterCheckpointContractService()"))
     #expect(runnerServiceSource.contains(".defaultContract(for: request.taskMode)"))
+    #expect(runnerServiceSource.contains("motorNerveContractRejected"))
+    #expect(runnerServiceSource.contains("SimulationRunnerServiceError.motorNerveDriveCountMismatch"))
     #expect(validatorSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
     #expect(validatorSource.contains("expectedDriveCount: starterContract.expectedDriveCount"))
     #expect(validatorSource.contains("expectedObservationChannelCount: starterContract.expectedObservationChannelCount"))
@@ -341,6 +343,9 @@ import Testing
     #expect(!preparerSource.contains("switch request.taskMode"))
     #expect(!runnerServiceSource.contains("expectedDriveCount: 4"))
     #expect(!runnerServiceSource.contains("expectedDriveCount: 1"))
+    #expect(!runnerServiceSource.contains("motorNerveFallback"))
+    #expect(!runnerServiceSource.contains("fallbackProfile"))
+    #expect(!runnerServiceSource.contains("MotorNerveChain disabled"))
     #expect(!validatorSource.contains("public let expectedDriveCount"))
     #expect(!validatorSource.contains("public let expectedObservationChannelCount"))
 }

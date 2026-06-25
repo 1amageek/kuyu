@@ -4,11 +4,12 @@ import Testing
 @testable import KuyuUI
 
 @Test(.timeLimit(.minutes(1))) func modelCheckpointStoreLoadsPersistedModelsThroughMLXCatalog() throws {
-    let store = ModelCheckpointStore()
+    let root = modelCheckpointTestRoot()
+    let store = ModelCheckpointStore(rootDirectory: root)
     let id = UUID()
     let directory = store.modelDirectory(for: id)
     defer {
-        removeModelCheckpointTestDirectory(directory)
+        removeModelCheckpointTestDirectory(root)
     }
 
     try writeModelCheckpoint(
@@ -24,14 +25,15 @@ import Testing
     #expect(persistedModel.createdAt == Date(timeIntervalSince1970: 40))
     #expect(persistedModel.lastTrainedAt == Date(timeIntervalSince1970: 50))
     #expect(persistedModel.hasSupervisedBootstrap)
-    #expect(persistedModel.storageURL == directory)
+    #expect(persistedModel.storageURL.resolvingSymlinksInPath() == directory.resolvingSymlinksInPath())
 }
 
 @Test(.timeLimit(.minutes(1))) func modelCheckpointStoreRemovesAllMLXCatalogArtifacts() throws {
-    let store = ModelCheckpointStore()
+    let root = modelCheckpointTestRoot()
+    let store = ModelCheckpointStore(rootDirectory: root)
     let directory = store.modelDirectory(for: UUID())
     defer {
-        removeModelCheckpointTestDirectory(directory)
+        removeModelCheckpointTestDirectory(root)
     }
 
     try writeModelCheckpoint(
@@ -58,6 +60,12 @@ import Testing
     for fileName in layout.removableArtifactFileNames {
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(fileName).path))
     }
+}
+
+private func modelCheckpointTestRoot() -> URL {
+    FileManager.default.temporaryDirectory
+        .resolvingSymlinksInPath()
+        .appendingPathComponent("kuyu-model-checkpoint-store-\(UUID().uuidString)", isDirectory: true)
 }
 
 private func writeModelCheckpoint(

@@ -208,7 +208,7 @@ import Testing
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(2))) func appViewModelCreatesRunnableDroneStarterWithLoadableTemplateCheckpoint() async throws {
+@Test(.timeLimit(.minutes(2))) func appViewModelCreatesRunnableDroneStarterThroughInjectedAssetPreparer() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-project-runnable-drone-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -216,7 +216,12 @@ import Testing
         removeTemporaryDirectory(root)
     }
 
-    let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+    let preparer = RecordingRunnableProjectAssetPreparer()
+    let model = AppViewModel(
+        logStore: UILogStore(buffer: UILogBuffer()),
+        runnableProjectAssetPreparer: preparer,
+        starterSourceCheckpointValidator: AcceptingStarterSourceCheckpointValidator()
+    )
     model.createProject(
         name: "Drone Autonomy Starter",
         parentDirectory: root,
@@ -251,19 +256,17 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("model.json").path))
     #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
 
-    let preflight = try ManasMLXRuntimeReadinessService().report(
-        for: ManasMLXRuntimeReadinessRequest(
-            robotManifestPath: "",
-            sourceCheckpointURL: sourceBundleURL,
-            requireSourceCheckpoint: true
-        )
-    )
-    #expect(preflight.mlxRuntimeReady)
-    #expect(preflight.sourceCheckpointLoadable)
+    let request = try #require(preparer.requests.first)
+    #expect(preparer.requests.count == 1)
+    #expect(request.checkpointURL.lastPathComponent == "source.manasbundle")
+    #expect(request.displayName == "Drone Autonomy Starter")
+    #expect(request.policyContract == LearningProjectTemplate.droneAutonomyStarter.policy)
+    #expect(request.actionContract == LearningProjectTemplate.droneAutonomyStarter.action)
+    #expect(request.observationChannelCountOverride == LearningProjectTemplate.droneAutonomyStarter.observation.channelCount)
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(2))) func allRunnableTemplatesCreateLoadableSourceBundles() async throws {
+@Test(.timeLimit(.minutes(2))) func allRunnableTemplatesDelegateSourceBundlePreparation() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-project-runnable-templates-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -275,7 +278,12 @@ import Testing
     #expect(!runnableTemplates.isEmpty)
 
     for template in runnableTemplates {
-        let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
+        let preparer = RecordingRunnableProjectAssetPreparer()
+        let model = AppViewModel(
+            logStore: UILogStore(buffer: UILogBuffer()),
+            runnableProjectAssetPreparer: preparer,
+            starterSourceCheckpointValidator: AcceptingStarterSourceCheckpointValidator()
+        )
         model.createProject(
             name: template.displayName,
             parentDirectory: root,
@@ -297,19 +305,25 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("model.json").path))
         #expect(FileManager.default.fileExists(atPath: sourceBundleURL.appendingPathComponent("core.safetensors").path))
 
-        let preflight = try ManasMLXRuntimeReadinessService().report(
-            for: ManasMLXRuntimeReadinessRequest(
-                robotManifestPath: "",
-                sourceCheckpointURL: sourceBundleURL,
-                requireSourceCheckpoint: true
-            )
-        )
-        #expect(preflight.sourceCheckpointLoadable)
+        let request = try #require(preparer.requests.first)
+        #expect(preparer.requests.count == 1)
+        #expect(request.checkpointURL.lastPathComponent == "source.manasbundle")
+        #expect(request.displayName == template.displayName)
+        #expect(request.policyContract == template.policy)
+        #expect(request.actionContract == template.action)
+        #expect(request.observationChannelCountOverride == template.observation.channelCount)
     }
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(2))) func droneStarterTemplateRunsSmallLearningCampaignEndToEnd() async throws {
+@Test(
+    .timeLimit(.minutes(2)),
+    .enabled(
+        if: mlxProjectFlowEndToEndEnabled,
+        "Set KUYU_MLX_RUN_PROJECT_FLOW_E2E=1 to run this real MLX project-flow smoke."
+    )
+)
+func droneStarterTemplateRunsSmallLearningCampaignEndToEnd() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-project-template-e2e-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -506,6 +520,24 @@ private func removeTemporaryDirectory(_ url: URL) {
 }
 
 private let appSourceBundleReferencePath = "model-bundles/source.manasbundle"
+
+private let mlxProjectFlowEndToEndEnabled =
+    ProcessInfo.processInfo.environment["KUYU_MLX_RUN_PROJECT_FLOW_E2E"] == "1"
+
+@MainActor
+private final class RecordingRunnableProjectAssetPreparer: RunnableProjectAssetPreparing {
+    private(set) var requests: [RunnableProjectAssetPreparationRequest] = []
+
+    func prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
+        requests.append(request)
+        try writeCompleteCheckpointSkeleton(at: request.checkpointURL)
+    }
+}
+
+@MainActor
+private struct AcceptingStarterSourceCheckpointValidator: StarterSourceCheckpointValidating {
+    func validate(request: StarterSourceCheckpointValidationRequest) throws {}
+}
 
 private func writeCompleteCheckpointSkeleton(at url: URL) throws {
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

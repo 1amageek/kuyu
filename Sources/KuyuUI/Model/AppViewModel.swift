@@ -106,12 +106,16 @@ public final class AppViewModel {
     public init(
         logStore: UILogStore,
         prepareStarterProjectOnInit: Bool = false,
-        recentProjectsDefaults: UserDefaults = .standard
+        recentProjectsDefaults: UserDefaults = .standard,
+        runnableProjectAssetPreparer: (any RunnableProjectAssetPreparing)? = nil,
+        starterSourceCheckpointValidator: (any StarterSourceCheckpointValidating)? = nil
     ) {
         self.logStore = logStore
         self.recentProjectsDefaults = recentProjectsDefaults
         self.simulationViewModel = SimulationViewModel(
             logStore: logStore,
+            runnableProjectAssetPreparer: runnableProjectAssetPreparer,
+            starterSourceCheckpointValidator: starterSourceCheckpointValidator,
             prepareStarterProjectOnInit: prepareStarterProjectOnInit
         )
         self.trainingRunsViewModel = TrainingRunsViewModel()

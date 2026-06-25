@@ -5,7 +5,13 @@ import MLX
 import Testing
 @testable import KuyuMLX
 
-@Test func temporalCheckpointWriterInitializesConfiguredStarterActionMean() throws {
+@Test(
+    .enabled(
+        if: temporalCheckpointWriterSmokeEnabled,
+        "Set KUYU_MLX_RUN_TEMPORAL_CHECKPOINT_WRITER_SMOKE=1 to run this real MLX checkpoint writer smoke."
+    )
+)
+func temporalCheckpointWriterInitializesConfiguredStarterActionMean() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("temporal-ctbr-writer-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -42,6 +48,9 @@ import Testing
     #expect(abs(pitchRate - starterActionMean[2]) < 1.0e-5)
     #expect(abs(yawRate - starterActionMean[3]) < 1.0e-5)
 }
+
+private let temporalCheckpointWriterSmokeEnabled =
+    ProcessInfo.processInfo.environment["KUYU_MLX_RUN_TEMPORAL_CHECKPOINT_WRITER_SMOKE"] == "1"
 
 @Test func temporalCTBRTemporaryCheckpointURLIsNotHidden() throws {
     let id = try #require(UUID(uuidString: "1298D3DD-9A87-40D8-B0D1-E419211CC5B6"))

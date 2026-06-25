@@ -54,11 +54,10 @@ public struct SimulationRunnerService: Sendable {
                 )
             }
             if request.taskMode == .lift {
-                if let chainFactory = motorNerveChainFactory(
+                if let chainFactory = try motorNerveChainFactory(
                     embodiment: embodiment,
                     request: request,
-                    expectedDriveCount: starterContract.expectedDriveCount,
-                    fallbackProfile: "lift"
+                    expectedDriveCount: starterContract.expectedDriveCount
                 ) {
                     return try await runLiftBaselineWithChain(
                         request: request,
@@ -79,11 +78,10 @@ public struct SimulationRunnerService: Sendable {
                 }
             }
             if request.taskMode == .singleLift {
-                if let chainFactory = motorNerveChainFactory(
+                if let chainFactory = try motorNerveChainFactory(
                     embodiment: embodiment,
                     request: request,
-                    expectedDriveCount: starterContract.expectedDriveCount,
-                    fallbackProfile: "fixed-single-prop"
+                    expectedDriveCount: starterContract.expectedDriveCount
                 ) {
                     return try await runSingleLiftBaselineWithChain(
                         request: request,
@@ -103,11 +101,10 @@ public struct SimulationRunnerService: Sendable {
                     )
                 }
             }
-            if let chainFactory = motorNerveChainFactory(
+            if let chainFactory = try motorNerveChainFactory(
                 embodiment: embodiment,
                 request: request,
-                expectedDriveCount: starterContract.expectedDriveCount,
-                fallbackProfile: "fixed-quad"
+                expectedDriveCount: starterContract.expectedDriveCount
             ) {
                 return try await runAttitudeBaselineWithChain(
                     request: request,
@@ -173,36 +170,43 @@ public struct SimulationRunnerService: Sendable {
     private func motorNerveChainFactory(
         embodiment: EmbodimentContract?,
         request: SimulationRunRequest,
-        expectedDriveCount: Int,
-        fallbackProfile: String
-    ) -> (() throws -> MotorNerveChain)? {
+        expectedDriveCount: Int
+    ) throws -> (() throws -> MotorNerveChain)? {
         guard let embodiment else { return nil }
         let modelPath = request.robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if embodiment.control.driveChannels.count != expectedDriveCount {
-            logger.warning("MotorNerveChain disabled due to drive count mismatch", metadata: [
-                "action": "motorNerveFallback",
+            logger.error("MotorNerveChain rejected due to drive count mismatch", metadata: [
+                "action": "motorNerveContractRejected",
                 "task": .string(request.taskMode.rawValue),
                 "model": .string(modelPath),
-                "from": "embodiment-contract",
-                "to": .string(fallbackProfile),
+                "robotManifest": .string(modelPath),
                 "reason": "driveCountMismatch",
-                "motorNerveProfile": .string(fallbackProfile)
+                "expectedDriveCount": .string("\(expectedDriveCount)"),
+                "actualDriveCount": .string("\(embodiment.control.driveChannels.count)"),
+                "motorNerveProfile": "embodiment-contract"
             ])
-            return nil
+            throw SimulationRunnerServiceError.motorNerveDriveCountMismatch(
+                modelPath: modelPath,
+                expected: expectedDriveCount,
+                actual: embodiment.control.driveChannels.count
+            )
         }
 
-        if embodiment.motorNerve.stages.contains(where: { $0.type == .custom }) {
-            logger.warning("MotorNerveChain disabled due to unsupported stage", metadata: [
-                "action": "motorNerveFallback",
+        if let unsupportedStage = embodiment.motorNerve.stages.first(where: { $0.type == .custom }) {
+            logger.error("MotorNerveChain rejected due to unsupported stage", metadata: [
+                "action": "motorNerveContractRejected",
                 "task": .string(request.taskMode.rawValue),
                 "model": .string(modelPath),
-                "from": "embodiment-contract",
-                "to": .string(fallbackProfile),
+                "robotManifest": .string(modelPath),
                 "reason": "unsupportedCustomStage",
-                "motorNerveProfile": .string(fallbackProfile)
+                "stageID": .string(unsupportedStage.id),
+                "motorNerveProfile": "embodiment-contract"
             ])
-            return nil
+            throw SimulationRunnerServiceError.unsupportedMotorNerveStage(
+                modelPath: modelPath,
+                stageID: unsupportedStage.id
+            )
         }
 
         logger.notice("MotorNerveChain enabled", metadata: [
@@ -810,6 +814,8 @@ public struct SimulationRunnerService: Sendable {
 
 public enum SimulationRunnerServiceError: Error, Equatable {
     case robotManifestParametersUnavailable(String)
+    case motorNerveDriveCountMismatch(modelPath: String, expected: Int, actual: Int)
+    case unsupportedMotorNerveStage(modelPath: String, stageID: String)
 }
 
 public struct SimulationParameterResolution: Sendable, Equatable {

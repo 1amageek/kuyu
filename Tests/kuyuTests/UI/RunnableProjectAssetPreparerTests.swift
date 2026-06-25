@@ -24,7 +24,8 @@ import Testing
     let validator = RecordingStarterSourceCheckpointValidator()
     let preparer = ManasMLXRunnableProjectAssetPreparer(
         modelStore: ManasMLXModelStore(),
-        checkpointValidator: validator
+        checkpointValidator: validator,
+        temporalCheckpointWriter: RecordingTemporalCheckpointWriter()
     )
 
     try preparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
@@ -69,7 +70,8 @@ import Testing
     let validator = RecordingStarterSourceCheckpointValidator(error: RecordingStarterSourceCheckpointValidator.Failure())
     let preparer = ManasMLXRunnableProjectAssetPreparer(
         modelStore: ManasMLXModelStore(),
-        checkpointValidator: validator
+        checkpointValidator: validator,
+        temporalCheckpointWriter: RecordingTemporalCheckpointWriter()
     )
 
     #expect(throws: RecordingStarterSourceCheckpointValidator.Failure.self) {
@@ -88,6 +90,38 @@ import Testing
         ))
     }
     #expect(validator.requests.count == 1)
+}
+
+@MainActor
+private final class RecordingTemporalCheckpointWriter: TemporalCheckpointWriting {
+    private(set) var requests: [ManasMLXTemporalCheckpointWriteRequest] = []
+
+    func write(request: ManasMLXTemporalCheckpointWriteRequest) throws -> ManasMLXTemporalCheckpointManifest {
+        requests.append(request)
+        try FileManager.default.createDirectory(at: request.checkpointURL, withIntermediateDirectories: true)
+        let config = try ManasMLXTemporalPolicyContractResolver().makeConfig(
+            from: request.policyContract,
+            action: request.actionContract,
+            hiddenSize: request.hiddenSize
+        )
+        let manifest = ManasMLXTemporalCheckpointManifest(
+            name: request.name,
+            createdAt: request.createdAt,
+            lastTrainedAt: request.lastTrainedAt,
+            config: config,
+            observationSchemaID: request.observationContract.schemaID,
+            actionSchemaID: request.actionContract.schemaID,
+            actionEncoding: request.policyContract.actionEncoding
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(
+            to: request.checkpointURL.appendingPathComponent(ManasMLXCheckpointFileLayout.current.modelManifestFileName),
+            options: .atomic
+        )
+        return manifest
+    }
 }
 
 @MainActor

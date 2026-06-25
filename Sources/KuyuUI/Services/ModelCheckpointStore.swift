@@ -3,8 +3,16 @@ import KuyuMLX
 
 struct ModelCheckpointStore {
     private let catalog = ManasMLXModelCheckpointCatalog()
+    private let rootDirectoryOverride: URL?
+
+    init(rootDirectory: URL? = nil) {
+        self.rootDirectoryOverride = rootDirectory
+    }
 
     func rootDirectory() -> URL {
+        if let rootDirectoryOverride {
+            return rootDirectoryOverride
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("Kuyu", isDirectory: true)

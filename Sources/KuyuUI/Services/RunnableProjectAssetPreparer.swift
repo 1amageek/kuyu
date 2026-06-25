@@ -50,16 +50,26 @@ public protocol RunnableProjectAssetPreparing {
 }
 
 @MainActor
+public protocol TemporalCheckpointWriting {
+    func write(request: ManasMLXTemporalCheckpointWriteRequest) throws -> ManasMLXTemporalCheckpointManifest
+}
+
+extension ManasMLXTemporalCheckpointWriter: TemporalCheckpointWriting {}
+
+@MainActor
 public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparing {
     private let modelStore: ManasMLXModelStore
     private let checkpointValidator: any StarterSourceCheckpointValidating
+    private let temporalCheckpointWriter: any TemporalCheckpointWriting
 
     public init(
         modelStore: ManasMLXModelStore,
-        checkpointValidator: any StarterSourceCheckpointValidating = ManasMLXStarterSourceCheckpointValidator()
+        checkpointValidator: any StarterSourceCheckpointValidating = ManasMLXStarterSourceCheckpointValidator(),
+        temporalCheckpointWriter: (any TemporalCheckpointWriting)? = nil
     ) {
         self.modelStore = modelStore
         self.checkpointValidator = checkpointValidator
+        self.temporalCheckpointWriter = temporalCheckpointWriter ?? ManasMLXTemporalCheckpointWriter()
     }
 
     public func prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
@@ -79,7 +89,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
         )
 
         if request.policyContract.actionEncoding == .ctbr {
-            _ = try ManasMLXTemporalCheckpointWriter().write(request: ManasMLXTemporalCheckpointWriteRequest(
+            _ = try temporalCheckpointWriter.write(request: ManasMLXTemporalCheckpointWriteRequest(
                 checkpointURL: request.checkpointURL,
                 name: request.displayName,
                 policyContract: request.policyContract,

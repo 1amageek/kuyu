@@ -187,8 +187,5 @@ private enum StarterCheckpointCompatibilityUnexpectedCall: Error {
     case temporalConfig
 }
 
-#if Xcode
-private let mlxSaveLoadSmokeEnabled = true
-#else
-private let mlxSaveLoadSmokeEnabled = false
-#endif
+private let mlxSaveLoadSmokeEnabled =
+    ProcessInfo.processInfo.environment["KUYU_MLX_RUN_MODEL_STORE_SMOKE"] == "1"

@@ -51,6 +51,39 @@ import KuyuScenarios
 }
 
 @MainActor
+@Test(.timeLimit(.minutes(1))) func simulationRunnerRejectsMotorNerveDriveCountMismatchInsteadOfFallingBackToBaseline() async throws {
+    let manifestURL = try kuyuPackageRootForFailClosedTests()
+        .appendingPathComponent("Sources/KuyuUI/Resources/Models/SingleProp/singleprop.kuyurobot.json", isDirectory: false)
+
+    let request = SimulationRunRequest(
+        controller: .teacherActiveAltitudeHold,
+        taskMode: .attitude,
+        gains: try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0),
+        cutPeriodSteps: 2,
+        noise: .zero,
+        determinism: .tier1Baseline,
+        robotManifestPath: manifestURL.path,
+        overrideParameters: nil,
+        useAux: true,
+        useQualityGating: true
+    )
+    let service = SimulationRunnerService(modelStore: ManasMLXModelStore())
+
+    do {
+        _ = try await service.run(request: request)
+        Issue.record("Expected MotorNerve drive-count mismatch to fail instead of using the reference baseline path")
+    } catch let error as SimulationRunnerServiceError {
+        #expect(error == .motorNerveDriveCountMismatch(
+            modelPath: manifestURL.path,
+            expected: 4,
+            actual: 1
+        ))
+    } catch {
+        Issue.record("Unexpected error type: \(error)")
+    }
+}
+
+@MainActor
 @Test(.timeLimit(.minutes(1))) func simulationViewModelStopsRunWhenModelPreflightFails() throws {
     let missing = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")
@@ -146,4 +179,12 @@ private func waitForUIEntries(
         try await Task.sleep(for: .milliseconds(25))
     }
     return store.entries.filter { $0.label == "kuyu.ui" }
+}
+
+private func kuyuPackageRootForFailClosedTests() throws -> URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
 }
