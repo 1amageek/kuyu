@@ -6,7 +6,7 @@ import Testing
 
 @MainActor
 @Test(.timeLimit(.minutes(1))) func nonUIScenarioRuntimeRunsLiftTeacherSuite() async throws {
-    let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: ManasMLXModelStore()).run(
+    let output = try await ReferenceQuadrotorScenarioRuntime(modelProvider: ManasMLXModelStore()).run(
         request: SimulationRunRequest(
             controller: .teacherActiveAltitudeHold,
             taskMode: .lift,
@@ -33,7 +33,7 @@ import Testing
 
 @MainActor
 @Test(.timeLimit(.minutes(1))) func nonUIScenarioRuntimeRunsSingleLiftTeacherSuite() async throws {
-    let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: ManasMLXModelStore()).run(
+    let output = try await ReferenceQuadrotorScenarioRuntime(modelProvider: ManasMLXModelStore()).run(
         request: SimulationRunRequest(
             controller: .teacherActiveAltitudeHold,
             taskMode: .singleLift,

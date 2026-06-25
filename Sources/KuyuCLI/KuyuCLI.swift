@@ -3628,7 +3628,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
     ) async throws -> TrainingScenarioRunOutput {
         switch stage {
         case .teacherActiveAltitudeHold:
-            let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
+            let output = try await ReferenceQuadrotorScenarioRuntime(modelProvider: initialStore).run(
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
@@ -3646,7 +3646,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
                 )
                 return TrainingScenarioRunOutput(kuyAtt1: output)
             }
-            let output = try await ReferenceQuadrotorScenarioRuntime(modelStore: initialStore).run(
+            let output = try await ReferenceQuadrotorScenarioRuntime(modelProvider: initialStore).run(
                 request: teacherRequest,
                 parameters: parameters,
                 schedule: schedule,
