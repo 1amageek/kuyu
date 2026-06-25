@@ -48,20 +48,19 @@ enum TrainingLoopEventAdapter {
         let scores = result.metrics
             .filter { $0.kind == .score }
             .map(\.value)
-        let failures: [String]
-        if let reason = result.manifest.failureReason {
-            failures = [reason]
-            onEvent(.failed(message: reason))
-        } else if !result.convergence.accepted {
-            failures = [result.convergence.reason]
-        } else {
-            failures = []
+        let classification = TrainingRunResultTerminalClassifier().classify(result: result)
+        let failures = classification.accepted ? [] : [classification.reason]
+        switch classification.status {
+        case .failed, .incomplete:
+            onEvent(.failed(message: classification.reason))
+        case .accepted, .rejected, .cancelled:
+            break
         }
         onEvent(.completed(summary: TrainingLoopSummary(
             iterations: result.metrics.map(\.iteration).max() ?? 0,
             bestScore: scores.max() ?? 0,
             lastScore: scores.last ?? 0,
-            passed: result.convergence.accepted,
+            passed: classification.accepted,
             failures: failures,
             artifactDirectory: artifactDirectory,
             convergence: result.convergence,

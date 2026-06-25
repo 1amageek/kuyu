@@ -211,7 +211,8 @@ struct Train: AsyncParsableCommand {
             print("[train] WARNING: failed to journal final iteration records: \(error)")
         }
 
-        print("[train] terminal=\(result.manifest.terminalState.rawValue) accepted=\(result.convergence.accepted) reason=\(result.convergence.reason)")
+        let classification = TrainingRunResultTerminalClassifier().classify(result: result)
+        print("[train] terminal=\(result.manifest.terminalState.rawValue) terminalAcceptance=\(classification.status.rawValue) reason=\(classification.reason)")
         switch try driver.finish(result: result) {
         case .completed:
             break

@@ -585,7 +585,8 @@ struct Loop: AsyncParsableCommand {
             }
         })
         print("[loop] artifacts path=\(datasetRoot.path)")
-        print("[loop] terminal=\(result.manifest.terminalState.rawValue) accepted=\(result.convergence.accepted) reason=\(result.convergence.reason)")
+        let classification = TrainingRunResultTerminalClassifier().classify(result: result)
+        print("[loop] terminal=\(result.manifest.terminalState.rawValue) terminalAcceptance=\(classification.status.rawValue) reason=\(classification.reason)")
     }
 
     @MainActor

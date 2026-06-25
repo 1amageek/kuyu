@@ -38,7 +38,10 @@ import Testing
     )
 
     #expect(source.contains("driver.finish(result: result)"))
+    #expect(source.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(source.contains("terminalAcceptance=\\(classification.status.rawValue)"))
     #expect(!source.contains("result.checkpointDecision.state == .accepted"))
+    #expect(!source.contains("accepted=\\(result.convergence.accepted)"))
     #expect(!source.contains("finishCompleted(acceptedCheckpointPath:"))
     #expect(!source.contains("finishCancelled(acceptedCheckpointPath:"))
 }
@@ -51,7 +54,22 @@ import Testing
     )
 
     #expect(source.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(source.contains("terminalAcceptance=\\(classification.status.rawValue)"))
     #expect(!source.contains("result.checkpointDecision.state == .accepted"))
+    #expect(!source.contains("accepted=\\(result.convergence.accepted)"))
+}
+
+@Test func trainingLoopEventAdapterDelegatesTerminalAcceptanceToTrainingRunClassifier() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/TrainingLoopEventAdapter.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(source.contains("passed: classification.accepted"))
+    #expect(!source.contains("result.convergence.accepted"))
+    #expect(!source.contains("result.manifest.failureReason"))
 }
 
 private func kuyuPackageRoot() -> URL {
