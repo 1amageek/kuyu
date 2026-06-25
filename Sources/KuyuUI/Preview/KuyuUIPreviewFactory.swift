@@ -5,7 +5,15 @@ import KuyuPhysics
 import KuyuScenarios
 public enum KuyuUIPreviewFactory {
     private static func placeholderOutput() -> KuyAtt1RunOutput {
-        let scenarioId = try! ScenarioID("PREVIEW-SCN")
+        do {
+            return try makePlaceholderOutput()
+        } catch {
+            return emptyOutput()
+        }
+    }
+
+    private static func makePlaceholderOutput() throws -> KuyAtt1RunOutput {
+        let scenarioId = try ScenarioID("PREVIEW-SCN")
         let seed = ScenarioSeed(1)
         let evaluation = ScenarioEvaluation(
             scenarioId: scenarioId,
@@ -29,8 +37,8 @@ public enum KuyuUIPreviewFactory {
             manifest: [],
             aggregate: aggregate
         )
-        let timeStep = try! TimeStep(delta: 0.02)
-        let determinism = try! DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
+        let timeStep = try TimeStep(delta: 0.02)
+        let determinism = DeterminismConfig.tier1Baseline
         let log = SimulationLog(
             scenarioId: scenarioId,
             seed: seed,
@@ -43,20 +51,17 @@ public enum KuyuUIPreviewFactory {
         return KuyAtt1RunOutput(result: result, summary: summary, logs: [entry])
     }
 
-    private static func placeholderRequest() -> SimulationRunRequest {
-        let gains = try! ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2, hoverThrustScale: 1.0)
-        let determinism = try! DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
-        return SimulationRunRequest(
-            controller: .teacherActiveAltitudeHold,
-            gains: gains,
-            cutPeriodSteps: 2,
-            noise: .zero,
-            determinism: determinism,
-            robotManifestPath: KuyuUIModelPaths.defaultRobotManifestPath(),
-            overrideParameters: nil,
-            useAux: true,
-            useQualityGating: true
+    private static func emptyOutput() -> KuyAtt1RunOutput {
+        let replay = ReplayVerification.notPerformed(reason: "Preview fixture construction failed.")
+        let result = SuiteRunResult(evaluations: [], replay: replay, passed: false)
+        let summary = ValidationSummary(
+            suitePassed: false,
+            evaluations: [],
+            replay: replay,
+            manifest: [],
+            aggregate: EvaluationAggregate.from(evaluations: [])
         )
+        return KuyAtt1RunOutput(result: result, summary: summary, logs: [])
     }
 
     @MainActor
@@ -189,8 +194,8 @@ public enum KuyuUIPreviewFactory {
         runRecord(output: placeholderOutput())
     }
 
-    public static func scenario() -> ScenarioRunRecord {
-        runRecord().scenarios.first!
+    public static func scenario() -> ScenarioRunRecord? {
+        runRecord().scenarios.first
     }
 
     public static func logEntries(output: KuyAtt1RunOutput) -> [UILogEntry] {
@@ -213,7 +218,17 @@ public enum KuyuUIPreviewFactory {
         ]
     }
 
+    public static func logEntry() -> UILogEntry {
+        logEntries(output: runRecord().output).first ?? UILogEntry(
+            timestamp: Date(),
+            level: .warning,
+            label: "kuyu.ui",
+            message: "Preview fixture unavailable",
+            metadata: [:]
+        )
+    }
+
     public static func samples() -> [MetricSample] {
-        scenario().metrics.tiltDegrees
+        scenario()?.metrics.tiltDegrees ?? []
     }
 }

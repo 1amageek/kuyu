@@ -27,6 +27,11 @@ public struct ScenarioRowView: View {
 }
 
 #Preview {
-    ScenarioRowView(scenario: KuyuUIPreviewFactory.scenario())
-        .padding()
+    if let scenario = KuyuUIPreviewFactory.scenario() {
+        ScenarioRowView(scenario: scenario)
+            .padding()
+    } else {
+        Text("Preview unavailable")
+            .padding()
+    }
 }
