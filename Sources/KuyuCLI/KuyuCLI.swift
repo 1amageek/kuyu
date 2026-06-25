@@ -20,7 +20,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, Train.self, Runs.self, Control.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self, Conformance.self, Doctor.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, Train.self, Runs.self, Control.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, RunFoundationAcceptance.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self, Conformance.self, Doctor.self]
     )
 }
 
@@ -1730,6 +1730,333 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
             }
         }
         print("[evaluate-manas-checkpoint] artifacts path=\(artifactRoot.path)")
+    }
+}
+
+struct RunFoundationAcceptance: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "foundation-acceptance",
+        abstract: "Run the reference quadrotor G1 foundation acceptance pipeline: campaign, checkpoint resolution, final G1 evaluation, and acceptance artifact."
+    )
+
+    @Option(name: .customLong("source-checkpoint"), help: "Source ManasMLX checkpoint directory.")
+    var sourceCheckpointPath: String
+
+    @Option(name: .customLong("artifact-root"), help: "Directory where foundation acceptance artifacts are written.")
+    var artifactRootPath: String
+
+    @Option(help: "Comma-separated explicit campaign seed values.")
+    var seeds: String?
+
+    @Option(name: .customLong("seed-count"), help: "Generate sequential campaign seeds from 1 through this count.")
+    var seedCount: Int = 1
+
+    @Option(help: "Population size per seed.")
+    var population: Int = 100
+
+    @Option(help: "Maximum generation budget per seed.")
+    var generations: Int = 1_000
+
+    @Option(name: .customLong("elite-count"), help: "Number of candidates selected as parents.")
+    var eliteCount: Int = 10
+
+    @Option(help: "Worker count for rollout regression.")
+    var workers: Int = 1
+
+    @Option(name: .customLong("candidate-evaluation-concurrency"), help: "Maximum Manas candidate evaluations to run concurrently.")
+    var candidateEvaluationConcurrency: Int = 100
+
+    @Option(help: "Comma-separated attitude campaign suite list. Final G1 acceptance always evaluates full KUY-ATT-1.")
+    var suites: String = "0"
+
+    @Option(help: "Episodes per candidate regression.")
+    var episodes: Int = 1
+
+    @Option(help: "Determinism tier: tier0, tier1, tier2.")
+    var tier: LearningCampaignTier = .tier1
+
+    @Option(name: .customLong("cut-period"), help: "CUT period in steps.")
+    var cutPeriodSteps: UInt64 = 2
+
+    @Option(help: "Robot manifest path.")
+    var model: String = ""
+
+    @Option(name: .customLong("mutation-rate"), help: "Mutation rate passed to the ManasMLX variation provider.")
+    var mutationRate: Double = 0.14
+
+    @Option(name: .customLong("mutation-noise-scale"), help: "Gaussian mutation noise scale.")
+    var mutationNoiseScale: Double = 0.025
+
+    @Flag(name: .customLong("adaptive-mutation"), inversion: .prefixedNo, help: "Adapt mutation rate and noise scale after each generation gate result.")
+    var adaptiveMutation: Bool = true
+
+    @Option(name: .customLong("mutation-increase-factor"), help: "Adaptive mutation multiplier after a rejected generation.")
+    var mutationIncreaseFactor: Double = 1.35
+
+    @Option(name: .customLong("mutation-decay-factor"), help: "Adaptive mutation multiplier after an accepted generation.")
+    var mutationDecayFactor: Double = 0.95
+
+    @Option(name: .customLong("min-mutation-rate"), help: "Lower bound for adaptive mutation rate.")
+    var minimumMutationRate: Double = 0
+
+    @Option(name: .customLong("max-mutation-rate"), help: "Upper bound for adaptive mutation rate.")
+    var maximumMutationRate: Double = 0.8
+
+    @Option(name: .customLong("min-mutation-noise-scale"), help: "Lower bound for adaptive mutation noise scale.")
+    var minimumMutationNoiseScale: Double = 0
+
+    @Option(name: .customLong("max-mutation-noise-scale"), help: "Upper bound for adaptive mutation noise scale.")
+    var maximumMutationNoiseScale: Double = 0.25
+
+    @Flag(name: .customLong("early-stopping"), inversion: .prefixedNo, help: "Stop campaign after convergence patience is exhausted.")
+    var earlyStopping: Bool = true
+
+    @Option(name: .customLong("early-stopping-patience-generations"), help: "Generation patience for convergence early stopping.")
+    var earlyStoppingPatienceGenerations: Int = 50
+
+    @Option(name: .customLong("min-fitness-improvement"), help: "Minimum scalar-fitness improvement for convergence.")
+    var minimumFitnessImprovement: Double = 0.001
+
+    @Option(name: .customLong("min-task-pass-rate-improvement"), help: "Minimum task pass-rate improvement for convergence.")
+    var minimumTaskPassRateImprovement: Double = 0.001
+
+    @Option(name: .customLong("min-hold-time-ratio-improvement"), help: "Minimum hold-time ratio improvement for convergence.")
+    var minimumHoldTimeRatioImprovement: Double = 0.001
+
+    @Option(name: .customLong("search-strategy"), help: "Evolution search strategy.")
+    var searchStrategy: EvolutionSearchStrategy = .qualityDiversity
+
+    @Option(help: "Candidate variation mode: gaussian or copy.")
+    var variation: LearningCampaignVariation = .gaussian
+
+    @Option(name: .customLong("min-reward-average"), help: "Override the task default minimum reward average.")
+    var minimumRewardAverage: Double?
+
+    @Flag(name: .customLong("no-reinforcement-warmup"), help: "Disable the temporal CTBR PPO warmup before genetic evolution.")
+    var noReinforcementWarmup: Bool = false
+
+    @Option(name: .customLong("reinforcement-warmup-duration"), help: "Seconds of tensor-world rollout per candidate for PPO warmup.")
+    var reinforcementWarmupDuration: Double = 2
+
+    @Option(name: .customLong("reinforcement-warmup-iterations"), help: "PPO iterations for the temporal CTBR warmup.")
+    var reinforcementWarmupIterations: Int = 1
+
+    @Option(name: .customLong("reinforcement-warmup-learning-rate"), help: "Learning rate for temporal CTBR PPO warmup.")
+    var reinforcementWarmupLearningRate: Double = 3e-4
+
+    @Option(name: .customLong("reinforcement-warmup-max-batches"), help: "Optional maximum rollout batches used by PPO warmup.")
+    var reinforcementWarmupMaxBatches: Int?
+
+    @Option(name: .customLong("min-incumbent-improvement"), help: "Minimum strict scalar-fitness improvement over the incumbent checkpoint.")
+    var minimumIncumbentImprovement: Double = 0
+
+    @Option(name: .customLong("min-novelty-score"), help: "Minimum novelty score required for a candidate to enter the evolution archive.")
+    var minimumNoveltyScore: Double?
+
+    @Option(name: .customLong("resource-sample-seconds"), help: "Resource sample interval recorded in the campaign plan. Use 0 to disable resource samples.")
+    var resourceSampleSeconds: Double = 30
+
+    @Option(name: .customLong("artifact-retention"), help: "Artifact retention mode: full or compact.")
+    var artifactRetention: LearningCampaignArtifactRetentionMode = .compact
+
+    @Option(name: .customLong("kp"), help: "IMU rate damping proportional gain.")
+    var kp: Double = 0.35
+
+    @Option(name: .customLong("kd"), help: "IMU rate damping derivative gain.")
+    var kd: Double = 0.08
+
+    @Option(name: .customLong("yaw-damping"), help: "Yaw damping gain.")
+    var yawDamping: Double = 0.04
+
+    @Option(name: .customLong("hover-scale"), help: "Hover thrust scale.")
+    var hoverScale: Double = 1.0
+
+    @Flag(name: .customLong("no-quality-gate"), help: "Disable quality gating for ManasMLX rollout.")
+    var noQualityGate: Bool = false
+
+    @Flag(name: .customLong("allow-non-empty-artifact-root"), help: "Allow writing into a non-empty foundation artifact root.")
+    var allowNonEmptyArtifactRoot: Bool = false
+
+    @Flag(name: .customLong("skip-initial-parent-pass"), help: "Run the campaign even when the source checkpoint does not yet pass the attitude parent gate.")
+    var skipInitialParentPass: Bool = false
+
+    @Flag(name: .customLong("allow-rejected-artifact"), help: "Exit zero after writing a rejected foundation artifact.")
+    var allowRejectedArtifact: Bool = false
+
+    @MainActor
+    mutating func run() async throws {
+        try validatePositiveFoundationAcceptanceInputs()
+        if let minimumRewardAverage, !minimumRewardAverage.isFinite {
+            throw ValidationError("--min-reward-average must be finite when specified.")
+        }
+        if let minimumNoveltyScore,
+           (!minimumNoveltyScore.isFinite || minimumNoveltyScore < 0) {
+            throw ValidationError("--min-novelty-score must be finite and non-negative when specified.")
+        }
+        let selectedSeeds = try seeds.map(parseFoundationAcceptanceSeeds)
+        let selectedSuites = try parseFoundationAcceptanceSuites(suites)
+        let sourceCheckpointURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
+        let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+        let result = try await ReferenceQuadrotorFoundationAcceptanceService().run(
+            ReferenceQuadrotorFoundationAcceptanceRequest(
+                sourceCheckpointURL: sourceCheckpointURL,
+                artifactRoot: artifactRoot,
+                explicitSeeds: selectedSeeds,
+                seedCount: seedCount,
+                population: population,
+                generations: generations,
+                eliteCount: eliteCount,
+                workers: workers,
+                candidateEvaluationConcurrency: candidateEvaluationConcurrency,
+                suites: selectedSuites,
+                episodes: episodes,
+                tier: tier,
+                cutPeriodSteps: cutPeriodSteps,
+                robotManifestPath: model,
+                mutationRate: mutationRate,
+                mutationNoiseScale: mutationNoiseScale,
+                adaptiveMutationEnabled: adaptiveMutation,
+                mutationIncreaseFactor: mutationIncreaseFactor,
+                mutationDecayFactor: mutationDecayFactor,
+                minimumMutationRate: minimumMutationRate,
+                maximumMutationRate: maximumMutationRate,
+                minimumMutationNoiseScale: minimumMutationNoiseScale,
+                maximumMutationNoiseScale: maximumMutationNoiseScale,
+                earlyStoppingEnabled: earlyStopping,
+                earlyStoppingPatienceGenerations: earlyStoppingPatienceGenerations,
+                minimumFitnessImprovement: minimumFitnessImprovement,
+                minimumTaskPassRateImprovement: minimumTaskPassRateImprovement,
+                minimumHoldTimeRatioImprovement: minimumHoldTimeRatioImprovement,
+                searchStrategy: searchStrategy,
+                variation: variation,
+                minimumRewardAverage: minimumRewardAverage,
+                reinforcementWarmupEnabled: !noReinforcementWarmup,
+                reinforcementWarmupDuration: reinforcementWarmupDuration,
+                reinforcementWarmupIterations: reinforcementWarmupIterations,
+                reinforcementWarmupLearningRate: reinforcementWarmupLearningRate,
+                reinforcementWarmupMaxBatches: reinforcementWarmupMaxBatches,
+                minimumIncumbentImprovement: minimumIncumbentImprovement,
+                minimumNoveltyScore: minimumNoveltyScore,
+                resourceSampleSeconds: resourceSampleSeconds,
+                artifactRetention: artifactRetention,
+                kp: kp,
+                kd: kd,
+                yawDamping: yawDamping,
+                hoverScale: hoverScale,
+                qualityGateEnabled: !noQualityGate,
+                allowsNonEmptyArtifactRoot: allowNonEmptyArtifactRoot,
+                requiresInitialParentPass: !skipInitialParentPass
+            ),
+            onEvent: { event in
+                Self.printFoundationAcceptanceEvent(event)
+            }
+        )
+        let artifact = result.artifact
+        print("[foundation-acceptance] status=\(artifact.status.rawValue) accepted=\(artifact.accepted) campaignAccepted=\(artifact.campaignAcceptedCount)/\(artifact.campaignSeedCount)")
+        print("[foundation-acceptance] source=\(artifact.sourceCheckpointPath)")
+        if let acceptedCheckpointPath = artifact.acceptedCheckpointPath {
+            print("[foundation-acceptance] checkpoint=\(acceptedCheckpointPath)")
+        }
+        if let g1Acceptance = artifact.g1Acceptance {
+            print("[foundation-acceptance] g1 accepted=\(g1Acceptance.accepted) taskPassRate=\(String(format: "%.6f", g1Acceptance.taskPassRate)) safetyViolationRate=\(String(format: "%.6f", g1Acceptance.safetyViolationRate))")
+        }
+        if !artifact.failureReasons.isEmpty {
+            print("[foundation-acceptance] failures=\(artifact.failureReasons.joined(separator: ","))")
+        }
+        print("[foundation-acceptance] artifact=\(artifactRoot.appendingPathComponent(ReferenceQuadrotorFoundationAcceptanceArtifact.fileName).path)")
+        guard artifact.accepted || allowRejectedArtifact else {
+            throw ValidationError("foundation acceptance rejected: \(artifact.failureReasons.joined(separator: ","))")
+        }
+    }
+
+    private func validatePositiveFoundationAcceptanceInputs() throws {
+        guard seedCount > 0 else { throw ValidationError("--seed-count must be greater than 0.") }
+        guard population > 0 else { throw ValidationError("--population must be greater than 0.") }
+        guard generations > 0 else { throw ValidationError("--generations must be greater than 0.") }
+        guard eliteCount > 0, eliteCount <= population else {
+            throw ValidationError("--elite-count must be between 1 and --population.")
+        }
+        guard workers > 0 else { throw ValidationError("--workers must be greater than 0.") }
+        guard candidateEvaluationConcurrency > 0,
+              candidateEvaluationConcurrency <= population else {
+            throw ValidationError("--candidate-evaluation-concurrency must be between 1 and --population.")
+        }
+        guard episodes > 0 else { throw ValidationError("--episodes must be greater than 0.") }
+        guard reinforcementWarmupDuration.isFinite, reinforcementWarmupDuration > 0 else {
+            throw ValidationError("--reinforcement-warmup-duration must be finite and greater than 0.")
+        }
+        guard reinforcementWarmupIterations > 0 else {
+            throw ValidationError("--reinforcement-warmup-iterations must be greater than 0.")
+        }
+        guard reinforcementWarmupLearningRate.isFinite, reinforcementWarmupLearningRate > 0 else {
+            throw ValidationError("--reinforcement-warmup-learning-rate must be finite and greater than 0.")
+        }
+        if let reinforcementWarmupMaxBatches, reinforcementWarmupMaxBatches <= 0 {
+            throw ValidationError("--reinforcement-warmup-max-batches must be greater than 0 when specified.")
+        }
+        guard resourceSampleSeconds.isFinite, resourceSampleSeconds >= 0 else {
+            throw ValidationError("--resource-sample-seconds must be finite and non-negative.")
+        }
+    }
+
+    private func parseFoundationAcceptanceSeeds(_ raw: String) throws -> [String] {
+        let values = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else {
+            throw ValidationError("--seeds must include at least one seed.")
+        }
+        var seenSeeds = Set<String>()
+        var parsedSeeds: [String] = []
+        for value in values {
+            guard let seed = UInt64(value) else {
+                throw ValidationError("--seeds contains an invalid unsigned integer seed: \(value)")
+            }
+            let canonicalValue = String(seed)
+            guard seenSeeds.insert(canonicalValue).inserted else {
+                throw ValidationError("--seeds contains a duplicate seed: \(canonicalValue)")
+            }
+            parsedSeeds.append(canonicalValue)
+        }
+        return parsedSeeds
+    }
+
+    private func parseFoundationAcceptanceSuites(_ raw: String) throws -> [Int] {
+        let values = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else {
+            throw ValidationError("--suites must include at least one suite.")
+        }
+        var seenSuites = Set<Int>()
+        var suites: [Int] = []
+        for value in values {
+            guard let suite = Int(value), (0...8).contains(suite) else {
+                throw ValidationError("--suites contains an unsupported suite: \(value)")
+            }
+            guard seenSuites.insert(suite).inserted else {
+                throw ValidationError("--suites contains a duplicate suite: \(suite)")
+            }
+            suites.append(suite)
+        }
+        return suites
+    }
+
+    private static func printFoundationAcceptanceEvent(
+        _ event: ReferenceQuadrotorFoundationAcceptanceEvent
+    ) {
+        switch event {
+        case .campaign(let campaignEvent):
+            print("[foundation-acceptance] campaign event=\(String(describing: campaignEvent))")
+        case .finalEvaluationStarted(let checkpointPath, let artifactRootPath):
+            print("[foundation-acceptance] final-evaluation started checkpoint=\(checkpointPath) artifactRoot=\(artifactRootPath)")
+        case .finalEvaluationCompleted(let accepted, let artifactRootPath):
+            print("[foundation-acceptance] final-evaluation completed accepted=\(accepted) artifactRoot=\(artifactRootPath)")
+        case .artifactWritten(let path):
+            print("[foundation-acceptance] artifact-written path=\(path)")
+        }
     }
 }
 
