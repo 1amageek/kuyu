@@ -85,18 +85,11 @@ struct Conformance: AsyncParsableCommand {
             print("[conformance]   \(summary.suitePassed ? "PASS" : "FAIL") — scenarios=\(summary.evaluations.count) \(replayDetail)")
         }
 
-        // Overall PASS requires every suite to pass its evaluations AND to have
-        // executed replay verification with all checks passing. A suite whose
-        // replay was skipped cannot satisfy the report's determinism claim.
-        let passed = !entries.isEmpty && entries.allSatisfy {
-            $0.summary.suitePassed && replayVerified($0.summary.replay)
-        }
-        let report = A1ConformanceReport(
+        let report = A1ConformanceReportFactory().makeReport(
             controller: controllerDescription,
             determinismTier: determinism.tier,
             learning: A1ConformanceReport.LearningFlags(core: false, reflex: false),
             suites: entries,
-            passed: passed,
             generatedAt: Date()
         )
 
@@ -112,7 +105,7 @@ struct Conformance: AsyncParsableCommand {
         print("")
         print("[conformance] report.json: \(jsonURL.path)")
         print("[conformance] report.md:   \(markdownURL.path)")
-        if passed {
+        if report.passed {
             print("[conformance] ALL SUITES PASSED")
         } else {
             print("[conformance] FAILED")
@@ -198,15 +191,6 @@ struct Conformance: AsyncParsableCommand {
                 manifest: output.manifest,
                 aggregate: EvaluationAggregate.from(evaluations: output.result.evaluations)
             )
-        }
-    }
-
-    private func replayVerified(_ replay: ReplayVerification) -> Bool {
-        switch replay {
-        case .performed(let checks):
-            return !checks.isEmpty && checks.allSatisfy(\.passed)
-        case .notPerformed:
-            return false
         }
     }
 

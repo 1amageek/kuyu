@@ -72,6 +72,19 @@ import Testing
     #expect(!source.contains("result.manifest.failureReason"))
 }
 
+@Test func conformanceCommandDelegatesOverallAcceptanceToScenarioReportFactory() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/ConformanceCommand.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("A1ConformanceReportFactory().makeReport"))
+    #expect(!source.contains("private func replayVerified"))
+    #expect(!source.contains("let passed = !entries.isEmpty"))
+    #expect(!source.contains("A1ConformanceReport("))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
