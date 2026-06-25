@@ -3686,52 +3686,15 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
         to directory: URL,
         includeSuccessfulScenarios: Bool
     ) async throws -> AttitudeRecoveryRelabelReport? {
-        switch request.taskMode {
-        case .attitude:
-            let definitions = try KuyAtt1Suite().scenarios()
-            let relabeler = AttitudeRecoveryRelabeler()
-            let result = try relabeler.relabel(
-                entries: output.logs,
-                definitions: definitions,
+        return try await ReferenceQuadrotorRecoveryRelabelDatasetService().write(
+            ReferenceQuadrotorRecoveryRelabelDatasetRequest(
+                output: output,
+                simulationRequest: request,
+                outputDirectory: directory,
                 parameters: parameters,
-                gains: request.gains,
-                config: AttitudeRecoveryRelabelConfig(includeOnlyFailedScenarios: !includeSuccessfulScenarios)
+                includeSuccessfulScenarios: includeSuccessfulScenarios
             )
-            _ = try relabeler.write(result: result, to: directory)
-            return result.report
-        case .lift:
-            let definitions = try KuyLiftSuite().scenarios()
-            let relabeler = LiftRecoveryRelabeler()
-            let result = try relabeler.relabel(
-                entries: output.logs,
-                definitions: definitions,
-                parameters: parameters,
-                config: LiftRecoveryRelabelConfig(
-                    includeOnlyFailedScenarios: !includeSuccessfulScenarios,
-                    hoverThrustScale: request.gains.hoverThrustScale
-                )
-            )
-            _ = try relabeler.write(result: result, to: directory)
-            return result.report
-        case .singleLift:
-            let definitions = try KuySingleLiftSuite().scenarios()
-            let tunedParameters = try KuyuSingleLiftParameterTuning.tuned(
-                parameters: parameters,
-                hoverThrustScale: request.gains.hoverThrustScale
-            )
-            let relabeler = SinglePropRecoveryRelabeler()
-            let result = try relabeler.relabel(
-                entries: output.logs,
-                definitions: definitions,
-                parameters: tunedParameters,
-                config: SinglePropRecoveryRelabelConfig(
-                    includeOnlyFailedScenarios: !includeSuccessfulScenarios,
-                    hoverThrustScale: request.gains.hoverThrustScale
-                )
-            )
-            _ = try relabeler.write(result: result, to: directory)
-            return result.report
-        }
+        )
     }
 }
 

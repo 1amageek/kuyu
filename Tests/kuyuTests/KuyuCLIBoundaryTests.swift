@@ -174,6 +174,30 @@ import Testing
     #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationAcceptanceService()"))
 }
 
+@Test func trainingProbeExecutorDelegatesRecoveryRelabelDatasetToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let executorSource = try extractSource(
+        source,
+        from: "private final class CLITrainingProbeExecutor",
+        to: "struct EvolveManas"
+    )
+
+    #expect(executorSource.contains("ReferenceQuadrotorRecoveryRelabelDatasetService().write"))
+    #expect(executorSource.contains("ReferenceQuadrotorRecoveryRelabelDatasetRequest("))
+    #expect(!executorSource.contains("KuyAtt1Suite().scenarios"))
+    #expect(!executorSource.contains("KuyLiftSuite().scenarios"))
+    #expect(!executorSource.contains("KuySingleLiftSuite().scenarios"))
+    #expect(!executorSource.contains("AttitudeRecoveryRelabeler()"))
+    #expect(!executorSource.contains("LiftRecoveryRelabeler()"))
+    #expect(!executorSource.contains("SinglePropRecoveryRelabeler()"))
+    #expect(!executorSource.contains("KuyuSingleLiftParameterTuning.tuned"))
+    #expect(!executorSource.contains(".write(result:"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
