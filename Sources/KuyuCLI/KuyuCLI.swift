@@ -2561,6 +2561,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
 
         let environmentRoot = artifactRoot.appendingPathComponent("environment-readiness", isDirectory: true)
         let selectedTasks = try parseProbeTasks(tasks)
+        let selectedTaskNames = selectedTasks.map(\.rawValue)
         let selectedPostRegressionSuites = try parseRegressionSuites(postRegressionSuites)
         let selectedTaskModes = selectedTasks.map(simulationTaskMode(from:))
         let unsupportedTasks = selectedTasks.filter { $0 == .attitude }
@@ -2589,7 +2590,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                 startedAt: Date(),
                 environmentReady: false,
                 requirement: requirementName,
-                tasks: selectedTasks.map(\.rawValue),
+                tasks: selectedTaskNames,
                 seedCount: seeds,
                 attemptsPerSeed: attempts,
                 successCount: 0,
@@ -2750,7 +2751,10 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                 }
             }
 
-            let successful = selectedTasks.allSatisfy { acceptedTasks[$0.rawValue] != nil }
+            let successful = try harnessGateService.sweepSeedSuccessful(
+                acceptedAttempts: acceptedTasks,
+                requiredTasks: selectedTaskNames
+            )
             let lastProbe = probeEntries.last
             seedEntries.append(
                 CheckTrainingHarnessSeedEntry(
@@ -2765,27 +2769,29 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
             )
         }
 
-        let successCount = seedEntries.filter(\.successful).count
-        let successRate = Double(successCount) / Double(seeds)
-        let allPassed = successRate >= minSuccessRate
+        let sweepReport = try harnessGateService.sweepReport(
+            acceptedAttemptsBySeed: seedEntries.map(\.acceptedAttempts),
+            requiredTasks: selectedTaskNames,
+            minimumSuccessRate: minSuccessRate
+        )
         let summary = CheckTrainingHarnessSweepSummary(
             artifactRoot: artifactRoot.path,
             startedAt: Date(),
             environmentReady: true,
             requirement: requirementName,
-            tasks: selectedTasks.map(\.rawValue),
+            tasks: selectedTaskNames,
             seedCount: seeds,
             attemptsPerSeed: attempts,
-            successCount: successCount,
-            successRate: successRate,
+            successCount: sweepReport.successCount,
+            successRate: sweepReport.successRate,
             minSuccessRate: minSuccessRate,
-            allPassed: allPassed,
+            allPassed: sweepReport.allPassed,
             seeds: seedEntries
         )
         try writeSweepSummary(summary, to: artifactRoot)
         print("[harness-sweep] artifacts path=\(artifactRoot.path)")
-        print("[harness-sweep] successCount=\(successCount)/\(seeds) successRate=\(String(format: "%.3f", successRate)) requirement=\(requirementName) allPassed=\(allPassed)")
-        if !allPassed {
+        print("[harness-sweep] successCount=\(sweepReport.successCount)/\(seeds) successRate=\(String(format: "%.3f", sweepReport.successRate)) requirement=\(requirementName) allPassed=\(sweepReport.allPassed)")
+        if !sweepReport.allPassed {
             throw ExitCode.failure
         }
     }
