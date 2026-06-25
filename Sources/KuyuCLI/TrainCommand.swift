@@ -212,25 +212,12 @@ struct Train: AsyncParsableCommand {
         }
 
         print("[train] terminal=\(result.manifest.terminalState.rawValue) accepted=\(result.convergence.accepted) reason=\(result.convergence.reason)")
-        switch result.manifest.terminalState {
+        switch try driver.finish(result: result) {
         case .completed:
-            let acceptedPath: String?
-            if let published = result.checkpointDecision.publishedCheckpointURL {
-                acceptedPath = published.path
-            } else if result.checkpointDecision.state == .accepted {
-                acceptedPath = result.checkpointDecision.candidateCheckpointURL?.path
-            } else {
-                acceptedPath = nil
-            }
-            try driver.finishCompleted(acceptedCheckpointPath: acceptedPath)
-        case .rejected:
-            try driver.finishCompleted(acceptedCheckpointPath: nil)
+            break
         case .cancelled:
-            try driver.finishCancelled(acceptedCheckpointPath: nil)
             print("[train] run cancelled by control command")
-        case .failed, .running:
-            let reason = result.manifest.failureReason ?? "unknown failure"
-            driver.finishFailedReportingSecondaryFailure(reason: reason)
+        case .failed(let reason):
             print("[train] run failed: \(reason)")
             throw ExitCode.failure
         }

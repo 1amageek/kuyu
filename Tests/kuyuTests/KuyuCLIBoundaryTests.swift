@@ -30,6 +30,19 @@ import Testing
     #expect(!cliSource.contains("private func hasHardSafetyFailure"))
 }
 
+@Test func trainCommandDelegatesRunOutcomeCompletionToTrainingRunDriver() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/TrainCommand.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("driver.finish(result: result)"))
+    #expect(!source.contains("result.checkpointDecision.state == .accepted"))
+    #expect(!source.contains("finishCompleted(acceptedCheckpointPath:"))
+    #expect(!source.contains("finishCancelled(acceptedCheckpointPath:"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
