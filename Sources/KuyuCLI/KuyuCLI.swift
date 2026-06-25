@@ -4909,83 +4909,11 @@ private func makeRolloutDefinitions(
     episodes: Int,
     useTrainingSuite: Bool = false
 ) throws -> [ReferenceQuadrotorScenarioDefinition] {
-    if useTrainingSuite {
-        return try makeTrainingSuiteDefinitions(task: task, suite: suite, episodes: episodes)
-    }
-    if let suite {
-        return try RegressionScenarioCatalog.scenarios(
-            for: learningCampaignRolloutTask(from: task),
-            suite: suite,
-            episodeCount: episodes
-        )
-    }
-
-    switch task {
-    case .attitude:
-        return try KuyAtt1Suite().scenarios()
-    case .lift:
-        return try KuyLiftSuite().scenarios()
-    case .singleLift:
-        return try KuySingleLiftSuite().scenarios()
-    }
-}
-
-private func makeTrainingSuiteDefinitions(
-    task: RolloutTaskChoice,
-    suite: Int?,
-    episodes: Int
-) throws -> [ReferenceQuadrotorScenarioDefinition] {
-    switch task {
-    case .singleLift:
-        let definitions = try KuyuSingleLiftTrainingSuite().scenarios()
-        guard !definitions.isEmpty else {
-            throw ValidationError("No singleLift training definitions are available.")
-        }
-        return try (0..<max(episodes, definitions.count)).map { index in
-            try singleLiftTrainingDefinition(
-                task: task,
-                suite: suite ?? 6,
-                index: index,
-                definition: definitions[index % definitions.count]
-            )
-        }
-    case .lift:
-        return try RegressionScenarioCatalog.scenarios(
-            for: learningCampaignRolloutTask(from: task),
-            suite: suite ?? 6,
-            episodeCount: episodes
-        )
-    case .attitude:
-        return try makeRolloutDefinitions(task: task, suite: suite, episodes: episodes)
-    }
-}
-
-private func singleLiftTrainingDefinition(
-    task: RolloutTaskChoice,
-    suite: Int,
-    index: Int,
-    definition: ReferenceQuadrotorScenarioDefinition
-) throws -> ReferenceQuadrotorScenarioDefinition {
-    guard task == .singleLift else { return definition }
-    let scenarioIndex = index + 1
-    return ReferenceQuadrotorScenarioDefinition(
-        config: try ScenarioConfig(
-            id: try ScenarioID("KUY-SLIFT-TRAIN-M2-S\(suite)/SCN-\(scenarioIndex)"),
-            seed: ScenarioSeed(definition.config.seed.rawValue &+ UInt64(suite * 10_000 + index)),
-            duration: definition.config.duration,
-            timeStep: definition.config.timeStep
-        ),
-        kind: definition.kind,
-        initialPosition: definition.initialPosition,
-        initialAttitude: definition.initialAttitude,
-        initialAngularVelocity: definition.initialAngularVelocity,
-        safetyEnvelope: definition.safetyEnvelope,
-        liftEnvelope: definition.liftEnvelope,
-        torqueEvents: definition.torqueEvents,
-        actuatorDegradation: definition.actuatorDegradation,
-        gyroDriftScale: definition.gyroDriftScale,
-        swapEvents: definition.swapEvents,
-        hfEvents: definition.hfEvents
+    try ReferenceQuadrotorRolloutScenarioDefinitionFactory().scenarios(
+        task: learningCampaignRolloutTask(from: task),
+        suite: suite,
+        episodes: episodes,
+        useTrainingSuite: useTrainingSuite
     )
 }
 

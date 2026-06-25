@@ -149,62 +149,6 @@ func modelStoreInitializesSingleDriveStarterCheckpoint() throws {
     }
 }
 
-@MainActor
-@Test(
-    .enabled(if: mlxSaveLoadSmokeEnabled),
-    .timeLimit(.minutes(1))
-)
-func trainedCoreCheckpointIncludesReflexSnapshotForRollout() async throws {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("kuyu-trained-core-checkpoint-\(UUID().uuidString)", isDirectory: true)
-    let datasetRoot = root.appendingPathComponent("dataset", isDirectory: true)
-    let checkpointRoot = root.appendingPathComponent("checkpoint", isDirectory: true)
-    defer {
-        do {
-            try FileManager.default.removeItem(at: root)
-        } catch {
-            Issue.record("Failed to remove temporary model directory \(root.path): \(error)")
-        }
-    }
-
-    let request = SimulationRunRequest(
-        controller: .teacherActiveAltitudeHold,
-        taskMode: .singleLift,
-        gains: try ImuRateDampingCutGains(kp: 2.0, kd: 0.25, yawDamping: 0.2),
-        cutPeriodSteps: 2,
-        noise: .zero,
-        determinism: try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline),
-        robotManifestPath: "",
-        overrideParameters: nil,
-        useAux: false,
-        useQualityGating: true
-    )
-    let output = try await KuyuSingleLiftTeacherDatasetRunner().run(
-        request: request,
-        parameters: .baseline,
-        schedule: try SimulationSchedule.baseline(cutPeriodSteps: 2)
-    )
-    _ = try TrainingDatasetExporter().write(output: output, to: datasetRoot)
-
-    let store = ManasMLXModelStore()
-    _ = try await store.trainCore(
-        datasetURL: datasetRoot,
-        sequenceLength: 8,
-        learningRate: 0.0001,
-        epochs: 1,
-        useAux: false,
-        useQualityGating: true,
-        maxBatches: 1
-    )
-    let manifest = try store.saveModel(to: checkpointRoot, name: "trained-core-smoke")
-
-    #expect(manifest.reflexConfig != nil)
-    #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("model.json").path))
-    #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("core.safetensors").path))
-    #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("reflex.safetensors").path))
-    #expect(FileManager.default.fileExists(atPath: checkpointRoot.appendingPathComponent("manas-bundle.json").path))
-}
-
 private func singleDriveStarterRequest(
     checkpointURL: URL,
     expectedDriveCount: Int

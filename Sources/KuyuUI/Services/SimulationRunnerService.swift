@@ -417,16 +417,7 @@ public struct SimulationRunnerService: Sendable {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions: [ReferenceQuadrotorScenarioDefinition]
-        switch request.taskMode {
-        case .lift:
-            definitions = try KuyLiftSuite().scenarios()
-        case .attitude:
-            definitions = try KuyAtt1Suite().scenarios()
-        case .singleLift:
-            definitions = try KuySingleLiftSuite().scenarios()
-        }
-
+        let definitions = try referenceQuadrotorScenarioDefinitions(for: request.taskMode)
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []
@@ -524,6 +515,12 @@ public struct SimulationRunnerService: Sendable {
         return maxima
     }
 
+    private func referenceQuadrotorScenarioDefinitions(
+        for taskMode: SimulationTaskMode
+    ) throws -> [ReferenceQuadrotorScenarioDefinition] {
+        try ReferenceQuadrotorRolloutScenarioDefinitionFactory().scenarios(taskMode: taskMode)
+    }
+
     private func runLiftBaseline(
         request: SimulationRunRequest,
         parameters: ReferenceQuadrotorParameters,
@@ -540,7 +537,7 @@ public struct SimulationRunnerService: Sendable {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions = try KuyLiftSuite().scenarios()
+        let definitions = try referenceQuadrotorScenarioDefinitions(for: .lift)
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []
@@ -608,7 +605,7 @@ public struct SimulationRunnerService: Sendable {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions = try KuyLiftSuite().scenarios()
+        let definitions = try referenceQuadrotorScenarioDefinitions(for: .lift)
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []
@@ -674,7 +671,7 @@ public struct SimulationRunnerService: Sendable {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions = try KuySingleLiftSuite().scenarios()
+        let definitions = try referenceQuadrotorScenarioDefinitions(for: .singleLift)
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []
@@ -753,7 +750,7 @@ public struct SimulationRunnerService: Sendable {
             hoverThrustScale: request.gains.hoverThrustScale
         )
 
-        let definitions = try KuySingleLiftSuite().scenarios()
+        let definitions = try referenceQuadrotorScenarioDefinitions(for: .singleLift)
         let manifest = ReferenceQuadrotorScenarioManifestBuilder().build(from: definitions)
         var evaluations: [ScenarioEvaluation] = []
         var logs: [ScenarioLogEntry] = []

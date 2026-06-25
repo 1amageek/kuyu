@@ -387,6 +387,34 @@ import Testing
     #expect(!regressionMatrixSource.contains("private struct KuyuRegressionMatrixSummary"))
 }
 
+@Test func rolloutDefinitionsDelegateScenarioSelectionToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("ReferenceQuadrotorRolloutScenarioDefinitionFactory().scenarios"))
+    #expect(!source.contains("KuyuSingleLiftTrainingSuite" + "().scenarios()"))
+    #expect(!source.contains("KuyAtt1Suite" + "().scenarios()"))
+    #expect(!source.contains("KuyLiftSuite" + "().scenarios()"))
+    #expect(!source.contains("KuySingleLiftSuite" + "().scenarios()"))
+    #expect(!source.contains("KUY-SLIFT-TRAIN" + "-M2"))
+}
+
+@Test func simulationRunnerDelegatesScenarioSelectionToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/SimulationRunnerService.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("ReferenceQuadrotorRolloutScenarioDefinitionFactory().scenarios(taskMode:"))
+    #expect(!source.contains("KuyAtt1Suite" + "().scenarios()"))
+    #expect(!source.contains("KuyLiftSuite" + "().scenarios()"))
+    #expect(!source.contains("KuySingleLiftSuite" + "().scenarios()"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
