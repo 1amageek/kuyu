@@ -570,6 +570,7 @@ import Testing
     #expect(state.plan?.candidateEvaluationConcurrency == 8)
     #expect(state.generations.count == 5)
     #expect(state.candidates.count == 5)
+    #expect(state.acceptedCount == 0)
     #expect(state.maxRequestedCandidateConcurrency == 8)
     #expect(state.maxActiveCandidateEvaluations == 8)
     #expect(state.candidateEvaluationCount == 5)

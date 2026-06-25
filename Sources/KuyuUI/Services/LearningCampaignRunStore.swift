@@ -582,7 +582,10 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
     }
 
     public var acceptedCount: Int {
-        summary?.acceptedCount ?? generations.filter(\.accepted).count
+        if let summary {
+            return summary.acceptedCount
+        }
+        return acceptedCheckpoints.filter(\.accepted).count
     }
 
     public var finalCheckpoint: String? {
