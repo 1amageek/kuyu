@@ -116,9 +116,73 @@ import Testing
     #expect(!source.contains("writerProcessDead"))
 }
 
+@Test func evaluateManasCheckpointDelegatesEvaluationPipelineToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct EvaluateManasCheckpoint",
+        to: "struct CalibrateManasCheckpoint"
+    )
+
+    #expect(commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService().evaluate"))
+    #expect(!commandSource.contains("ManasMLXReferenceQuadrotorCheckpointEvaluator("))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact"))
+    #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationAcceptanceService()"))
+    #expect(!commandSource.contains("private func evaluateCheckpointAcceptanceIfNeeded"))
+}
+
+@Test func daggerRelabelDelegatesRolloutRelabelingToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct DaggerRelabelCTBR",
+        to: "struct WriteCTBRCheckpoint"
+    )
+
+    #expect(commandSource.contains("ReferenceQuadrotorDAggerRelabelService().relabel"))
+    #expect(!commandSource.contains("ManasMLXReferenceQuadrotorCheckpointEvaluator("))
+    #expect(!commandSource.contains("temporalCTBRRolloutEpisodes"))
+    #expect(!commandSource.contains("KuyAtt1Suite().scenarios"))
+    #expect(!commandSource.contains("AttitudeRecoveryRelabeler()"))
+    #expect(!commandSource.contains("TrainingDatasetWriter().write"))
+}
+
+@Test func biasCalibrationDelegatesCheckpointEvaluationPipelineToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct SelectManasBiasCalibration",
+        to: "private func createFreshArtifactRoot"
+    )
+
+    #expect(commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService()"))
+    #expect(commandSource.contains("checkpointEvaluationService.evaluate"))
+    #expect(!commandSource.contains("ManasMLXReferenceQuadrotorCheckpointEvaluator("))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact"))
+    #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationAcceptanceService()"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+private func extractSource(_ source: String, from startMarker: String, to endMarker: String) throws -> Substring {
+    let start = try #require(source.range(of: startMarker)?.lowerBound)
+    let end = try #require(source.range(of: endMarker, range: start..<source.endIndex)?.lowerBound)
+    return source[start..<end]
 }

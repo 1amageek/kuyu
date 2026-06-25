@@ -1171,65 +1171,27 @@ struct DaggerRelabelCTBR: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let evaluator = ManasMLXReferenceQuadrotorCheckpointEvaluator(
-            config: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
-                robotManifestPath: model,
-                determinism: determinism,
-                schedule: schedule,
-                gains: gains,
-                useQualityGating: false
-            )
-        )
-        let episodes = try await evaluator.temporalCTBRRolloutEpisodes(
-            request: CheckpointEvaluationRequest(
+        let result = try await ReferenceQuadrotorDAggerRelabelService().relabel(
+            ReferenceQuadrotorDAggerRelabelRequest(
                 profile: profile,
                 checkpointURL: checkpointURL,
-                artifactRoot: outputURL.appendingPathComponent("rollout-artifacts", isDirectory: true)
+                outputURL: outputURL,
+                evaluatorConfig: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
+                    robotManifestPath: model,
+                    determinism: determinism,
+                    schedule: schedule,
+                    gains: gains,
+                    useQualityGating: false
+                ),
+                determinism: determinism,
+                gains: gains,
+                includeSuccessful: includeSuccessful
             )
         )
-        let definitions = try KuyAtt1Suite().scenarios()
-        let definitionByKey = Dictionary(
-            uniqueKeysWithValues: definitions.map {
-                ("\($0.config.id.rawValue)#\($0.config.seed.rawValue)", $0)
-            }
-        )
-        let relabeler = AttitudeRecoveryRelabeler()
-        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-        var writtenEpisodes = 0
-        var writtenSteps = 0
-        for episode in episodes {
-            let key = "\(episode.scenarioId)#\(episode.seed)"
-            guard let definition = definitionByKey[key] else {
-                throw ValidationError("No scenario definition for rolled episode \(key).")
-            }
-            // includeSuccessful is honored at the loop level: skip episodes the
-            // policy already completed cleanly unless broad coverage is requested.
-            if !includeSuccessful, episode.failureReason == nil, !episode.done {
-                continue
-            }
-            let relabeled = try relabeler.relabelEpisode(
-                episode,
-                definition: definition,
-                parameters: ReferenceQuadrotorParameters.baseline,
-                gains: gains
-            )
-            let subdir = outputURL.appendingPathComponent(
-                "\(episode.scenarioId.replacingOccurrences(of: "/", with: "_"))_seed_\(episode.seed)",
-                isDirectory: true
-            )
-            _ = try TrainingDatasetWriter().write(
-                episode: relabeled,
-                timeStep: definition.config.timeStep.delta,
-                determinismTier: determinism.tier.rawValue,
-                to: subdir
-            )
-            writtenEpisodes += 1
-            writtenSteps += relabeled.steps.count
-        }
         print("daggerRelabelCTBR=true")
-        print("relabeledEpisodes=\(writtenEpisodes)")
-        print("relabeledSteps=\(writtenSteps)")
-        print("output=\(outputURL.path)")
+        print("relabeledEpisodes=\(result.relabeledEpisodes)")
+        print("relabeledSteps=\(result.relabeledSteps)")
+        print("output=\(result.outputURL.path)")
     }
 }
 
@@ -1731,35 +1693,23 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let evaluator = ManasMLXReferenceQuadrotorCheckpointEvaluator(
-            config: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
-                robotManifestPath: model,
-                determinism: determinism,
-                schedule: schedule,
-                gains: gains,
-                useQualityGating: !noQualityGate
-            )
-        )
-        let summary = try await evaluator.evaluateCheckpoint(
-            request: CheckpointEvaluationRequest(
+        let evaluationResult = try await ReferenceQuadrotorCheckpointEvaluationService().evaluate(
+            ReferenceQuadrotorCheckpointEvaluationRunRequest(
                 profile: profile,
                 checkpointURL: checkpointURL,
-                artifactRoot: artifactRoot
-            )
-        )
-        let verifiedArtifact = try GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact(
-            CheckpointEvaluationArtifactCompatibilityRequest(
-                artifactDirectory: artifactRoot,
-                expectedProfile: profile,
-                expectedCheckpointPath: checkpointURL.path,
+                artifactRoot: artifactRoot,
+                evaluatorConfig: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
+                    robotManifestPath: model,
+                    determinism: determinism,
+                    schedule: schedule,
+                    gains: gains,
+                    useQualityGating: !noQualityGate
+                ),
                 requiresPolicyPass: requirePolicyPass
             )
         )
-        let g1AcceptanceReport = try evaluateCheckpointAcceptanceIfNeeded(
-            profile: profile,
-            artifact: verifiedArtifact,
-            artifactRoot: artifactRoot
-        )
+        let summary = evaluationResult.summary
+        let g1AcceptanceReport = evaluationResult.acceptance.g1Attitude
 
         print("[evaluate-manas-checkpoint] task=\(summary.task) profile=\(summary.profileID) policyPassed=\(summary.policyPassed) score=\(String(format: "%.6f", summary.policyScore)) teacherScore=\(String(format: "%.6f", summary.teacherScore))")
         print("[evaluate-manas-checkpoint] motorMAE=\(formatOptional(summary.motorMAE)) driveMAE=\(formatOptional(summary.driveMAE)) finalAltitudeDelta=\(formatOptional(summary.finalAltitudeDelta)) failures=\(summary.failureReasons.joined(separator: ","))")
@@ -1773,20 +1723,6 @@ struct EvaluateManasCheckpoint: AsyncParsableCommand {
             }
         }
         print("[evaluate-manas-checkpoint] artifacts path=\(artifactRoot.path)")
-    }
-
-    private func evaluateCheckpointAcceptanceIfNeeded(
-        profile: TaskEvaluationProfile,
-        artifact: CheckpointEvaluationArtifact,
-        artifactRoot: URL
-    ) throws -> ReferenceQuadrotorG1AttitudeAcceptanceReport? {
-        try ReferenceQuadrotorCheckpointEvaluationAcceptanceService()
-            .evaluate(request: ReferenceQuadrotorCheckpointEvaluationAcceptanceRequest(
-                profile: profile,
-                artifact: artifact,
-                artifactRoot: artifactRoot
-            ))
-            .g1Attitude
     }
 }
 
@@ -1909,15 +1845,14 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
             yawDamping: yawDamping,
             hoverThrustScale: hoverScale
         )
-        let checkpointEvaluator = ManasMLXReferenceQuadrotorCheckpointEvaluator(
-            config: ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
-                robotManifestPath: model,
-                determinism: determinism,
-                schedule: schedule,
-                gains: gains,
-                useQualityGating: !noQualityGate
-            )
+        let checkpointEvaluatorConfig = ManasMLXReferenceQuadrotorCheckpointEvaluatorConfig(
+            robotManifestPath: model,
+            determinism: determinism,
+            schedule: schedule,
+            gains: gains,
+            useQualityGating: !noQualityGate
         )
+        let checkpointEvaluationService = ReferenceQuadrotorCheckpointEvaluationService()
         let selectedTasks = [simulationTaskMode(from: rolloutTask)]
 
         var candidates: [ReferenceQuadrotorBiasCalibrationCandidateEvaluation] = []
@@ -1965,28 +1900,17 @@ struct SelectManasBiasCalibration: AsyncParsableCommand {
             let checkpointEvaluationReasons: [String]
             let checkpointEvaluationPassed: Bool
             do {
-                _ = try await checkpointEvaluator.evaluateCheckpoint(
-                    request: CheckpointEvaluationRequest(
+                _ = try await checkpointEvaluationService.evaluate(
+                    ReferenceQuadrotorCheckpointEvaluationRunRequest(
                         profile: profile,
                         checkpointURL: candidateCheckpointURL,
-                        artifactRoot: evaluationRoot
+                        artifactRoot: evaluationRoot,
+                        evaluatorConfig: checkpointEvaluatorConfig,
+                        requiresPolicyPass: true
                     )
                 )
-                do {
-                    _ = try GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact(
-                        CheckpointEvaluationArtifactCompatibilityRequest(
-                            artifactDirectory: evaluationRoot,
-                            expectedProfile: profile,
-                            expectedCheckpointPath: candidateCheckpointURL.path,
-                            requiresPolicyPass: true
-                        )
-                    )
-                    checkpointEvaluationPassed = true
-                    checkpointEvaluationReasons = []
-                } catch {
-                    checkpointEvaluationPassed = false
-                    checkpointEvaluationReasons = [String(describing: error)]
-                }
+                checkpointEvaluationPassed = true
+                checkpointEvaluationReasons = []
             } catch {
                 checkpointEvaluationPassed = false
                 checkpointEvaluationReasons = [String(describing: error)]
