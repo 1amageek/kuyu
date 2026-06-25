@@ -356,6 +356,19 @@ import Testing
     #expect(!source.contains("evaluations.allSatisfy"))
 }
 
+@Test func commandSystemDelegatesReferenceTrainingBackendBundleToProfileOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/CommandSystem.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("ReferenceQuadrotorTrainingBackendBundleFactory("))
+    #expect(source.contains("workerModelStoreFactory: { ManasMLXModelStore() }"))
+    #expect(source.contains("robotManifestPath: runRequest.robotManifestPath"))
+    #expect(!source.contains("ManasMLXTrainingBackendFactory("))
+}
+
 @Test func regressionMatrixDelegatesSummaryPassClassificationToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()

@@ -232,12 +232,12 @@ extension CommandSystem: TrainingLoopCommandExecuting {
         observationMetadata: TrainingObservationMetadata?,
         onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
     ) async throws -> TrainingRunResult {
-        let backendBundle = try ManasMLXTrainingBackendFactory(
-            rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
+        let backendBundle = try ReferenceQuadrotorTrainingBackendBundleFactory(
+            workerModelStoreFactory: { ManasMLXModelStore() }
         ).makeWorkerLocalBackend(
             activeStore: modelStore,
             runID: config.runID,
-            runRequest: runRequest,
+            robotManifestPath: runRequest.robotManifestPath,
             datasetRoot: datasetRoot
         )
         let effectiveTrainingTemplate = TrainingBackendRequest(
