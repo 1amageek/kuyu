@@ -73,6 +73,7 @@ let package = Package(
                 .product(name: "KuyuMLX", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXCore", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXRoArmM1", package: "kuyu-mlx"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),

@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import KuyuMLX
+import KuyuMLXRoArmM1
 
 struct TrainRoArmM1JointTargets: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -63,7 +64,9 @@ struct TrainRoArmM1JointTargets: AsyncParsableCommand {
             manasTrainingOperation = nil
         } else {
             manasTrainingOperation = { request in
-                try await RoArmM1ArmGripperManasTrainer().train(request: request)
+                try await RoArmM1ArmGripperManasTrainingService(
+                    storeFactory: { ManasMLXModelStore() }
+                ).train(request: request)
             }
         }
         let service = RoArmM1ArmGripperTrainingPipelineService(
