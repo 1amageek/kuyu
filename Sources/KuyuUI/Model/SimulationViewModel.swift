@@ -1695,8 +1695,7 @@ public final class SimulationViewModel {
             embodiment: currentEmbodiment(),
             taskMode: observationTaskMode,
             driveCount: package.selectedTemplate.action.driveCount,
-            expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
-            expectedObservationChannelCount: package.selectedTemplate.observation.channelCount,
+            observationChannelCountOverride: package.selectedTemplate.observation.channelCount,
             auxEnabled: trainingUseAux,
             qualityGatingEnabled: trainingUseQualityGating,
             policyContract: package.selectedTemplate.policy,
@@ -2791,7 +2790,9 @@ public final class SimulationViewModel {
         }
 
         let observationTaskMode = taskMode
-        let driveCount = starterDriveCount(for: observationTaskMode)
+        let starterContract = try ReferenceQuadrotorStarterCheckpointContractService().contract(
+            taskMode: observationTaskMode
+        )
         let policyContract = learningCampaignPolicyContract
         let actionContract = learningCampaignActionContract
 
@@ -2802,9 +2803,7 @@ public final class SimulationViewModel {
                 robotManifestPath: robotManifestPath,
                 embodiment: currentEmbodiment(),
                 taskMode: observationTaskMode,
-                driveCount: driveCount,
-                expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
-                expectedObservationChannelCount: starterObservationChannelCount(for: observationTaskMode),
+                driveCount: starterContract.directMotorDriveCount,
                 auxEnabled: trainingUseAux,
                 qualityGatingEnabled: trainingUseQualityGating,
                 policyContract: policyContract,
@@ -2837,16 +2836,14 @@ public final class SimulationViewModel {
         let project = try learningStarterProjectStore.prepareStarterProject(
             regenerateSourceCheckpoint: forceNewArtifactRoot || !sourceIsValid,
             policyContract: policyContract
-        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, driveCount, policyContract, actionContract] checkpointURL in
+        ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, policyContract, actionContract] checkpointURL in
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
                 checkpointURL: checkpointURL,
                 displayName: "Bounded Drone Autonomy Starter",
                 robotManifestPath: robotManifestPath,
                 embodiment: currentEmbodiment(),
                 taskMode: observationTaskMode,
-                driveCount: driveCount,
-                expectedDriveCount: starterExpectedDriveCount(for: observationTaskMode),
-                expectedObservationChannelCount: starterObservationChannelCount(for: observationTaskMode),
+                driveCount: starterContract.directMotorDriveCount,
                 auxEnabled: trainingUseAux,
                 qualityGatingEnabled: trainingUseQualityGating,
                 policyContract: policyContract,
@@ -3015,28 +3012,8 @@ public final class SimulationViewModel {
             robotManifestPath: robotManifestPath,
             policyContract: policyContract,
             actionContract: actionContract,
-            expectedDriveCount: starterExpectedDriveCount(for: taskMode),
-            expectedObservationChannelCount: starterObservationChannelCount(for: taskMode)
+            taskMode: taskMode
         ))
-    }
-
-    private func starterDriveCount(for taskMode: SimulationTaskMode) -> Int? {
-        taskMode == .singleLift ? 1 : nil
-    }
-
-    private func starterExpectedDriveCount(for taskMode: SimulationTaskMode) -> Int {
-        taskMode == .singleLift ? 1 : 4
-    }
-
-    private func starterObservationChannelCount(for taskMode: SimulationTaskMode) -> Int {
-        switch taskMode {
-        case .lift:
-            return 64
-        case .singleLift:
-            return 8
-        case .attitude:
-            return 6
-        }
     }
 
     private func invalidateLearningStarterProject(reason: String) {
@@ -3580,7 +3557,9 @@ public final class SimulationViewModel {
     }
 
     private func expectedManualActuatorChannelCount() -> Int {
-        let defaultCount = taskMode == .singleLift ? 1 : 4
+        let defaultCount = ReferenceQuadrotorStarterCheckpointContractService()
+            .defaultContract(for: taskMode)
+            .expectedDriveCount
         if let embodiment = robotCache?.embodiment {
             let count = embodiment.signals.actuator.count
             if currentRobotIsArticulatedDynamic(), count > 0 {
@@ -3598,9 +3577,12 @@ public final class SimulationViewModel {
             ? "articulated-dynamic"
             : (taskMode == .singleLift ? "fixed-single-prop" : "fixed-quad")
         guard let embodiment = robotSnapshot()?.embodiment else { return fallback }
+        let defaultDriveCount = ReferenceQuadrotorStarterCheckpointContractService()
+            .defaultContract(for: taskMode)
+            .expectedDriveCount
         let expectedDriveCount = currentRobotIsArticulatedDynamic()
             ? embodiment.signals.actuator.count
-            : (taskMode == .singleLift ? 1 : 4)
+            : defaultDriveCount
         if embodiment.control.driveChannels.count != expectedDriveCount {
             return fallback
         }

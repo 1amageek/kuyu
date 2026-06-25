@@ -228,6 +228,49 @@ import Testing
     #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.reference("))
 }
 
+@Test func uiAdaptersDelegateStarterCheckpointContractToReferenceOwnerService() throws {
+    let viewModelSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Model/SimulationViewModel.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let preparerSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/RunnableProjectAssetPreparer.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let runnerServiceSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/SimulationRunnerService.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let validatorSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/StarterSourceCheckpointValidator.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(viewModelSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
+    #expect(viewModelSource.contains("ReferenceQuadrotorStarterCheckpointContractService()"))
+    #expect(viewModelSource.contains(".defaultContract(for: taskMode)"))
+    #expect(preparerSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
+    #expect(preparerSource.contains("starterContract.starterActionMean"))
+    #expect(runnerServiceSource.contains("ReferenceQuadrotorStarterCheckpointContractService()"))
+    #expect(runnerServiceSource.contains(".defaultContract(for: request.taskMode)"))
+    #expect(validatorSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
+    #expect(validatorSource.contains("expectedDriveCount: starterContract.expectedDriveCount"))
+    #expect(validatorSource.contains("expectedObservationChannelCount: starterContract.expectedObservationChannelCount"))
+    #expect(!viewModelSource.contains("starterExpectedDriveCount"))
+    #expect(!viewModelSource.contains("starterObservationChannelCount"))
+    #expect(!viewModelSource.contains("starterDriveCount"))
+    #expect(!preparerSource.contains("starterActionMean(taskMode"))
+    #expect(!preparerSource.contains("switch request.taskMode"))
+    #expect(!runnerServiceSource.contains("expectedDriveCount: 4"))
+    #expect(!runnerServiceSource.contains("expectedDriveCount: 1"))
+    #expect(!validatorSource.contains("public let expectedDriveCount"))
+    #expect(!validatorSource.contains("public let expectedObservationChannelCount"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

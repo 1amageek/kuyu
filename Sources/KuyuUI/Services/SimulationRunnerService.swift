@@ -37,6 +37,8 @@ public struct SimulationRunnerService: Sendable {
         let resolution = try resolveParameters(request: request)
         let parameters = resolution.parameters
         let embodiment = resolution.embodiment
+        let starterContract = ReferenceQuadrotorStarterCheckpointContractService()
+            .defaultContract(for: request.taskMode)
         switch request.controller {
         case .teacherActiveAltitudeHold, .sensorBaseline:
             let baselineMode = request.controller.kuyAtt1BaselineMode ?? .teacher
@@ -55,7 +57,7 @@ public struct SimulationRunnerService: Sendable {
                 if let chainFactory = motorNerveChainFactory(
                     embodiment: embodiment,
                     request: request,
-                    expectedDriveCount: 4,
+                    expectedDriveCount: starterContract.expectedDriveCount,
                     fallbackProfile: "lift"
                 ) {
                     return try await runLiftBaselineWithChain(
@@ -80,7 +82,7 @@ public struct SimulationRunnerService: Sendable {
                 if let chainFactory = motorNerveChainFactory(
                     embodiment: embodiment,
                     request: request,
-                    expectedDriveCount: 1,
+                    expectedDriveCount: starterContract.expectedDriveCount,
                     fallbackProfile: "fixed-single-prop"
                 ) {
                     return try await runSingleLiftBaselineWithChain(
@@ -104,7 +106,7 @@ public struct SimulationRunnerService: Sendable {
             if let chainFactory = motorNerveChainFactory(
                 embodiment: embodiment,
                 request: request,
-                expectedDriveCount: 4,
+                expectedDriveCount: starterContract.expectedDriveCount,
                 fallbackProfile: "fixed-quad"
             ) {
                 return try await runAttitudeBaselineWithChain(

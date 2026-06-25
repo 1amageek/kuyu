@@ -34,8 +34,7 @@ import Testing
         embodiment: nil,
         taskMode: .attitude,
         driveCount: nil,
-        expectedDriveCount: 4,
-        expectedObservationChannelCount: 64,
+        observationChannelCountOverride: 64,
         auxEnabled: false,
         qualityGatingEnabled: true,
         policyContract: policyContract,
@@ -48,8 +47,8 @@ import Testing
     #expect(request.robotManifestPath == "robots/reference-quadrotor.json")
     #expect(request.policyContract == policyContract)
     #expect(request.actionContract == actionContract)
-    #expect(request.expectedDriveCount == 4)
-    #expect(request.expectedObservationChannelCount == 64)
+    #expect(request.taskMode == .attitude)
+    #expect(request.observationChannelCountOverride == 64)
     #expect(FileManager.default.fileExists(atPath: checkpoint.appendingPathComponent("model.json").path))
 }
 
@@ -81,8 +80,7 @@ import Testing
             embodiment: nil,
             taskMode: .attitude,
             driveCount: nil,
-            expectedDriveCount: 4,
-            expectedObservationChannelCount: 64,
+            observationChannelCountOverride: 64,
             auxEnabled: false,
             qualityGatingEnabled: true,
             policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),

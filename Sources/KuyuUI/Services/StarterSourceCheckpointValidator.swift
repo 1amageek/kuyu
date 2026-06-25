@@ -1,5 +1,6 @@
 import Foundation
 import KuyuMLX
+import KuyuScenarios
 import KuyuTraining
 
 public struct StarterSourceCheckpointValidationRequest: Sendable {
@@ -7,23 +8,23 @@ public struct StarterSourceCheckpointValidationRequest: Sendable {
     public let robotManifestPath: String
     public let policyContract: LearningProjectPolicyContract
     public let actionContract: LearningProjectActionContract
-    public let expectedDriveCount: Int
-    public let expectedObservationChannelCount: Int
+    public let taskMode: SimulationTaskMode
+    public let observationChannelCountOverride: Int?
 
     public init(
         checkpointURL: URL,
         robotManifestPath: String,
         policyContract: LearningProjectPolicyContract,
         actionContract: LearningProjectActionContract,
-        expectedDriveCount: Int,
-        expectedObservationChannelCount: Int
+        taskMode: SimulationTaskMode,
+        observationChannelCountOverride: Int? = nil
     ) {
         self.checkpointURL = checkpointURL
         self.robotManifestPath = robotManifestPath
         self.policyContract = policyContract
         self.actionContract = actionContract
-        self.expectedDriveCount = expectedDriveCount
-        self.expectedObservationChannelCount = expectedObservationChannelCount
+        self.taskMode = taskMode
+        self.observationChannelCountOverride = observationChannelCountOverride
     }
 }
 
@@ -46,14 +47,18 @@ public struct ManasMLXStarterSourceCheckpointValidator: StarterSourceCheckpointV
 
     public func validate(request: StarterSourceCheckpointValidationRequest) throws {
         do {
+            let starterContract = try ReferenceQuadrotorStarterCheckpointContractService().contract(
+                taskMode: request.taskMode,
+                observationChannelCountOverride: request.observationChannelCountOverride
+            )
             try compatibility.validate(
                 ManasMLXStarterSourceCheckpointCompatibilityRequest(
                     checkpointURL: request.checkpointURL,
                     robotManifestPath: request.robotManifestPath,
                     policyContract: request.policyContract,
                     actionContract: request.actionContract,
-                    expectedDriveCount: request.expectedDriveCount,
-                    expectedObservationChannelCount: request.expectedObservationChannelCount
+                    expectedDriveCount: starterContract.expectedDriveCount,
+                    expectedObservationChannelCount: starterContract.expectedObservationChannelCount
                 )
             )
         } catch {

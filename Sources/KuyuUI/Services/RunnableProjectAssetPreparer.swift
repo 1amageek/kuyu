@@ -11,8 +11,7 @@ public struct RunnableProjectAssetPreparationRequest {
     public let embodiment: EmbodimentContract?
     public let taskMode: SimulationTaskMode
     public let driveCount: Int?
-    public let expectedDriveCount: Int
-    public let expectedObservationChannelCount: Int
+    public let observationChannelCountOverride: Int?
     public let auxEnabled: Bool
     public let qualityGatingEnabled: Bool
     public let policyContract: LearningProjectPolicyContract
@@ -25,8 +24,7 @@ public struct RunnableProjectAssetPreparationRequest {
         embodiment: EmbodimentContract?,
         taskMode: SimulationTaskMode,
         driveCount: Int?,
-        expectedDriveCount: Int,
-        expectedObservationChannelCount: Int,
+        observationChannelCountOverride: Int? = nil,
         auxEnabled: Bool,
         qualityGatingEnabled: Bool,
         policyContract: LearningProjectPolicyContract,
@@ -38,8 +36,7 @@ public struct RunnableProjectAssetPreparationRequest {
         self.embodiment = embodiment
         self.taskMode = taskMode
         self.driveCount = driveCount
-        self.expectedDriveCount = expectedDriveCount
-        self.expectedObservationChannelCount = expectedObservationChannelCount
+        self.observationChannelCountOverride = observationChannelCountOverride
         self.auxEnabled = auxEnabled
         self.qualityGatingEnabled = qualityGatingEnabled
         self.policyContract = policyContract
@@ -75,6 +72,12 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
             try fileManager.removeItem(at: request.checkpointURL)
         }
 
+        let starterContract = try ReferenceQuadrotorStarterCheckpointContractService().contract(
+            taskMode: request.taskMode,
+            observationChannelCountOverride: request.observationChannelCountOverride,
+            directMotorDriveCountOverride: request.driveCount
+        )
+
         if request.policyContract.actionEncoding == .ctbr {
             _ = try ManasMLXTemporalCheckpointWriter().write(request: ManasMLXTemporalCheckpointWriteRequest(
                 checkpointURL: request.checkpointURL,
@@ -83,7 +86,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
                 actionContract: request.actionContract,
                 embodiment: request.embodiment,
-                starterActionMean: starterActionMean(taskMode: request.taskMode),
+                starterActionMean: starterContract.starterActionMean,
                 createdAt: Date(),
                 lastTrainedAt: nil
             ))
@@ -108,20 +111,9 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
             robotManifestPath: request.robotManifestPath,
             policyContract: request.policyContract,
             actionContract: request.actionContract,
-            expectedDriveCount: request.expectedDriveCount,
-            expectedObservationChannelCount: request.expectedObservationChannelCount
+            taskMode: request.taskMode,
+            observationChannelCountOverride: request.observationChannelCountOverride
         ))
-    }
-
-    private func starterActionMean(taskMode: SimulationTaskMode) -> [Double] {
-        switch taskMode {
-        case .lift:
-            return [1.0, 0.0, 0.0, 0.0]
-        case .attitude:
-            return [0.75, 0.0, 0.0, 0.0]
-        case .singleLift:
-            return [0.9, 0.0, 0.0, 0.0]
-        }
     }
 
 }
