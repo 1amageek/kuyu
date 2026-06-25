@@ -100,6 +100,22 @@ import Testing
     #expect(!source.contains("case .interrupted"))
 }
 
+@Test func trainingRunsViewModelDelegatesControlSubmissionPolicyToTrainingRunService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Model/TrainingRunsViewModel.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("TrainingRunControlSubmissionService().submit"))
+    #expect(!source.contains("reader.submitControlCommand"))
+    #expect(!source.contains("TrainingRunControlCommand("))
+    #expect(!source.contains("case .finished"))
+    #expect(!source.contains("case .interrupted"))
+    #expect(!source.contains("runAlreadyFinished"))
+    #expect(!source.contains("writerProcessDead"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

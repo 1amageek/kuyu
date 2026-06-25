@@ -4,28 +4,20 @@ import Observation
 
 /// Observable client of the training-run contract archive: lists runs under
 /// the run root, snapshots the selected run, and submits control commands
-/// through the same file-based channel the CLI uses.
+/// through the training-run contract submission service.
 ///
 /// All file IO runs off the main actor in detached tasks; results land here
 /// as immutable snapshots. Failures surface in `lastError` — never swallowed.
 @Observable
 @MainActor
 public final class TrainingRunsViewModel {
-    /// Pre-flight rejections for control commands that could never be
-    /// applied by the run's writer process.
     public enum ControlSubmissionError: Error, Equatable, CustomStringConvertible {
         case noRunSelected
-        case runAlreadyFinished(status: String)
-        case writerProcessDead
 
         public var description: String {
             switch self {
             case .noRunSelected:
                 return "No run selected."
-            case .runAlreadyFinished(let status):
-                return "Run already finished (\(status)); the command cannot be applied."
-            case .writerProcessDead:
-                return "The run's writer process is dead; the command would never be applied."
             }
         }
     }
@@ -106,7 +98,7 @@ public final class TrainingRunsViewModel {
             pendingControlSequence = sequence
             lastError = nil
             await refresh()
-        } catch let error as ControlSubmissionError {
+        } catch let error as TrainingRunControlSubmissionError {
             lastError = error.description
         } catch {
             lastError = String(describing: error)
@@ -201,25 +193,11 @@ public final class TrainingRunsViewModel {
         runDirectory: URL
     ) throws -> Int {
         let reader = TrainingRunArchiveReader(runDirectory: runDirectory)
-        // Same operator-error guard as the CLI: a command to a run whose
-        // writer can never apply it is rejected up front, not queued.
-        switch try reader.liveness() {
-        case .finished(let status):
-            throw ControlSubmissionError.runAlreadyFinished(status: status.rawValue)
-        case .interrupted:
-            throw ControlSubmissionError.writerProcessDead
-        case .paused(let processAlive) where !processAlive:
-            throw ControlSubmissionError.writerProcessDead
-        case .live, .paused:
-            break
-        }
-        let sequence = ((try reader.latestControlSequence()) ?? 0) + 1
-        try reader.submitControlCommand(TrainingRunControlCommand(
-            sequence: sequence,
+        let submission = try TrainingRunControlSubmissionService().submit(
+            reader: reader,
             action: action,
-            requestedAt: Date(),
             requestedBy: "bounded-ui"
-        ))
-        return sequence
+        )
+        return submission.command.sequence
     }
 }
