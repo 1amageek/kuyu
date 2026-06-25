@@ -3617,13 +3617,7 @@ public final class SimulationViewModel {
         }
 
         do {
-            let loader = KuyuModelLoader()
-            let loaded = try loader.loadRobot(path: trimmed)
-            let inertial = try loader.loadPlantInertialProperties(robot: loaded)
-            let parameters = try ReferenceQuadrotorParameters.reference(
-                from: inertial,
-                robotID: loaded.manifest.robotID
-            )
+            let parameters = try ReferenceQuadrotorParameterResolutionService().parameters(modelPath: trimmed)
             emitUIAction(level: .info, message: "Model loaded", action: "modelPreflight", metadata: [
                 "path": trimmed
             ])

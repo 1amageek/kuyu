@@ -198,6 +198,36 @@ import Testing
     #expect(!executorSource.contains(".write(result:"))
 }
 
+@Test func appAdaptersDelegateReferenceQuadrotorParameterResolutionToReferenceOwnerService() throws {
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let runnerServiceSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/SimulationRunnerService.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let viewModelSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Model/SimulationViewModel.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters(modelPath: modelPath)"))
+    #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
+    #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionService()"))
+    #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionRequest("))
+    #expect(viewModelSource.contains("ReferenceQuadrotorParameterResolutionService().parameters(modelPath: trimmed)"))
+    #expect(!cliSource.contains("KuyuSingleLiftParameterTuning.tuned"))
+    #expect(!runnerServiceSource.contains("KuyuSingleLiftParameterTuning.tuned"))
+    #expect(!viewModelSource.contains("KuyuSingleLiftParameterTuning.tuned"))
+    #expect(!cliSource.contains("ReferenceQuadrotorParameters.reference("))
+    #expect(!runnerServiceSource.contains("ReferenceQuadrotorParameters.reference("))
+    #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.reference("))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

@@ -361,64 +361,39 @@ public struct SimulationRunnerService: Sendable {
         request: SimulationRunRequest,
         loadedRobot: LoadedKuyuRobot?
     ) throws -> SimulationParameterResolution {
-        if let override = request.overrideParameters {
-            return SimulationParameterResolution(
-                parameters: override,
-                embodiment: loadedRobot?.embodiment,
-                source: .override,
-                robotID: loadedRobot?.manifest.robotID
-            )
-        }
-
-        guard let loadedRobot else {
-            let modelPath = request.robotManifestPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !modelPath.isEmpty {
-                logger.error("EmbodimentContract parameters unavailable", metadata: [
-                    "action": "robotManifestParametersFailed",
-                    "task": .string(request.taskMode.rawValue),
-                    "model": .string(modelPath),
-                    "robotManifest": .string(modelPath),
-                    "reason": "robotManifestNotLoaded",
-                    "error": "robotManifestNotLoaded"
-                ])
-                throw SimulationRunnerServiceError.robotManifestParametersUnavailable(modelPath)
-            }
-            return SimulationParameterResolution(
-                parameters: try defaultParameters(for: request.taskMode, hoverThrustScale: request.gains.hoverThrustScale),
-                embodiment: nil,
-                source: .referenceBaseline,
-                robotID: nil
-            )
-        }
-
+        let service = ReferenceQuadrotorParameterResolutionService()
         do {
-            let loader = KuyuModelLoader()
-            let inertial = try loader.loadPlantInertialProperties(robot: loadedRobot)
-            let parameters = try ReferenceQuadrotorParameters.reference(
-                from: inertial,
-                robotID: loadedRobot.manifest.robotID
-            )
-            let tunedParameters = request.taskMode == .singleLift
-                ? try KuyuSingleLiftParameterTuning.tuned(
-                    parameters: parameters,
-                    hoverThrustScale: request.gains.hoverThrustScale
+            let resolution = try service.resolve(
+                ReferenceQuadrotorParameterResolutionRequest(
+                    taskMode: request.taskMode,
+                    hoverThrustScale: request.gains.hoverThrustScale,
+                    loadedRobot: loadedRobot,
+                    overrideParameters: request.overrideParameters,
+                    robotManifestPath: request.robotManifestPath
                 )
-                : parameters
-            return SimulationParameterResolution(
-                parameters: tunedParameters,
-                embodiment: loadedRobot.embodiment,
-                source: .robotManifest,
-                robotID: loadedRobot.manifest.robotID
             )
-        } catch {
-            logger.error("EmbodimentContract inertial load failed", metadata: [
+            return SimulationParameterResolution(resolution)
+        } catch ReferenceQuadrotorParameterResolutionError.robotManifestNotLoaded(let modelPath) {
+            logger.error("EmbodimentContract parameters unavailable", metadata: [
                 "action": "robotManifestParametersFailed",
                 "task": .string(request.taskMode.rawValue),
-                "model": .string(request.robotManifestPath),
-                "robotManifest": .string(request.robotManifestPath),
-                "reason": "inertialLoadFailed",
-                "error": .string(String(describing: error))
+                "model": .string(modelPath),
+                "robotManifest": .string(modelPath),
+                "reason": "robotManifestNotLoaded",
+                "error": "robotManifestNotLoaded"
             ])
+            throw SimulationRunnerServiceError.robotManifestParametersUnavailable(modelPath)
+        } catch {
+            if loadedRobot != nil {
+                logger.error("EmbodimentContract inertial load failed", metadata: [
+                    "action": "robotManifestParametersFailed",
+                    "task": .string(request.taskMode.rawValue),
+                    "model": .string(request.robotManifestPath),
+                    "robotManifest": .string(request.robotManifestPath),
+                    "reason": "inertialLoadFailed",
+                    "error": .string(String(describing: error))
+                ])
+            }
             throw error
         }
     }
@@ -838,18 +813,6 @@ public struct SimulationRunnerService: Sendable {
         return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
-    private func defaultParameters(
-        for taskMode: SimulationTaskMode,
-        hoverThrustScale: Double
-    ) throws -> ReferenceQuadrotorParameters {
-        guard taskMode == .singleLift else {
-            return .baseline
-        }
-        return try KuyuSingleLiftParameterTuning.tuned(
-            parameters: .baseline,
-            hoverThrustScale: hoverThrustScale
-        )
-    }
 }
 
 public enum SimulationRunnerServiceError: Error, Equatable {
@@ -878,5 +841,27 @@ public struct SimulationParameterResolution: Sendable, Equatable {
         self.embodiment = embodiment
         self.source = source
         self.robotID = robotID
+    }
+
+    public init(_ resolution: ReferenceQuadrotorParameterResolution) {
+        self.init(
+            parameters: resolution.parameters,
+            embodiment: resolution.embodiment,
+            source: Source(resolution.source),
+            robotID: resolution.robotID
+        )
+    }
+}
+
+private extension SimulationParameterResolution.Source {
+    init(_ source: ReferenceQuadrotorParameterResolutionSource) {
+        switch source {
+        case .referenceBaseline:
+            self = .referenceBaseline
+        case .robotManifest:
+            self = .robotManifest
+        case .override:
+            self = .override
+        }
     }
 }

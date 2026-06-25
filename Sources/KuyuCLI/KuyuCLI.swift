@@ -4856,16 +4856,7 @@ private func learningCampaignRolloutTask(from task: RolloutTaskChoice) -> Learni
 }
 
 func loadParameters(modelPath: String) throws -> ReferenceQuadrotorParameters {
-    let trimmed = modelPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return .baseline }
-
-    let loader = KuyuModelLoader()
-    let embodiment = try loader.loadRobot(path: trimmed)
-    let inertial = try loader.loadPlantInertialProperties(robot: embodiment)
-    return try ReferenceQuadrotorParameters.reference(
-        from: inertial,
-        robotID: embodiment.manifest.robotID
-    )
+    try ReferenceQuadrotorParameterResolutionService().parameters(modelPath: modelPath) ?? .baseline
 }
 
 func loadEmbodiment(modelPath: String) throws -> EmbodimentContract? {
@@ -5049,29 +5040,18 @@ private func makeRolloutParameters(
     loadedRobot: LoadedKuyuRobot? = nil,
     hoverThrustScale: Double = 1.0
 ) throws -> ReferenceQuadrotorParameters {
-    guard hoverThrustScale.isFinite, hoverThrustScale > 0 else {
+    let taskMode = simulationTaskMode(from: task)
+    do {
+        return try ReferenceQuadrotorParameterResolutionService().parameters(
+            taskMode: taskMode,
+            hoverThrustScale: hoverThrustScale,
+            loadedRobot: loadedRobot
+        )
+    } catch ReferenceQuadrotorParameterResolutionError.invalidHoverScale {
         throw ValidationError("--hover-scale must be finite and greater than 0.")
+    } catch {
+        throw error
     }
-
-    if let loadedRobot {
-        let loader = KuyuModelLoader()
-        let inertial = try loader.loadPlantInertialProperties(robot: loadedRobot)
-        let parameters = try ReferenceQuadrotorParameters.reference(
-            from: inertial,
-            robotID: loadedRobot.manifest.robotID
-        )
-        guard task == .singleLift else { return parameters }
-        return try KuyuSingleLiftParameterTuning.tuned(
-            parameters: parameters,
-            hoverThrustScale: hoverThrustScale
-        )
-    }
-
-    guard task == .singleLift else { return .baseline }
-    return try KuyuSingleLiftParameterTuning.tuned(
-        parameters: .baseline,
-        hoverThrustScale: hoverThrustScale
-    )
 }
 
 private func rolloutDefinitionKey(scenarioId: String, seed: UInt64) -> String {
