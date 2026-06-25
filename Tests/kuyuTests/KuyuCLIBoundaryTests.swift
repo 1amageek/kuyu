@@ -241,6 +241,24 @@ import Testing
     #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.baseline"))
 }
 
+@Test func roArmM1TrainingCommandDelegatesPipelineToProfileOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/RoArmM1JointTargetTraining.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("RoArmM1ArmGripperTrainingPipelineService("))
+    #expect(source.contains("RoArmM1ArmGripperTrainingPipelineService.Request("))
+    #expect(source.contains("RoArmM1ArmGripperTrainingPipelineService.ManasTrainingConfig("))
+    #expect(!source.contains("KuyuModelLoader().loadRobot"))
+    #expect(!source.contains("RoArmM1JointTargetTrainingGoal.canonical.robotManifestID"))
+    #expect(!source.contains("ArticulatedRigidBodySimulationRequest("))
+    #expect(!source.contains("ArticulatedRigidBodySimulator().run"))
+    #expect(!source.contains("RoArmM1JointTargetTrainingDatasetBuilder"))
+    #expect(!source.contains("result.report.passed"))
+}
+
 @Test func uiAdaptersDelegateStarterCheckpointContractToReferenceOwnerService() throws {
     let viewModelSource = try String(
         contentsOf: kuyuPackageRoot()

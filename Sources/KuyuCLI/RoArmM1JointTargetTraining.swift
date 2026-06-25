@@ -1,9 +1,6 @@
 import ArgumentParser
 import Foundation
-import KuyuCore
 import KuyuMLX
-import KuyuPhysics
-import KuyuTraining
 
 struct TrainRoArmM1JointTargets: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -46,65 +43,7 @@ struct TrainRoArmM1JointTargets: AsyncParsableCommand {
 
     @MainActor
     func run() async throws {
-        let loaded = try KuyuModelLoader().loadRobot(path: model)
-        guard loaded.manifest.robotID == RoArmM1JointTargetTrainingGoal.canonical.robotManifestID else {
-            throw ValidationError("Expected roarm-m1-v0 robot manifest, got \(loaded.manifest.robotID).")
-        }
-        guard duration.isFinite, duration > 0 else {
-            throw ValidationError("--duration must be a positive finite number.")
-        }
-        if !skipManas {
-            guard manasSequenceLength > 0 else {
-                throw ValidationError("--manas-sequence must be greater than 0.")
-            }
-            guard manasEpochs > 0 else {
-                throw ValidationError("--manas-epochs must be greater than 0.")
-            }
-            guard manasLearningRate.isFinite, manasLearningRate > 0 else {
-                throw ValidationError("--manas-lr must be a positive finite number.")
-            }
-            guard manasMaxBatches > 0 else {
-                throw ValidationError("--manas-max-batches must be greater than 0.")
-            }
-        }
-
-        let request = ArticulatedRigidBodySimulationRequest(
-            body: loaded.body,
-            world: loaded.world,
-            embodiment: loaded.embodiment,
-            compatibilityReport: loaded.compatibilityReport,
-            determinism: .tier0Strict,
-            readinessLevel: RoArmM1JointTargetTrainingGoal.canonical.requiredReadinessLevel,
-            duration: duration,
-            timeStep: try TimeStep(delta: loaded.world.time.fixedStepSeconds),
-            seed: ScenarioSeed(seed)
-        )
-        let log = try await ArticulatedRigidBodySimulator().run(request: request)
-        let builder = RoArmM1JointTargetTrainingDatasetBuilder(
-            config: RoArmM1JointTargetTrainingDatasetBuilderConfig(
-                includeHindsightRelabels: !noHindsight
-            )
-        )
-        let result = try builder.build(from: log)
         let outputURL = URL(fileURLWithPath: output, isDirectory: true)
-        try builder.write(result: result, to: outputURL)
-
-        print("[roarm-m1-training] goal=\(result.report.goal.goalID)")
-        print("[roarm-m1-training] status=\(result.report.status.rawValue)")
-        print("[roarm-m1-training] records=\(result.report.recordCount) source=\(result.report.sourceRecordCount) hindsight=\(result.report.hindsightRecordCount)")
-        print("[roarm-m1-training] meanAbsErrorRad=\(format(result.report.meanAbsoluteErrorRadians)) maxAbsErrorRad=\(format(result.report.maximumAbsoluteErrorRadians))")
-        print("[roarm-m1-training] movementRad=\(format(result.report.movementMagnitudeRadians)) limitViolations=\(result.report.jointLimitViolationCount)")
-        print("[roarm-m1-training] output=\(outputURL.path)")
-
-        guard result.report.passed else {
-            throw ExitCode.failure
-        }
-
-        guard !skipManas else {
-            print("[roarm-m1-training] manas=skipped")
-            return
-        }
-
         let checkpointURL = URL(
             fileURLWithPath: checkpointOutput ?? outputURL
                 .appendingPathComponent("manas", isDirectory: true)
@@ -112,20 +51,45 @@ struct TrainRoArmM1JointTargets: AsyncParsableCommand {
                 .path,
             isDirectory: true
         )
-        let manasResult = try await RoArmM1ArmGripperManasTrainer().train(
-            request: RoArmM1ArmGripperManasTrainingRequest(
-                datasetURL: outputURL.appendingPathComponent("dataset", isDirectory: true),
-                checkpointURL: checkpointURL,
-                embodiment: loaded.embodiment,
-                sequenceLength: manasSequenceLength,
-                epochs: manasEpochs,
-                learningRate: manasLearningRate,
-                maxBatches: manasMaxBatches,
-                useQualityGating: false,
-                closedLoopSimulationRequest: request,
-                useClosedLoopSineTarget: true
-            )
+        let manasTraining = skipManas ? nil : RoArmM1ArmGripperTrainingPipelineService.ManasTrainingConfig(
+            checkpointURL: checkpointURL,
+            sequenceLength: manasSequenceLength,
+            epochs: manasEpochs,
+            learningRate: manasLearningRate,
+            maxBatches: manasMaxBatches
         )
+        let manasTrainingOperation: RoArmM1ArmGripperTrainingPipelineService.ManasTrainingOperation?
+        if skipManas {
+            manasTrainingOperation = nil
+        } else {
+            manasTrainingOperation = { request in
+                try await RoArmM1ArmGripperManasTrainer().train(request: request)
+            }
+        }
+        let service = RoArmM1ArmGripperTrainingPipelineService(
+            manasTrainingOperation: manasTrainingOperation
+        )
+        let pipelineResult = try await service.run(request: RoArmM1ArmGripperTrainingPipelineService.Request(
+            modelPath: model,
+            outputURL: outputURL,
+            duration: duration,
+            seed: seed,
+            includeHindsightRelabels: !noHindsight,
+            manasTraining: manasTraining
+        ))
+        let result = pipelineResult.datasetResult
+
+        print("[roarm-m1-training] goal=\(result.report.goal.goalID)")
+        print("[roarm-m1-training] status=\(result.report.status.rawValue)")
+        print("[roarm-m1-training] records=\(result.report.recordCount) source=\(result.report.sourceRecordCount) hindsight=\(result.report.hindsightRecordCount)")
+        print("[roarm-m1-training] meanAbsErrorRad=\(format(result.report.meanAbsoluteErrorRadians)) maxAbsErrorRad=\(format(result.report.maximumAbsoluteErrorRadians))")
+        print("[roarm-m1-training] movementRad=\(format(result.report.movementMagnitudeRadians)) limitViolations=\(result.report.jointLimitViolationCount)")
+        print("[roarm-m1-training] output=\(pipelineResult.outputURL.path)")
+
+        guard let manasResult = pipelineResult.manasResult else {
+            print("[roarm-m1-training] manas=skipped")
+            return
+        }
 
         print("[roarm-m1-training] manasCheckpoint=\(manasResult.checkpointURL.path)")
         print("[roarm-m1-training] manasBundle=\(manasResult.bundleManifest.bundleID)")
