@@ -47,6 +47,7 @@ let package = Package(
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),
                 .product(name: "KuyuMLX", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Configuration", package: "swift-configuration"),
             ],

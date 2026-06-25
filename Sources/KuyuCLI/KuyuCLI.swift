@@ -533,7 +533,7 @@ struct Loop: AsyncParsableCommand {
             backend: ManasMLXTrainingBackend(
                 runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
                 saveDirectory: checkpointDirectory,
-                rolloutDatasetLoader: .referenceQuadrotor()
+                rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
             ),
             convergenceEvaluator: ConvergenceEvaluator(config: .init(minDelta: 0.01))
         )
@@ -791,7 +791,7 @@ struct ProbeManas: AsyncParsableCommand {
             saveDirectory: artifactRoot
                 .appendingPathComponent("training", isDirectory: true)
                 .appendingPathComponent("candidate-checkpoints", isDirectory: true),
-            rolloutDatasetLoader: .referenceQuadrotor()
+            rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
         )
         let probe = TrainingProbeOrchestrator(
             scenarioExecutor: CLITrainingProbeExecutor(
@@ -987,7 +987,7 @@ struct ProbeCTBRPPOBackend: AsyncParsableCommand {
         let backend = await ManasMLXTrainingBackend(
             runtime: ManasMLXTrainingRuntime(modelStore: ManasMLXModelStore()),
             saveDirectory: checkpointRoot,
-            rolloutDatasetLoader: .referenceQuadrotor()
+            rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
         )
         let result = try await backend.trainReinforcement(
             request: ReinforcementTrainingBackendRequest(
@@ -1100,7 +1100,7 @@ struct BehaviorCloneCTBR: ParsableCommand {
             throw ValidationError("--actor-lr must be > 0.")
         }
         let result = try ManasMLXTemporalReinforcementWarmupService(
-            rolloutDatasetLoader: .referenceQuadrotor()
+            rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
         ).behaviorClone(
             sourceCheckpointURL: URL(fileURLWithPath: trimmedSource, isDirectory: true),
             rolloutDatasetURL: URL(fileURLWithPath: trimmedDataset, isDirectory: true),
@@ -3495,7 +3495,7 @@ private func runCLIManasProbe(
         saveDirectory: artifactRoot
             .appendingPathComponent("training", isDirectory: true)
             .appendingPathComponent("candidate-checkpoints", isDirectory: true),
-        rolloutDatasetLoader: .referenceQuadrotor()
+        rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
     )
     let probe = TrainingProbeOrchestrator(
         scenarioExecutor: CLITrainingProbeExecutor(

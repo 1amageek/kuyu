@@ -3,6 +3,7 @@ import Foundation
 import KuyuCore
 import KuyuMLX
 import KuyuMLXCore
+import KuyuMLXReferenceQuadrotor
 import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
@@ -156,7 +157,7 @@ struct Train: AsyncParsableCommand {
             backend: ManasMLXTrainingBackend(
                 runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
                 saveDirectory: checkpointDirectory,
-                rolloutDatasetLoader: .referenceQuadrotor()
+                rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
             ),
             convergenceEvaluator: ConvergenceEvaluator(config: .init(minDelta: 0.01))
         )

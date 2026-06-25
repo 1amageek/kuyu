@@ -1,6 +1,7 @@
 import Foundation
 import KuyuCore
 import KuyuMLX
+import KuyuMLXReferenceQuadrotor
 import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
@@ -232,7 +233,7 @@ extension CommandSystem: TrainingLoopCommandExecuting {
         onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
     ) async throws -> TrainingRunResult {
         let backendBundle = try ManasMLXTrainingBackendFactory(
-            rolloutDatasetLoader: .referenceQuadrotor()
+            rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
         ).makeWorkerLocalBackend(
             activeStore: modelStore,
             runID: config.runID,
