@@ -3,6 +3,7 @@ import Foundation
 import KuyuCore
 import KuyuMLX
 import KuyuPhysics
+import KuyuMLXReferenceQuadrotor
 import KuyuScenarios
 import KuyuTraining
 import KuyuUI
@@ -4821,14 +4822,7 @@ struct Verify: AsyncParsableCommand {
 }
 
 func makeDeterminism(tier: TierChoice) throws -> DeterminismConfig {
-    switch tier {
-    case .tier0:
-        return try DeterminismConfig(tier: .tier0)
-    case .tier1:
-        return try DeterminismConfig(tier: .tier1, tier1Tolerance: .baseline)
-    case .tier2:
-        return try DeterminismConfig(tier: .tier2)
-    }
+    try learningCampaignTier(from: tier).referenceQuadrotorDeterminismConfig()
 }
 
 private func learningCampaignTier(from tier: TierChoice) -> LearningCampaignTier {
