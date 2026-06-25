@@ -1,5 +1,6 @@
 import Foundation
 import KuyuTraining
+import ManasCore
 import Testing
 @testable import KuyuMLX
 
@@ -52,9 +53,9 @@ import Testing
 
     for assignment in plan.assignments {
         let checkpointURL = assignment.snapshot.checkpointURL
-        #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("model.json").path))
-        #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("core.safetensors").path))
-        #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent("reflex.safetensors").path))
+        for fileName in ManasMLXCheckpointFileLayout.current.directMotorRequiredFiles {
+            #expect(FileManager.default.fileExists(atPath: checkpointURL.appendingPathComponent(fileName).path))
+        }
         #expect(assignment.rolloutShardURL.lastPathComponent == "worker-\(assignment.workerIndex)")
     }
 }
@@ -72,8 +73,9 @@ import Testing
     }
 
     try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-    try Data("{}".utf8).write(to: source.appendingPathComponent("model.json"), options: [.atomic])
-    try Data("core".utf8).write(to: source.appendingPathComponent("core.safetensors"), options: [.atomic])
+    let layout = ManasMLXCheckpointFileLayout.current
+    try Data("{}".utf8).write(to: source.appendingPathComponent(layout.modelManifestFileName), options: [.atomic])
+    try Data("core".utf8).write(to: source.appendingPathComponent(layout.coreWeightsFileName), options: [.atomic])
 
     let provider = ManasMLXSnapshotProvider(
         sourceCheckpointURL: source,
@@ -84,54 +86,43 @@ import Testing
         _ = try await provider.leaseSnapshot(workerIndex: 0)
         Issue.record("Expected incomplete checkpoint to be rejected")
     } catch let error as ManasMLXSnapshotProvider.SnapshotError {
-        #expect(error == .missingRequiredFile(source.appendingPathComponent("reflex.safetensors")))
+        #expect(error == .missingRequiredFile(source.appendingPathComponent(layout.reflexWeightsFileName)))
     }
 }
 
 private func makeCheckpoint(at directory: URL) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    try Data("{}".utf8).write(to: directory.appendingPathComponent("model.json"), options: [.atomic])
-    try Data("core".utf8).write(to: directory.appendingPathComponent("core.safetensors"), options: [.atomic])
-    try Data("reflex".utf8).write(to: directory.appendingPathComponent("reflex.safetensors"), options: [.atomic])
-    try Data(SelfContainedBundleManifest.fixtureJSON.utf8).write(
-        to: directory.appendingPathComponent("manas-bundle.json"),
-        options: [.atomic]
-    )
-}
+    let layout = ManasMLXCheckpointFileLayout.current
+    try Data("{}".utf8).write(to: directory.appendingPathComponent(layout.modelManifestFileName), options: [.atomic])
+    try Data("core".utf8).write(to: directory.appendingPathComponent(layout.coreWeightsFileName), options: [.atomic])
+    try Data("reflex".utf8).write(to: directory.appendingPathComponent(layout.reflexWeightsFileName), options: [.atomic])
 
-private enum SelfContainedBundleManifest {
-    static let fixtureJSON = """
-    {
-      "bundleID" : "fixture",
-      "components" : [
-        {
-          "contentType" : "application/json",
-          "path" : "model.json",
-          "required" : true,
-          "role" : "modelConfig"
-        },
-        {
-          "contentType" : "application/vnd.safetensors",
-          "path" : "core.safetensors",
-          "required" : true,
-          "role" : "coreWeights"
-        },
-        {
-          "contentType" : "application/vnd.safetensors",
-          "path" : "reflex.safetensors",
-          "required" : true,
-          "role" : "reflexWeights"
-        }
-      ],
-      "createdAt" : "1970-01-01T00:00:00Z",
-      "modelFamily" : "manas",
-      "runtimeContract" : {
-        "configHash" : "config",
-        "embodimentHash" : "embodiment",
-        "driveSemanticsID" : "drive",
-        "observationSchemaID" : "observation"
-      },
-      "schemaVersion" : 1
-    }
-    """
+    let manifest = ManasModelBundleManifest(
+        bundleID: "fixture",
+        createdAt: Date(timeIntervalSince1970: 0),
+        runtimeContract: ManasModelBundleRuntimeContract(
+            embodimentHash: "embodiment",
+            configHash: "config",
+            observationSchemaID: "trunk-vector",
+            driveSemanticsID: "drive-intent"
+        ),
+        components: [
+            ManasModelBundleComponent(
+                role: .modelConfig,
+                path: layout.modelManifestFileName,
+                contentType: "application/json"
+            ),
+            ManasModelBundleComponent(
+                role: .coreWeights,
+                path: layout.coreWeightsFileName,
+                contentType: "application/vnd.safetensors"
+            ),
+            ManasModelBundleComponent(
+                role: .reflexWeights,
+                path: layout.reflexWeightsFileName,
+                contentType: "application/vnd.safetensors"
+            ),
+        ]
+    )
+    try ManasModelBundleWriter().write(manifest, to: directory)
 }

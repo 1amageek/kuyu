@@ -41,19 +41,21 @@ import Testing
         lastTrainedAt: nil,
         writeCoreWeights: true
     )
-    try Data("reflex".utf8).write(to: directory.appendingPathComponent("reflex.safetensors"), options: .atomic)
-    try Data("bundle".utf8).write(to: directory.appendingPathComponent("manas-bundle.json"), options: .atomic)
+    let layout = ManasMLXCheckpointFileLayout.current
+    try Data("reflex".utf8).write(
+        to: directory.appendingPathComponent(layout.reflexWeightsFileName),
+        options: .atomic
+    )
+    try Data("bundle".utf8).write(
+        to: directory.appendingPathComponent(layout.bundleManifestFileName),
+        options: .atomic
+    )
 
     let removed = store.removeArtifacts(at: directory)
 
-    #expect(removed.map { $0.url.lastPathComponent } == [
-        "core.safetensors",
-        "reflex.safetensors",
-        "model.json",
-        "manas-bundle.json",
-    ])
+    #expect(removed.map { $0.url.lastPathComponent } == layout.removableArtifactFileNames)
     #expect(removed.allSatisfy { $0.errorDescription == nil })
-    for fileName in ["core.safetensors", "reflex.safetensors", "model.json", "manas-bundle.json"] {
+    for fileName in layout.removableArtifactFileNames {
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(fileName).path))
     }
 }
@@ -83,9 +85,16 @@ private func writeModelCheckpoint(
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     encoder.dateEncodingStrategy = .iso8601
-    try encoder.encode(manifest).write(to: directory.appendingPathComponent("model.json"), options: .atomic)
+    let layout = ManasMLXCheckpointFileLayout.current
+    try encoder.encode(manifest).write(
+        to: directory.appendingPathComponent(layout.modelManifestFileName),
+        options: .atomic
+    )
     if writeCoreWeights {
-        try Data("core".utf8).write(to: directory.appendingPathComponent("core.safetensors"), options: .atomic)
+        try Data("core".utf8).write(
+            to: directory.appendingPathComponent(layout.coreWeightsFileName),
+            options: .atomic
+        )
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLX
 import KuyuTraining
 import KuyuUI
 import Testing
@@ -17,10 +18,7 @@ import Testing
         actionEncoding: .directMotor
     )) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
-        for fileName in ["model.json", "core.safetensors", "reflex.safetensors", "manas-bundle.json"] {
-            let url = checkpoint.appendingPathComponent(fileName)
-            try Data(fileName.utf8).write(to: url, options: .atomic)
-        }
+        try writeCheckpointFiles(at: checkpoint, policyContract: directMotorPolicy())
     }
 
     #expect(project.projectRoot == root)
@@ -39,13 +37,12 @@ import Testing
     )
 
     #expect(throws: LearningStarterProjectStoreError.self) {
-        _ = try store.prepareStarterProject(policyContract: .simpleFeedForward(
-            observationDimension: 8,
-            actionDimension: 1,
-            actionEncoding: .directMotor
-        )) { checkpoint in
+        let policy = directMotorPolicy()
+        _ = try store.prepareStarterProject(policyContract: policy) { checkpoint in
             try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
-            let url = checkpoint.appendingPathComponent("model.json")
+            let url = checkpoint.appendingPathComponent(
+                ManasMLXCheckpointFileLayout.current.requiredFiles(policyContract: policy)[0]
+            )
             try Data("{}".utf8).write(to: url, options: .atomic)
         }
     }
@@ -66,14 +63,14 @@ import Testing
 
     let project = try store.prepareStarterProject(policyContract: policy) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
-        for fileName in ["model.json", "core.safetensors", "manas-bundle.json"] {
-            try Data(fileName.utf8).write(to: checkpoint.appendingPathComponent(fileName), options: .atomic)
-        }
+        try writeCheckpointFiles(at: checkpoint, policyContract: policy)
     }
 
     #expect(store.checkpointIsComplete(at: project.sourceCheckpoint, policyContract: policy))
     #expect(!FileManager.default.fileExists(
-        atPath: project.sourceCheckpoint.appendingPathComponent("reflex.safetensors").path
+        atPath: project.sourceCheckpoint
+            .appendingPathComponent(ManasMLXCheckpointFileLayout.current.reflexWeightsFileName)
+            .path
     ))
 }
 
@@ -109,10 +106,7 @@ import Testing
 
     _ = try store.prepareStarterProject(policyContract: directMotorPolicy) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
-        for fileName in ["model.json", "core.safetensors", "reflex.safetensors", "manas-bundle.json"] {
-            let url = checkpoint.appendingPathComponent(fileName)
-            try Data("first-\(fileName)".utf8).write(to: url, options: .atomic)
-        }
+        try writeCheckpointFiles(at: checkpoint, policyContract: directMotorPolicy, prefix: "first-")
     }
 
     let project = try store.prepareStarterProject(
@@ -120,14 +114,15 @@ import Testing
         policyContract: directMotorPolicy
     ) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
-        for fileName in ["model.json", "core.safetensors", "reflex.safetensors", "manas-bundle.json"] {
-            let url = checkpoint.appendingPathComponent(fileName)
-            try Data("second-\(fileName)".utf8).write(to: url, options: .atomic)
-        }
+        try writeCheckpointFiles(at: checkpoint, policyContract: directMotorPolicy, prefix: "second-")
     }
 
-    let model = try String(contentsOf: project.sourceCheckpoint.appendingPathComponent("model.json"), encoding: .utf8)
-    #expect(model == "second-model.json")
+    let modelFileName = ManasMLXCheckpointFileLayout.current.modelManifestFileName
+    let model = try String(
+        contentsOf: project.sourceCheckpoint.appendingPathComponent(modelFileName),
+        encoding: .utf8
+    )
+    #expect(model == "second-\(modelFileName)")
 }
 
 @Test func learningStarterProjectStoreDetectsReusableArtifactRoots() throws {
@@ -152,4 +147,23 @@ import Testing
     #expect(try store.artifactRootIsReusable(empty))
     #expect(try !store.artifactRootIsReusable(used))
     #expect(try !store.artifactRootIsReusable(file))
+}
+
+private func directMotorPolicy() -> LearningProjectPolicyContract {
+    .simpleFeedForward(
+        observationDimension: 8,
+        actionDimension: 1,
+        actionEncoding: .directMotor
+    )
+}
+
+private func writeCheckpointFiles(
+    at checkpoint: URL,
+    policyContract: LearningProjectPolicyContract,
+    prefix: String = ""
+) throws {
+    for fileName in ManasMLXCheckpointFileLayout.current.requiredFiles(policyContract: policyContract) {
+        let url = checkpoint.appendingPathComponent(fileName)
+        try Data("\(prefix)\(fileName)".utf8).write(to: url, options: .atomic)
+    }
 }
