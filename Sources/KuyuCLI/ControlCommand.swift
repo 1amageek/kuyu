@@ -51,28 +51,17 @@ struct Control: AsyncParsableCommand {
         let runDirectory = try resolveTrainingRunDirectory(runID: runID, runRoot: runRoot)
         let reader = TrainingRunArchiveReader(runDirectory: runDirectory)
 
-        // A command to a run that can never apply it is operator error, not
-        // a queued request — fail it up front with the actual run state.
-        let liveness = try reader.liveness()
-        switch liveness {
-        case .finished(let status):
-            throw ValidationError("Run \(runID) already finished (\(status.rawValue)); \(action.rawValue) cannot be applied.")
-        case .interrupted:
-            throw ValidationError("Run \(runID) is interrupted (writer process is dead); \(action.rawValue) would never be applied.")
-        case .paused(let processAlive) where !processAlive:
-            throw ValidationError("Run \(runID) is paused but its writer process is dead; \(action.rawValue) would never be applied.")
-        case .live, .paused:
-            break
+        let submission: TrainingRunControlSubmission
+        do {
+            submission = try TrainingRunControlSubmissionService().submit(
+                reader: reader,
+                action: action.contractAction,
+                requestedBy: "kuyu-cli"
+            )
+        } catch let error as TrainingRunControlSubmissionError {
+            throw ValidationError(error.description)
         }
-
-        let sequence = ((try reader.latestControlSequence()) ?? 0) + 1
-        let command = TrainingRunControlCommand(
-            sequence: sequence,
-            action: action.contractAction,
-            requestedAt: Date(),
-            requestedBy: "kuyu-cli"
-        )
-        try reader.submitControlCommand(command)
+        let sequence = submission.command.sequence
         print("[control] submitted \(action.rawValue) sequence=\(sequence) run=\(runID)")
 
         guard wait else {

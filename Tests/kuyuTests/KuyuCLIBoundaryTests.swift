@@ -85,6 +85,21 @@ import Testing
     #expect(!source.contains("A1ConformanceReport("))
 }
 
+@Test func controlCommandDelegatesSubmissionPolicyToTrainingRunService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/ControlCommand.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("TrainingRunControlSubmissionService().submit"))
+    #expect(!source.contains("reader.liveness()"))
+    #expect(!source.contains("reader.latestControlSequence()"))
+    #expect(!source.contains("reader.submitControlCommand"))
+    #expect(!source.contains("case .finished"))
+    #expect(!source.contains("case .interrupted"))
+}
+
 private func kuyuPackageRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
