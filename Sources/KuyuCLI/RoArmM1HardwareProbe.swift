@@ -1,7 +1,6 @@
 import ArgumentParser
 import Darwin
 import Foundation
-import KuyuCore
 import KuyuMLX
 import KuyuPhysics
 
@@ -49,24 +48,24 @@ struct ProbeRoArmM1: ParsableCommand {
 
     func run() throws {
         let loaded = try KuyuModelLoader().loadRobot(path: model)
-        let embodiment = loaded.embodiment
-        let readiness = try hardwareProbeReadiness(for: loaded)
-        let encoderJointLimits = readiness.activeJointLimits
-        let jointTargets = try parseJointTargets(joints, expectedCount: encoderJointLimits.count)
+        let jointTargets = try parseJointTargets(joints)
+        let probeService = RoArmM1HardwareProbeCommandService()
 
         if let calibrationReportPath {
             try validateCalibrationReport(path: calibrationReportPath, loaded: loaded)
         }
 
         if let calibrationPlanOutput {
-            let plan = try RoArmM1HardwareCalibrationPlanBuilder().build(
-                robot: loaded,
-                jointLimits: encoderJointLimits,
-                speed: speed,
-                acceleration: acceleration,
-                amplitudeRadians: calibrationAmplitude,
-                holdSeconds: calibrationHoldSeconds,
-                repetitions: calibrationRepetitions
+            let plan = try probeService.makeCalibrationPlan(
+                request: RoArmM1HardwareCalibrationPlanRequest(
+                    robot: loaded,
+                    speed: speed,
+                    acceleration: acceleration,
+                    useModelLimits: useModelLimits,
+                    amplitudeRadians: calibrationAmplitude,
+                    holdSeconds: calibrationHoldSeconds,
+                    repetitions: calibrationRepetitions
+                )
             )
             try writeJSON(plan, to: calibrationPlanOutput)
             print("[roarm-m1] calibrationPlan=\(calibrationPlanOutput)")
@@ -75,35 +74,21 @@ struct ProbeRoArmM1: ParsableCommand {
             return
         }
 
-        try validateTargets(jointTargets, against: encoderJointLimits, field: "--joints")
-
-        var motorNerve = try MotorNerveChain(contract: embodiment)
-        let drives = try jointTargets.enumerated().map { index, value in
-            try DriveIntent(index: DriveIndex(UInt32(index)), activation: value)
-        }
-        let actuators = try motorNerve.update(
-            input: drives,
-            corrections: [],
-            telemetry: MotorNerveTelemetry(actuatorTelemetry: ActuatorTelemetrySnapshot(channels: [])),
-            time: try WorldTime(stepIndex: 0, time: 0.0)
+        let command = try probeService.makeCommand(
+            request: RoArmM1HardwareProbeCommandRequest(
+                robot: loaded,
+                jointTargets: jointTargets,
+                speed: speed,
+                acceleration: acceleration,
+                useModelLimits: useModelLimits
+            )
         )
 
-        let encoder = try RoArmM1ServoCommandEncoder(
-            jointLimits: encoderJointLimits,
-            speed: speed,
-            acceleration: acceleration
-        )
-        let command = try encoder.command(forActuatorValues: actuators)
-        let data = try encoder.commandData(forActuatorValues: actuators)
-        guard let payload = String(data: data, encoding: .utf8) else {
-            throw ValidationError("Generated command payload is not UTF-8.")
-        }
-
-        print("[roarm-m1] robot=\(loaded.manifest.robotID)")
-        print("[roarm-m1] joints=\(format(jointTargets))")
-        print("[roarm-m1] actuatorValues=\(format(actuators.map { $0.value }))")
-        print("[roarm-m1] pulses=\(command.positions)")
-        print("[roarm-m1] payload=\(payload)")
+        print("[roarm-m1] robot=\(command.readiness.robotID)")
+        print("[roarm-m1] joints=\(format(command.jointTargets))")
+        print("[roarm-m1] actuatorValues=\(format(command.actuatorValues))")
+        print("[roarm-m1] pulses=\(command.pulses)")
+        print("[roarm-m1] payload=\(command.payload)")
 
         guard enableMotion else {
             print("[roarm-m1] motion=disabled; pass --enable-motion --device <path> to write serial bytes")
@@ -114,27 +99,13 @@ struct ProbeRoArmM1: ParsableCommand {
         guard !trimmedDevice.isEmpty else {
             throw ValidationError("--device is required when --enable-motion is present.")
         }
-        try RoArmM1SerialWriter.write(data: data, to: trimmedDevice)
-        print("[roarm-m1] motion=sent device=\(trimmedDevice) bytes=\(data.count)")
+        try RoArmM1SerialWriter.write(data: command.payloadData, to: trimmedDevice)
+        print("[roarm-m1] motion=sent device=\(trimmedDevice) bytes=\(command.payloadData.count)")
     }
 
-    private func hardwareProbeReadiness(for loaded: LoadedKuyuRobot) throws -> RoArmM1HardwareProbeReadiness {
-        do {
-            return try RoArmM1HardwareProbeReadinessService().validate(
-                robot: loaded,
-                useModelLimits: useModelLimits
-            )
-        } catch {
-            throw ValidationError("RoARM M1 hardware probe readiness failed: \(error)")
-        }
-    }
-
-    private func parseJointTargets(_ raw: String, expectedCount: Int) throws -> [Double] {
+    private func parseJointTargets(_ raw: String) throws -> [Double] {
         let parts = raw.split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard parts.count == expectedCount else {
-            throw ValidationError("--joints must contain exactly \(expectedCount) comma-separated finite numbers.")
-        }
 
         var values: [Double] = []
         values.reserveCapacity(parts.count)
@@ -145,20 +116,6 @@ struct ProbeRoArmM1: ParsableCommand {
             values.append(value)
         }
         return values
-    }
-
-    private func validateTargets(_ targets: [Double], against limits: [ClosedRange<Double>], field: String) throws {
-        guard limits.count == targets.count else {
-            throw ValidationError("\(field) count does not match the RoARM M1 joint limit count.")
-        }
-        for (index, target) in targets.enumerated() {
-            let limit = limits[index]
-            guard limit.contains(target) else {
-                throw ValidationError(
-                    "\(field)[\(index)] \(target) exceeds active probe range [\(limit.lowerBound), \(limit.upperBound)]."
-                )
-            }
-        }
     }
 
     private func validateCalibrationReport(path: String, loaded: LoadedKuyuRobot) throws {

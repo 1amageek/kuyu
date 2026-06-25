@@ -259,6 +259,26 @@ import Testing
     #expect(!source.contains("result.report.passed"))
 }
 
+@Test func roArmM1HardwareProbeDelegatesCommandShapingToProfileOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/RoArmM1HardwareProbe.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("RoArmM1HardwareProbeCommandService()"))
+    #expect(source.contains("RoArmM1HardwareProbeCommandRequest("))
+    #expect(source.contains("RoArmM1HardwareCalibrationPlanRequest("))
+    #expect(source.contains("RoArmM1HardwareParityReadinessService().validateReport"))
+    #expect(!source.contains("RoArmM1HardwareProbeReadinessService().validate"))
+    #expect(!source.contains("RoArmM1HardwareCalibrationPlanBuilder().build"))
+    #expect(!source.contains("MotorNerveChain("))
+    #expect(!source.contains("DriveIntent("))
+    #expect(!source.contains("RoArmM1ServoCommandEncoder("))
+    #expect(!source.contains("validateTargets"))
+    #expect(!source.contains("activeJointLimits"))
+}
+
 @Test func uiAdaptersDelegateStarterCheckpointContractToReferenceOwnerService() throws {
     let viewModelSource = try String(
         contentsOf: kuyuPackageRoot()
