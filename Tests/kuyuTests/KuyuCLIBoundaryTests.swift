@@ -204,6 +204,11 @@ import Testing
             .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
         encoding: .utf8
     )
+    let conformanceSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/ConformanceCommand.swift", isDirectory: false),
+        encoding: .utf8
+    )
     let runnerServiceSource = try String(
         contentsOf: kuyuPackageRoot()
             .appendingPathComponent("Sources/KuyuUI/Services/SimulationRunnerService.swift", isDirectory: false),
@@ -217,15 +222,23 @@ import Testing
 
     #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters(modelPath: modelPath)"))
     #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
+    #expect(conformanceSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionService()"))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionRequest("))
     #expect(viewModelSource.contains("ReferenceQuadrotorParameterResolutionService().parameters(modelPath: trimmed)"))
+    #expect(viewModelSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
     #expect(!cliSource.contains("KuyuSingleLiftParameterTuning.tuned"))
+    #expect(!conformanceSource.contains("KuyuSingleLiftParameterTuning.tuned"))
     #expect(!runnerServiceSource.contains("KuyuSingleLiftParameterTuning.tuned"))
     #expect(!viewModelSource.contains("KuyuSingleLiftParameterTuning.tuned"))
     #expect(!cliSource.contains("ReferenceQuadrotorParameters.reference("))
+    #expect(!conformanceSource.contains("ReferenceQuadrotorParameters.reference("))
     #expect(!runnerServiceSource.contains("ReferenceQuadrotorParameters.reference("))
     #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.reference("))
+    #expect(!cliSource.contains("ReferenceQuadrotorParameters.baseline"))
+    #expect(!conformanceSource.contains("ReferenceQuadrotorParameters.baseline"))
+    #expect(!runnerServiceSource.contains("ReferenceQuadrotorParameters.baseline"))
+    #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.baseline"))
 }
 
 @Test func uiAdaptersDelegateStarterCheckpointContractToReferenceOwnerService() throws {

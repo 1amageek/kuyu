@@ -4033,7 +4033,15 @@ public final class SimulationViewModel {
         if let parameters = activeParameters {
             return max(parameters.maxThrust, 1.0)
         }
-        return max(ReferenceQuadrotorParameters.baseline.maxThrust, 1.0)
+        do {
+            let parameters = try ReferenceQuadrotorParameterResolutionService().parameters(
+                taskMode: taskMode,
+                hoverThrustScale: hoverThrustScale
+            )
+            return max(parameters.maxThrust, 1.0)
+        } catch {
+            return 1.0
+        }
     }
 
     private func normalizedClosedRange(min minValue: Double, max maxValue: Double, fallbackUpper: Double) -> ClosedRange<Double> {

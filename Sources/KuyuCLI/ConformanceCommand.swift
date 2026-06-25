@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import KuyuCore
+import KuyuMLX
 import KuyuPhysics
 import KuyuScenarios
 
@@ -50,7 +51,10 @@ struct Conformance: AsyncParsableCommand {
         let determinism = try makeDeterminism(tier: tier)
         let schedule = try SimulationSchedule.baseline(cutPeriodSteps: 2)
         let gains = try ImuRateDampingCutGains(kp: kp, kd: kd, yawDamping: yawDamping, hoverThrustScale: hoverScale)
-        let parameters = ReferenceQuadrotorParameters.baseline
+        let parameters = try ReferenceQuadrotorParameterResolutionService().parameters(
+            taskMode: .attitude,
+            hoverThrustScale: hoverScale
+        )
 
         let outputRoot = URL(fileURLWithPath: output, isDirectory: true)
         try FileManager.default.createDirectory(at: outputRoot, withIntermediateDirectories: true)
