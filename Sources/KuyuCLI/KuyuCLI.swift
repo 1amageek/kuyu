@@ -4051,7 +4051,7 @@ private final class CLITrainingProbeExecutor: TrainingProbeScenarioExecuting {
         request: SimulationRunRequest,
         to directory: URL,
         includeSuccessfulScenarios: Bool
-    ) async throws -> AttitudeRecoveryRelabelReport? {
+    ) async throws -> RecoveryRelabelReport? {
         return try await ReferenceQuadrotorRecoveryRelabelDatasetService().write(
             ReferenceQuadrotorRecoveryRelabelDatasetRequest(
                 output: output,
