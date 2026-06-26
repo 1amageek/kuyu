@@ -53,14 +53,14 @@ struct TrainingRunStoreState: Sendable, Equatable {
 }
 
 struct TrainingRunStore {
-    private let artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier
+    private let artifactReader: any KuyuUITrainingArtifactReading
 
-    init(artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier = GeneratedTrainingArtifactCompatibilityVerifier()) {
-        self.artifactVerifier = artifactVerifier
+    init(artifactReader: any KuyuUITrainingArtifactReading = KuyuUITrainingArtifactReader()) {
+        self.artifactReader = artifactReader
     }
 
     func load(from artifactDirectory: URL) throws -> TrainingRunStoreState {
-        let bundle = try artifactVerifier.loadRunArtifacts(from: artifactDirectory)
+        let bundle = try artifactReader.loadRunArtifacts(from: artifactDirectory)
         return TrainingRunStoreState(
             artifactDirectory: bundle.artifactDirectory,
             manifest: bundle.manifest,

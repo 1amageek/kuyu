@@ -66,6 +66,41 @@ import Testing
     #expect(readerSource.contains("func requireAcceptedEvolutionCheckpoint"))
 }
 
+@Test func uiTrainingArtifactStoresUseTypedArtifactReader() throws {
+    let root = kuyuPackageRoot()
+    let readerSource = try String(
+        contentsOf: root.appendingPathComponent(
+            "Sources/KuyuUI/Services/KuyuUITrainingArtifactReader.swift",
+            isDirectory: false
+        ),
+        encoding: .utf8
+    )
+    let runStoreSource = try String(
+        contentsOf: root.appendingPathComponent(
+            "Sources/KuyuUI/Services/TrainingRunStore.swift",
+            isDirectory: false
+        ),
+        encoding: .utf8
+    )
+    let campaignStoreSource = try String(
+        contentsOf: root.appendingPathComponent(
+            "Sources/KuyuUI/Services/LearningCampaignRunStore.swift",
+            isDirectory: false
+        ),
+        encoding: .utf8
+    )
+
+    #expect(readerSource.contains("public protocol KuyuUITrainingArtifactReading"))
+    #expect(readerSource.contains("public struct KuyuUITrainingArtifactReader"))
+    #expect(readerSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
+    #expect(runStoreSource.contains("private let artifactReader: any KuyuUITrainingArtifactReading"))
+    #expect(runStoreSource.contains("artifactReader.loadRunArtifacts"))
+    #expect(campaignStoreSource.contains("private let artifactReader: any KuyuUITrainingArtifactReading"))
+    #expect(campaignStoreSource.contains("artifactReader.loadEvolutionArtifacts"))
+    #expect(!runStoreSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
+    #expect(!campaignStoreSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
+}
+
 @Test func trainingHarnessRetryPolicyDelegatesToReferenceOwnerService() throws {
     let cliSource = try String(
         contentsOf: kuyuPackageRoot()

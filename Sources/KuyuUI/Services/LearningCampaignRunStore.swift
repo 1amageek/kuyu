@@ -859,12 +859,12 @@ public struct LearningCampaignRunStoreState: Sendable, Equatable {
 }
 
 public struct LearningCampaignRunStore {
-    private let artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier
+    private let artifactReader: any KuyuUITrainingArtifactReading
 
     public init(
-        artifactVerifier: GeneratedTrainingArtifactCompatibilityVerifier = GeneratedTrainingArtifactCompatibilityVerifier()
+        artifactReader: any KuyuUITrainingArtifactReading = KuyuUITrainingArtifactReader()
     ) {
-        self.artifactVerifier = artifactVerifier
+        self.artifactReader = artifactReader
     }
 
     public func load(from artifactDirectory: URL) throws -> LearningCampaignRunStoreState {
@@ -960,7 +960,7 @@ public struct LearningCampaignRunStore {
     ) throws -> LearningCampaignAcceptedCheckpointState? {
         let decisionURL = evolutionDirectory.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName)
         guard FileManager.default.fileExists(atPath: decisionURL.path) else { return nil }
-        let bundle = try artifactVerifier.loadEvolutionArtifacts(from: evolutionDirectory)
+        let bundle = try artifactReader.loadEvolutionArtifacts(from: evolutionDirectory)
         return LearningCampaignAcceptedCheckpointState(
             seed: seed,
             decision: bundle.acceptedCheckpoint
