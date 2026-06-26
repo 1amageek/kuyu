@@ -188,13 +188,11 @@ struct Conformance: AsyncParsableCommand {
                     ))
                 }
             )
-            return ValidationSummary(
-                suitePassed: output.result.passed,
-                evaluations: output.result.evaluations,
-                replay: output.result.replay,
-                manifest: output.manifest,
-                aggregate: EvaluationAggregate.from(evaluations: output.result.evaluations)
-            )
+            return KuyAtt1RunOutputFactory().makeOutput(
+                result: output.result,
+                logs: output.logs,
+                manifest: output.manifest
+            ).summary
         }
     }
 

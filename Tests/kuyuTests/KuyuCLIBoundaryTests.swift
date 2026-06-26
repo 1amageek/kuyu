@@ -104,8 +104,10 @@ import Testing
     )
 
     #expect(source.contains("A1ConformanceReportFactory().makeReport"))
+    #expect(source.contains("KuyAtt1RunOutputFactory().makeOutput"))
     #expect(!source.contains("private func replayVerified"))
     #expect(!source.contains("let passed = !entries.isEmpty"))
+    #expect(!source.contains("ValidationSummary("))
     #expect(!source.contains("A1ConformanceReport("))
 }
 
