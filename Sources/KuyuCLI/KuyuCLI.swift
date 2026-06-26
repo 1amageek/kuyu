@@ -5236,6 +5236,24 @@ struct ImagineTrain: AsyncParsableCommand {
     @Option(help: "Training epochs.")
     var epochs: Int = 1
 
+    @Option(name: .customLong("fused-evidence-output"), help: "Optional output directory for fused-environment-long-horizon-artifact.json after accepted imagination training.")
+    var fusedEvidenceOutputPath: String?
+
+    @Option(help: "Dataset directory containing meta.json and records.jsonl for fused evidence. Defaults to the world-model manifest datasetPath.")
+    var dataset: String?
+
+    @Option(name: .customLong("dataset-index"), help: "Dataset index when the dataset root contains multiple dataset directories.")
+    var datasetIndex: Int = 0
+
+    @Option(name: .customLong("start-record"), help: "First dataset record index to replay for fused evidence.")
+    var startRecordIndex: Int = 0
+
+    @Option(name: .customLong("fused-horizon"), help: "Optional fused evidence horizon. Defaults to the accepted imagination artifact horizon.")
+    var fusedHorizon: Int?
+
+    @Option(name: .customLong("time-step"), help: "Optional fused evidence timestep override. Must match the dataset timestep.")
+    var timeStep: Double?
+
     mutating func run() async throws {
         try MLXRuntimeReadinessService().check()
         guard horizon > 0 else {
@@ -5244,12 +5262,46 @@ struct ImagineTrain: AsyncParsableCommand {
         guard epochs > 0 else {
             throw ValidationError("--epochs must be greater than 0.")
         }
-        let manifest = try M2TrainingService().imagineTrain(
-            worldModelDirectory: URL(fileURLWithPath: worldModelPath, isDirectory: true),
-            saveDirectory: URL(fileURLWithPath: saveModelPath, isDirectory: true),
-            horizon: horizon,
-            epochs: epochs
-        )
+        if fusedEvidenceOutputPath == nil && (
+            dataset != nil ||
+                datasetIndex != 0 ||
+                startRecordIndex != 0 ||
+                fusedHorizon != nil ||
+                timeStep != nil
+        ) {
+            throw ValidationError("Specify --fused-evidence-output when configuring fused evidence publication.")
+        }
+        let service = M2TrainingService()
+        let manifest: ImaginationTrainingManifest
+        if let fusedEvidenceOutputPath {
+            let request = try M2ImaginationFusedEvidenceRequest(
+                worldModelDirectory: URL(fileURLWithPath: worldModelPath, isDirectory: true),
+                saveDirectory: URL(fileURLWithPath: saveModelPath, isDirectory: true),
+                fusedEvidenceOutputDirectory: URL(fileURLWithPath: fusedEvidenceOutputPath, isDirectory: true),
+                datasetDirectory: dataset.map { URL(fileURLWithPath: $0, isDirectory: true) },
+                datasetIndex: datasetIndex,
+                startRecordIndex: startRecordIndex,
+                horizon: horizon,
+                epochs: epochs,
+                fusedEvidenceHorizon: fusedHorizon,
+                timeStep: timeStep
+            )
+            let result = try service.imagineTrainAndPublishFusedEvidence(request)
+            manifest = result.imaginationManifest
+            let artifactURL = result.fusedEvidenceOutputDirectory.appendingPathComponent(
+                FusedEnvironmentLongHorizonArtifact.fileName
+            )
+            print("[world-model-fused-evidence] artifact=\(artifactURL.path)")
+            print("[world-model-fused-evidence] modelId=\(result.fusedEvidence.modelId) horizon=\(result.fusedEvidence.horizon) timeStep=\(result.fusedEvidence.timeStep)")
+            print("[world-model-fused-evidence] maxResidualAbs=\(result.fusedEvidence.maxResidualAbs) maxUncertainty=\(result.fusedEvidence.maxUncertainty)")
+        } else {
+            manifest = try service.imagineTrain(
+                worldModelDirectory: URL(fileURLWithPath: worldModelPath, isDirectory: true),
+                saveDirectory: URL(fileURLWithPath: saveModelPath, isDirectory: true),
+                horizon: horizon,
+                epochs: epochs
+            )
+        }
         print("[imagination] saved rollback=\(manifest.rollbackCheckpointPath) accepted=\(manifest.validationAccepted)")
         if let stateCheckpoint = manifest.stateWorldModelCheckpointPath {
             print("[imagination] validated stateCheckpoint=\(stateCheckpoint) reason=\(manifest.validationReason ?? "accepted")")

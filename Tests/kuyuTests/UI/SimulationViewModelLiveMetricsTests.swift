@@ -228,20 +228,43 @@ import Testing
     model.reloadLearningCampaignArtifactsFromUI()
     model.recordLearningCampaignArtifactReveal(path: "/tmp/kuyu-monitor")
 
-    try await Task.sleep(for: .milliseconds(100))
+    let entries = try await waitForSimulationViewModelUIEntries(store: store) { entries in
+        entries.contains { entry in
+            entry.metadata["action"] == "reloadLearningCampaignArtifacts" &&
+                entry.metadata["reason"] == "emptyArtifactDirectory"
+        } && entries.contains { entry in
+            entry.metadata["action"] == "revealLearningCampaignArtifactRoot" &&
+                entry.metadata["path"] == "/tmp/kuyu-monitor"
+        }
+    }
 
     #expect(model.learningCampaignError == "Artifact directory is empty.")
-    #expect(store.entries.contains { entry in
+    #expect(entries.contains { entry in
         entry.label == "kuyu.ui" &&
             entry.metadata["action"] == "reloadLearningCampaignArtifacts" &&
             entry.metadata["reason"] == "emptyArtifactDirectory"
     })
-    #expect(store.entries.contains { entry in
+    #expect(entries.contains { entry in
         entry.label == "kuyu.ui" &&
             entry.metadata["action"] == "revealLearningCampaignArtifactRoot" &&
             entry.metadata["path"] == "/tmp/kuyu-monitor"
     })
     await store.shutdownAndWait()
+}
+
+@MainActor
+private func waitForSimulationViewModelUIEntries(
+    store: UILogStore,
+    matching predicate: ([UILogEntry]) -> Bool
+) async throws -> [UILogEntry] {
+    for _ in 0..<40 {
+        let entries = store.entries.filter { $0.label == "kuyu.ui" }
+        if predicate(entries) {
+            return entries
+        }
+        try await Task.sleep(for: .milliseconds(25))
+    }
+    return store.entries.filter { $0.label == "kuyu.ui" }
 }
 
 @Test(.timeLimit(.minutes(1))) func gpuActivitySnapshotSummarizesLiveAndBatchExecution() {

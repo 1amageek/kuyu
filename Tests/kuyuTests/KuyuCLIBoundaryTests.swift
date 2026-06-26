@@ -335,6 +335,30 @@ import Testing
     #expect(!commandSource.contains("MLX.loadArrays"))
 }
 
+@Test func imagineTrainPublishesFusedEvidenceThroughM2OwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct ImagineTrain",
+        to: "struct PublishWorldModelFusedEvidence"
+    )
+
+    #expect(commandSource.contains("M2ImaginationFusedEvidenceRequest("))
+    #expect(commandSource.contains("service.imagineTrainAndPublishFusedEvidence"))
+    #expect(commandSource.contains("fusedEvidenceOutputPath"))
+    #expect(commandSource.contains("datasetIndex != 0"))
+    #expect(commandSource.contains("startRecordIndex != 0"))
+    #expect(commandSource.contains("FusedEnvironmentLongHorizonArtifact.fileName"))
+    #expect(!commandSource.contains("DatasetBackedFusedLongHorizonEvidenceService().publish"))
+    #expect(!commandSource.contains("StateWorldModel("))
+    #expect(!commandSource.contains("TrainingDatasetContractValidator"))
+    #expect(!commandSource.contains("MLX.loadArrays"))
+}
+
 @Test func daggerRelabelDelegatesRolloutRelabelingToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
