@@ -2682,10 +2682,15 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                     requireTaskSolved: requireTaskSolved,
                     postRegression: nil
                 )
-                let accepted = gateReport.accepted
+                let attemptDecision = try harnessGateService.attemptDecision(
+                    task: task.rawValue,
+                    attempt: attempt,
+                    gateReport: gateReport
+                )
                 let entry = CheckTrainingHarnessProbeEntry(
                     task: task.rawValue,
                     attempt: attempt,
+                    accepted: attemptDecision.accepted,
                     artifactPath: taskRoot.path,
                     terminalState: result.manifest.terminalState.rawValue,
                     trainingCheckpoint: result.comparison.checkpointDecision.rawValue,
@@ -2719,8 +2724,8 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                 )
                 probeEntries.append(entry)
                 print("[harness] probe task=\(task.rawValue) attempt=\(attempt) terminal=\(entry.terminalState) trainingCheckpoint=\(entry.trainingCheckpoint) probeCheckpoint=\(entry.probeCheckpoint) selected=\(entry.selectedCheckpointRole) repairSource=\(entry.repairSourceCheckpointPath ?? "n/a") recoveryDatasets=\(recoveryDatasetURLs.count) reload=\(entry.reloadSucceeded) harnessSatisfied=\(entry.harnessSatisfied) taskSolved=\(entry.taskSolved)")
-                if accepted {
-                    acceptedAttempts[task.rawValue] = attempt
+                if attemptDecision.accepted {
+                    acceptedAttempts[attemptDecision.task] = attemptDecision.attempt
                     taskAccepted = true
                     break
                 }
@@ -3010,9 +3015,13 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                         requireTaskSolved: requireTaskSolved,
                         postRegression: nil
                     )
-                    let accepted = preRegressionGateReport.accepted
+                    let preRegressionDecision = try harnessGateService.attemptDecision(
+                        task: task.rawValue,
+                        attempt: attempt,
+                        gateReport: preRegressionGateReport
+                    )
                     let postRegressionEntry: ReferenceQuadrotorPostTrainingRegressionEntry?
-                    if accepted, postRegression {
+                    if preRegressionDecision.accepted, postRegression {
                         let checkpointURL = selectedCandidateCheckpointURL(result.comparison)
                         if let checkpointURL {
                             let regressionRoot = attemptRoot.appendingPathComponent("post-regression", isDirectory: true)
@@ -3059,9 +3068,15 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                         requireTaskSolved: requireTaskSolved,
                         postRegression: postRegressionEntry
                     )
+                    let attemptDecision = try harnessGateService.attemptDecision(
+                        task: task.rawValue,
+                        attempt: attempt,
+                        gateReport: gateReport
+                    )
                     let entry = CheckTrainingHarnessProbeEntry(
                         task: task.rawValue,
                         attempt: attempt,
+                        accepted: attemptDecision.accepted,
                         artifactPath: attemptRoot.path,
                         terminalState: result.manifest.terminalState.rawValue,
                         trainingCheckpoint: result.comparison.checkpointDecision.rawValue,
@@ -3094,9 +3109,9 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                         postRegression: postRegressionEntry
                     )
                     probeEntries.append(entry)
-                    print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) mlxSeed=\(attemptSeed) selected=\(entry.selectedCheckpointRole) repairSource=\(entry.repairSourceCheckpointPath ?? "n/a") recoveryDatasets=\(recoveryDatasetURLs.count) gateAccepted=\(gateReport.accepted) gateReasons=\(gateReport.reasons.joined(separator: "|")) harnessSatisfied=\(harnessSatisfied) taskSolved=\(taskSolved) postRegression=\(postRegressionEntry?.allPassed.description ?? "skipped") scoreDelta=\(formatOptional(result.comparison.scoreDelta))")
-                    if gateReport.accepted {
-                        acceptedTasks[task.rawValue] = attempt
+                    print("[harness-sweep] seed=\(seedBase) task=\(task.rawValue) attempt=\(attempt) mlxSeed=\(attemptSeed) selected=\(entry.selectedCheckpointRole) repairSource=\(entry.repairSourceCheckpointPath ?? "n/a") recoveryDatasets=\(recoveryDatasetURLs.count) gateAccepted=\(attemptDecision.accepted) gateReasons=\(attemptDecision.rejectionReasons.joined(separator: "|")) harnessSatisfied=\(harnessSatisfied) taskSolved=\(taskSolved) postRegression=\(postRegressionEntry?.allPassed.description ?? "skipped") scoreDelta=\(formatOptional(result.comparison.scoreDelta))")
+                    if attemptDecision.accepted {
+                        acceptedTasks[attemptDecision.task] = attemptDecision.attempt
                         break
                     }
                 }
@@ -3652,6 +3667,7 @@ private struct CheckTrainingHarnessSeedEntry: Codable {
 private struct CheckTrainingHarnessProbeEntry: Codable {
     let task: String
     let attempt: Int
+    let accepted: Bool
     let artifactPath: String
     let terminalState: String
     let trainingCheckpoint: String
@@ -3688,7 +3704,7 @@ private struct CheckTrainingHarnessProbeEntry: Codable {
             task: task,
             attempt: attempt,
             artifactPath: artifactPath,
-            accepted: gateReport.accepted,
+            accepted: accepted,
             selectedCheckpointRole: TrainingProbeComparison.SelectedCheckpointRole(
                 rawValue: selectedCheckpointRole
             ) ?? .none,

@@ -44,10 +44,34 @@ import Testing
 
     #expect(commandSource.contains("harnessGateService.requiredTasksSatisfied"))
     #expect(commandSource.contains("harnessGateService.selectedCandidate"))
+    #expect(commandSource.contains("harnessGateService.attemptDecision"))
+    #expect(commandSource.contains("attemptDecision.accepted"))
     #expect(cliSource.contains("ReferenceQuadrotorTrainingHarnessProbeSelectionInput"))
+    #expect(!commandSource.contains("gateReport.accepted"))
     #expect(!cliSource.contains("selectedHarnessCandidate"))
     #expect(!cliSource.contains("CheckTrainingHarnessSelectedCandidate"))
     #expect(!cliSource.contains("selectedCheckpointRole == \"candidate\""))
+}
+
+@Test func trainingHarnessSweepDelegatesAttemptAcceptanceToReferenceOwnerService() throws {
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        cliSource,
+        from: "struct CheckTrainingHarnessSweep",
+        to: "struct CheckKuyuRegression"
+    )
+
+    #expect(commandSource.contains("harnessGateService.attemptDecision"))
+    #expect(commandSource.contains("preRegressionDecision.accepted"))
+    #expect(commandSource.contains("attemptDecision.accepted"))
+    #expect(commandSource.contains("attemptDecision.rejectionReasons"))
+    #expect(commandSource.contains("acceptedTasks[attemptDecision.task] = attemptDecision.attempt"))
+    #expect(!commandSource.contains("preRegressionGateReport.accepted"))
+    #expect(!commandSource.contains("gateReport.accepted"))
 }
 
 @Test func trainCommandDelegatesRunOutcomeCompletionToTrainingRunDriver() throws {
