@@ -22,10 +22,11 @@ import Testing
     let policyContract = ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract()
     let actionContract = ReferenceQuadrotorLearningContracts.bodyRateActionContract()
     let validator = RecordingStarterSourceCheckpointValidator()
+    let temporalWriter = RecordingTemporalCheckpointWriter()
     let preparer = ManasMLXRunnableProjectAssetPreparer(
         modelStore: ManasMLXModelStore(),
         checkpointValidator: validator,
-        temporalCheckpointWriter: RecordingTemporalCheckpointWriter()
+        temporalCheckpointWriter: temporalWriter
     )
 
     try preparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
@@ -50,6 +51,10 @@ import Testing
     #expect(request.actionContract == actionContract)
     #expect(request.taskMode == .attitude)
     #expect(request.observationChannelCountOverride == 64)
+    let writerRequest = try #require(temporalWriter.requests.first)
+    #expect(temporalWriter.requests.count == 1)
+    #expect(writerRequest.observationContract == ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract())
+    #expect(writerRequest.starterActionMean == [0.75, 0.0, 0.0, 0.0])
     #expect(FileManager.default.fileExists(atPath: checkpoint.appendingPathComponent("model.json").path))
 }
 

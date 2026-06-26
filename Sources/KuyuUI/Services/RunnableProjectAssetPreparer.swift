@@ -93,7 +93,7 @@ public struct ManasMLXRunnableProjectAssetPreparer: RunnableProjectAssetPreparin
                 checkpointURL: request.checkpointURL,
                 name: request.displayName,
                 policyContract: request.policyContract,
-                observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+                observationContract: starterContract.observationContract,
                 actionContract: request.actionContract,
                 embodiment: request.embodiment,
                 starterActionMean: starterContract.starterActionMean,

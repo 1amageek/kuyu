@@ -42,6 +42,11 @@ enum RolloutTaskChoice: String, CaseIterable, ExpressibleByArgument {
     case singleLift
 }
 
+enum CTBRCheckpointTaskChoice: String, CaseIterable, ExpressibleByArgument {
+    case attitude
+    case lift
+}
+
 enum LearningCampaignTaskChoice: String, CaseIterable, ExpressibleByArgument {
     case lift
     case singleLift
@@ -1249,14 +1254,17 @@ struct WriteCTBRCheckpoint: ParsableCommand {
     @Option(name: .customLong("model"), help: "Optional EmbodimentContract path used to bind embodiment hash/profile metadata.")
     var model: String = ""
 
+    @Option(name: .customLong("task"), help: "Reference task contract to use for starter sizing.")
+    var task: CTBRCheckpointTaskChoice = .attitude
+
     @Option(name: .customLong("hidden-size"), help: "Temporal actor-critic hidden size.")
     var hiddenSize: Int = 256
 
-    @Option(name: .customLong("observation-dimension"), help: "Actor observation channel count. Size to the task's real channel contract (e.g. 6 for attitude) instead of zero-padding into a wider policy. Default 64 (lift privileged observation).")
-    var observationDimension: Int = 64
+    @Option(name: .customLong("observation-dimension"), help: "Optional actor observation channel override. Defaults to the selected task contract.")
+    var observationDimension: Int?
 
-    @Option(name: .customLong("history-length"), help: "Temporal window length. Use 1 for reactive tasks like attitude; 32 for the lift privileged-observation profile.")
-    var historyLength: Int = 32
+    @Option(name: .customLong("history-length"), help: "Optional temporal window override. Defaults to the selected task contract.")
+    var historyLength: Int?
 
     func run() throws {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1266,10 +1274,10 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         guard hiddenSize > 0 else {
             throw CommandError.invalidHiddenSize(hiddenSize)
         }
-        guard observationDimension > 0 else {
+        if let observationDimension, observationDimension <= 0 {
             throw CommandError.invalidObservationDimension(observationDimension)
         }
-        guard historyLength > 0 else {
+        if let historyLength, historyLength <= 0 {
             throw CommandError.invalidHistoryLength(historyLength)
         }
 
@@ -1291,19 +1299,26 @@ struct WriteCTBRCheckpoint: ParsableCommand {
         }
 
         let embodiment = try loadEmbodiment(modelPath: model)
+        let taskMode = simulationTaskMode(from: task)
+        let starterContract = try ReferenceQuadrotorStarterCheckpointContractService().contract(
+            taskMode: taskMode,
+            observationChannelCountOverride: observationDimension
+        )
+        let resolvedHistoryLength = historyLength ?? starterContract.historyLength
         let policyContract = ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(
-            observationDimension: observationDimension,
-            historyLength: historyLength
+            observationDimension: starterContract.expectedObservationChannelCount,
+            historyLength: resolvedHistoryLength
         )
         let manifest = try ManasMLXTemporalCheckpointWriter().write(
             request: ManasMLXTemporalCheckpointWriteRequest(
                 checkpointURL: outputURL,
                 name: name,
                 policyContract: policyContract,
-                observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+                observationContract: starterContract.observationContract,
                 actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
                 embodiment: embodiment,
-                hiddenSize: hiddenSize
+                hiddenSize: hiddenSize,
+                starterActionMean: starterContract.starterActionMean
             )
         )
         _ = try ManasMLXRuntimeReadinessService().report(
@@ -1316,10 +1331,12 @@ struct WriteCTBRCheckpoint: ParsableCommand {
 
         print("ctbrCheckpointWritten=true")
         print("path=\(outputURL.path)")
+        print("task=\(task.rawValue)")
         print("modelFamily=\(ManasMLXTemporalCheckpointManifest.modelFamily)")
         print("schemaVersion=\(manifest.schemaVersion)")
         print("historyLength=\(manifest.config.batchSpec.historyLength)")
         print("observationDimension=\(manifest.config.batchSpec.observationDimension)")
+        print("observationSchemaID=\(manifest.observationSchemaID)")
         print("privilegedDimension=\(manifest.config.batchSpec.privilegedDimension)")
         print("actionDimension=\(manifest.config.batchSpec.actionDimension)")
         print("hiddenSize=\(manifest.config.hiddenSize)")
@@ -5282,6 +5299,15 @@ private func simulationTaskMode(from task: RolloutTaskChoice) -> SimulationTaskM
         return .lift
     case .singleLift:
         return .singleLift
+    }
+}
+
+private func simulationTaskMode(from task: CTBRCheckpointTaskChoice) -> SimulationTaskMode {
+    switch task {
+    case .attitude:
+        return .attitude
+    case .lift:
+        return .lift
     }
 }
 

@@ -379,6 +379,7 @@ import Testing
     #expect(viewModelSource.contains("ReferenceQuadrotorStarterCheckpointContractService()"))
     #expect(viewModelSource.contains(".defaultContract(for: taskMode)"))
     #expect(preparerSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
+    #expect(preparerSource.contains("starterContract.observationContract"))
     #expect(preparerSource.contains("starterContract.starterActionMean"))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorStarterCheckpointContractService()"))
     #expect(runnerServiceSource.contains(".defaultContract(for: request.taskMode)"))
@@ -399,6 +400,31 @@ import Testing
     #expect(!runnerServiceSource.contains("MotorNerveChain disabled"))
     #expect(!validatorSource.contains("public let expectedDriveCount"))
     #expect(!validatorSource.contains("public let expectedObservationChannelCount"))
+}
+
+@Test func writeCTBRCheckpointDelegatesStarterContractToReferenceOwnerService() throws {
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        cliSource,
+        from: "struct WriteCTBRCheckpoint",
+        to: "struct ProbeManasSuite"
+    )
+
+    #expect(commandSource.contains("var task: CTBRCheckpointTaskChoice = .attitude"))
+    #expect(commandSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
+    #expect(commandSource.contains("observationChannelCountOverride: observationDimension"))
+    #expect(commandSource.contains("starterContract.expectedObservationChannelCount"))
+    #expect(commandSource.contains("historyLength ?? starterContract.historyLength"))
+    #expect(commandSource.contains("starterContract.observationContract"))
+    #expect(commandSource.contains("starterContract.starterActionMean"))
+    #expect(commandSource.contains("observationSchemaID=\\(manifest.observationSchemaID)"))
+    #expect(!commandSource.contains("var observationDimension: Int = 64"))
+    #expect(!commandSource.contains("var historyLength: Int = 32"))
+    #expect(!commandSource.contains("ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract()"))
 }
 
 @Test func simulationRunnerDelegatesSuiteResultPassClassificationToScenarios() throws {
