@@ -16,6 +16,29 @@ import Testing
     #expect(!cliSource.contains("safetyViolationRate: 0"))
 }
 
+@Test func evolveManasDelegatesEvolutionPublicationAcceptanceToTrainingVerifier() throws {
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        cliSource,
+        from: "struct EvolveManas",
+        to: "struct RunLearningCampaign"
+    )
+
+    #expect(commandSource.contains("artifactVerifier.evolutionPublicationProjection"))
+    #expect(commandSource.contains("artifactVerifier.requireAcceptedEvolutionCheckpoint"))
+    #expect(!commandSource.contains("artifacts.acceptedCheckpoint.accepted"))
+    #expect(!commandSource.contains("artifacts.acceptedCheckpoint.checkpointURL"))
+    #expect(!commandSource.contains("artifacts.acceptedCheckpoint.candidateID"))
+    #expect(!commandSource.contains("artifacts.acceptedCheckpoint.bestCandidateID"))
+    #expect(!commandSource.contains("artifacts.acceptedCheckpoint.bestCheckpointURL"))
+    #expect(!commandSource.contains("artifacts.acceptedCheckpoint.reasons"))
+    #expect(!commandSource.contains("EvolutionAcceptedCheckpointDecision.fileName"))
+}
+
 @Test func trainingHarnessRetryPolicyDelegatesToReferenceOwnerService() throws {
     let cliSource = try String(
         contentsOf: kuyuPackageRoot()

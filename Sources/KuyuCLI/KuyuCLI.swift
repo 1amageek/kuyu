@@ -4301,7 +4301,9 @@ struct EvolveManas: AsyncParsableCommand {
             ),
             artifactDirectory: artifactRoot
         )
-        let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadEvolutionArtifacts(from: artifactRoot)
+        let artifactVerifier = GeneratedTrainingArtifactCompatibilityVerifier()
+        let artifacts = try artifactVerifier.loadEvolutionArtifacts(from: artifactRoot)
+        let publication = artifactVerifier.evolutionPublicationProjection(for: artifacts)
         let displayBestCandidateID = artifacts.eliteArchive.bestCandidateID
             ?? artifacts.generations.last?.bestCandidateID
             ?? "n/a"
@@ -4309,9 +4311,11 @@ struct EvolveManas: AsyncParsableCommand {
             ?? artifacts.generations.last?.bestFitness
         print("[evolve] artifacts path=\(artifactRoot.path)")
         print("[evolve] terminal=\(artifacts.manifest.terminalState.rawValue) variation=\(variation.rawValue) evaluation=\(evaluation.rawValue) generations=\(artifacts.generations.count) candidates=\(artifacts.candidates.count) best=\(displayBestCandidateID) bestFitness=\(formatOptional(displayBestFitness)) elites=\(artifacts.eliteArchive.eliteCandidateIDs.joined(separator: ","))")
-        print("[evolve] acceptedCheckpoint=\(artifacts.acceptedCheckpoint.checkpointURL?.path ?? "n/a") acceptedCandidate=\(artifacts.acceptedCheckpoint.candidateID ?? "n/a") bestCandidate=\(artifacts.acceptedCheckpoint.bestCandidateID ?? "n/a") bestCheckpoint=\(artifacts.acceptedCheckpoint.bestCheckpointURL?.path ?? "n/a") publishReasons=\(artifacts.acceptedCheckpoint.reasons.joined(separator: ",")) decision=\(artifacts.artifactDirectory.appendingPathComponent(EvolutionAcceptedCheckpointDecision.fileName).path)")
+        print("[evolve] acceptedCheckpoint=\(publication.acceptedCheckpointPath ?? "n/a") acceptedCandidate=\(publication.acceptedCandidateID ?? "n/a") bestCandidate=\(publication.bestCandidateID ?? "n/a") bestCheckpoint=\(publication.bestCheckpointPath ?? "n/a") publishReasons=\(publication.reasons.joined(separator: ",")) decision=\(publication.decisionPath)")
         printEvolutionSearchSummary(artifacts: artifacts, adaptiveMutation: adaptiveMutation)
-        if !artifacts.acceptedCheckpoint.accepted {
+        do {
+            try artifactVerifier.requireAcceptedEvolutionCheckpoint(publication)
+        } catch GeneratedTrainingArtifactCompatibilityVerifier.VerificationError.evolutionCheckpointNotAccepted {
             throw ExitCode.failure
         }
     }
