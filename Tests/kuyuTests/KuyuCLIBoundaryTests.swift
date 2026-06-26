@@ -87,7 +87,11 @@ import Testing
     )
 
     #expect(source.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(source.contains("TrainingScenarioKuyAtt1OutputFactory().makeOutput(output)"))
     #expect(source.contains("passed: classification.accepted"))
+    #expect(!source.contains("ScenarioEvaluation("))
+    #expect(!source.contains("SuiteRunResult("))
+    #expect(!source.contains("ValidationSummary("))
     #expect(!source.contains("result.convergence.accepted"))
     #expect(!source.contains("result.manifest.failureReason"))
 }

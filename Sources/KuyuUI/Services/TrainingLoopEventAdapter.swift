@@ -16,7 +16,7 @@ enum TrainingLoopEventAdapter {
         case .suiteCompleted(let iteration, let output, let score):
             onEvent(.runCompleted(
                 iteration: iteration,
-                output: KuyAtt1RunOutput(trainingScenarioRunOutput: output),
+                output: TrainingScenarioKuyAtt1OutputFactory().makeOutput(output),
                 score: score
             ))
         case .datasetExported(let iteration, let directory, let count):
@@ -66,50 +66,5 @@ enum TrainingLoopEventAdapter {
             convergence: result.convergence,
             checkpointDecision: result.checkpointDecision
         )))
-    }
-}
-
-private extension KuyAtt1RunOutput {
-    init(trainingScenarioRunOutput output: TrainingScenarioRunOutput) {
-        let evaluations = output.summary.evaluations.map { record in
-            ScenarioEvaluation(
-                scenarioId: record.scenarioID,
-                seed: record.seed,
-                passed: record.passed,
-                maxOmega: record.maxOmega,
-                maxTiltDegrees: record.maxTiltDegrees,
-                sustainedViolationSeconds: record.sustainedViolationSeconds,
-                recoveryTimeSeconds: record.recoveryTimeSeconds,
-                overshootDegrees: record.overshootDegrees,
-                hfStabilityScore: record.hfStabilityScore,
-                failures: record.failures,
-                failureReason: record.failureReason,
-                failureTime: record.failureTime
-            )
-        }
-        let replay = ReplayVerification.notPerformed(
-            reason: "Training runtime emitted a profile-neutral run output."
-        )
-        let aggregate = EvaluationAggregate(
-            averageRecoveryTime: output.summary.aggregate.averageRecoveryTime,
-            worstOvershootDegrees: output.summary.aggregate.worstOvershootDegrees,
-            averageHfStabilityScore: output.summary.aggregate.averageHfStabilityScore
-        )
-        let summary = ValidationSummary(
-            suitePassed: output.summary.suitePassed,
-            evaluations: evaluations,
-            replay: replay,
-            manifest: [],
-            aggregate: aggregate
-        )
-        self.init(
-            result: SuiteRunResult(
-                evaluations: evaluations,
-                replay: replay,
-                passed: output.summary.suitePassed
-            ),
-            summary: summary,
-            logs: output.logs
-        )
     }
 }
