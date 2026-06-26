@@ -382,10 +382,14 @@ import Testing
         encoding: .utf8
     )
 
-    #expect(source.contains("SuiteRunResultFactory().makeEvaluationOnly"))
+    #expect(source.contains("KuyAtt1RunOutputFactory().makeEvaluationOnly"))
+    #expect(source.contains("KuyAtt1RunOutputFactory().makeOutput"))
     #expect(source.contains("ArticulatedDynamicScenarioOutputFactory().makeOutput"))
     #expect(!source.contains("evaluations.allSatisfy"))
     #expect(!source.contains("ScenarioEvaluation("))
+    #expect(!source.contains("ValidationSummary("))
+    #expect(!source.contains("SuiteRunResultFactory()"))
+    #expect(!source.contains("KuyAtt1RunOutput(result:"))
     #expect(!source.contains("passed: log.failureReason == nil"))
 }
 

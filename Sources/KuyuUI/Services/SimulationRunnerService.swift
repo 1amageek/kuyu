@@ -271,16 +271,11 @@ public struct SimulationRunnerService: Sendable {
             telemetry: telemetry
         )
 
-        let aggregate = EvaluationAggregate.from(evaluations: output.result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: output.result.passed,
-            evaluations: output.result.evaluations,
-            replay: output.result.replay,
-            manifest: output.manifest,
-            aggregate: aggregate
+        return KuyAtt1RunOutputFactory().makeOutput(
+            result: output.result,
+            logs: output.logs,
+            manifest: output.manifest
         )
-
-        return KuyAtt1RunOutput(result: output.result, summary: summary, logs: output.logs)
     }
 
     private func runArticulatedDynamic(
@@ -421,20 +416,12 @@ public struct SimulationRunnerService: Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResultFactory().makeEvaluationOnly(
+        return KuyAtt1RunOutputFactory().makeEvaluationOnly(
             evaluations: evaluations,
+            logs: logs,
+            manifest: manifest,
             replaySkippedReason: "Interactive simulation runs do not execute replay verification."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
-        )
-
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
     private func manualActuatorChannelMaxima(
@@ -537,20 +524,12 @@ public struct SimulationRunnerService: Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResultFactory().makeEvaluationOnly(
+        return KuyAtt1RunOutputFactory().makeEvaluationOnly(
             evaluations: evaluations,
+            logs: logs,
+            manifest: manifest,
             replaySkippedReason: "Interactive simulation runs do not execute replay verification."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
-        )
-
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
     private func runLiftBaselineWithChain(
@@ -604,20 +583,12 @@ public struct SimulationRunnerService: Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResultFactory().makeEvaluationOnly(
+        return KuyAtt1RunOutputFactory().makeEvaluationOnly(
             evaluations: evaluations,
+            logs: logs,
+            manifest: manifest,
             replaySkippedReason: "Interactive simulation runs do not execute replay verification."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
-        )
-
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
     private func runSingleLiftBaseline(
@@ -682,20 +653,12 @@ public struct SimulationRunnerService: Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResultFactory().makeEvaluationOnly(
+        return KuyAtt1RunOutputFactory().makeEvaluationOnly(
             evaluations: evaluations,
+            logs: logs,
+            manifest: manifest,
             replaySkippedReason: "Interactive simulation runs do not execute replay verification."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
-        )
-
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
     private func runSingleLiftBaselineWithChain(
@@ -755,20 +718,12 @@ public struct SimulationRunnerService: Sendable {
             evaluations.append(evaluation)
         }
 
-        let result = SuiteRunResultFactory().makeEvaluationOnly(
+        return KuyAtt1RunOutputFactory().makeEvaluationOnly(
             evaluations: evaluations,
+            logs: logs,
+            manifest: manifest,
             replaySkippedReason: "Interactive simulation runs do not execute replay verification."
         )
-        let aggregate = EvaluationAggregate.from(evaluations: result.evaluations)
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: manifest,
-            aggregate: aggregate
-        )
-
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: logs)
     }
 
 }
