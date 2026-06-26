@@ -28,8 +28,9 @@ import Testing
         to: "struct RunLearningCampaign"
     )
 
-    #expect(commandSource.contains("artifactVerifier.evolutionPublicationProjection"))
-    #expect(commandSource.contains("artifactVerifier.requireAcceptedEvolutionCheckpoint"))
+    #expect(commandSource.contains("let artifactReader = KuyuCLITrainingArtifactReader()"))
+    #expect(commandSource.contains("artifactReader.loadEvolutionPublication"))
+    #expect(commandSource.contains("artifactReader.requireAcceptedEvolutionCheckpoint"))
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.accepted"))
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.checkpointURL"))
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.candidateID"))
@@ -37,6 +38,32 @@ import Testing
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.bestCheckpointURL"))
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.reasons"))
     #expect(!commandSource.contains("EvolutionAcceptedCheckpointDecision.fileName"))
+}
+
+@Test func cliTrainingArtifactConsumptionGoesThroughTypedReader() throws {
+    let root = kuyuPackageRoot()
+    let commandSource = try String(
+        contentsOf: root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let readerSource = try String(
+        contentsOf: root.appendingPathComponent(
+            "Sources/KuyuCLI/KuyuCLITrainingArtifactReader.swift",
+            isDirectory: false
+        ),
+        encoding: .utf8
+    )
+
+    #expect(commandSource.contains("KuyuCLITrainingArtifactReader().loadProbeArtifacts"))
+    #expect(commandSource.contains("artifactReader.loadEvolutionPublication"))
+    #expect(commandSource.contains("artifactReader.requireAcceptedEvolutionCheckpoint"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadEvolutionArtifacts"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier.VerificationError"))
+    #expect(readerSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
+    #expect(readerSource.contains("func loadProbeArtifacts"))
+    #expect(readerSource.contains("func loadEvolutionPublication"))
+    #expect(readerSource.contains("func requireAcceptedEvolutionCheckpoint"))
 }
 
 @Test func trainingHarnessRetryPolicyDelegatesToReferenceOwnerService() throws {

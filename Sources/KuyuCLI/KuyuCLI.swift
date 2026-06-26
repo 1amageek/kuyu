@@ -868,7 +868,7 @@ struct ProbeManas: AsyncParsableCommand {
         } else {
             print("[probe] trainedScore=n/a delta=n/a")
         }
-        let validated = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: artifactRoot)
+        let validated = try KuyuCLITrainingArtifactReader().loadProbeArtifacts(from: artifactRoot)
         print("[probe] artifactValid=true trainingRun=\(validated.training.manifest.runID) metrics=\(validated.training.metrics.count)")
         print("[probe] trainingCheckpoint=\(result.comparison.checkpointDecision.rawValue) probeCheckpoint=\(result.probeCheckpointDecision.state.rawValue) reload=\(result.comparison.reloadSucceeded)")
         print("[probe] selectedCheckpoint role=\(result.comparison.selectedCheckpointRole.rawValue) path=\(result.comparison.selectedCheckpointURL?.path ?? "n/a")")
@@ -1472,7 +1472,7 @@ struct ProbeManasSuite: AsyncParsableCommand {
                 mlxSeed: mlxSeed.map { $0 + UInt64(taskIndex) },
                 printEvents: false
             )
-            let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: taskRoot)
+            let artifacts = try KuyuCLITrainingArtifactReader().loadProbeArtifacts(from: taskRoot)
             let entry = ManasProbeSuiteEntry(
                 task: task.rawValue,
                 artifactPath: taskRoot.path,
@@ -2911,7 +2911,7 @@ struct CheckTrainingHarness: AsyncParsableCommand {
                 if let recoveryDatasetURL = harnessGateService.acceptedRecoveryDatasetURL(result: result) {
                     recoveryDatasetURLs.append(recoveryDatasetURL)
                 }
-                let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: taskRoot)
+                let artifacts = try KuyuCLITrainingArtifactReader().loadProbeArtifacts(from: taskRoot)
                 let taskSolved = harnessGateService.taskSolved(result: result)
                 let harnessSatisfied = harnessGateService.satisfied(result: result)
                 let gateReport = harnessGateService.report(
@@ -3244,7 +3244,7 @@ struct CheckTrainingHarnessSweep: AsyncParsableCommand {
                     if let recoveryDatasetURL = harnessGateService.acceptedRecoveryDatasetURL(result: result) {
                         recoveryDatasetURLs.append(recoveryDatasetURL)
                     }
-                    let artifacts = try GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts(from: attemptRoot)
+                    let artifacts = try KuyuCLITrainingArtifactReader().loadProbeArtifacts(from: attemptRoot)
                     let taskSolved = harnessGateService.taskSolved(result: result)
                     let harnessSatisfied = harnessGateService.satisfied(result: result)
                     let preRegressionGateReport = harnessGateService.report(
@@ -4521,9 +4521,10 @@ struct EvolveManas: AsyncParsableCommand {
             ),
             artifactDirectory: artifactRoot
         )
-        let artifactVerifier = GeneratedTrainingArtifactCompatibilityVerifier()
-        let artifacts = try artifactVerifier.loadEvolutionArtifacts(from: artifactRoot)
-        let publication = artifactVerifier.evolutionPublicationProjection(for: artifacts)
+        let artifactReader = KuyuCLITrainingArtifactReader()
+        let artifactSnapshot = try artifactReader.loadEvolutionPublication(from: artifactRoot)
+        let artifacts = artifactSnapshot.artifacts
+        let publication = artifactSnapshot.publication
         let displayBestCandidateID = artifacts.eliteArchive.bestCandidateID
             ?? artifacts.generations.last?.bestCandidateID
             ?? "n/a"
@@ -4534,8 +4535,8 @@ struct EvolveManas: AsyncParsableCommand {
         print("[evolve] acceptedCheckpoint=\(publication.acceptedCheckpointPath ?? "n/a") acceptedCandidate=\(publication.acceptedCandidateID ?? "n/a") bestCandidate=\(publication.bestCandidateID ?? "n/a") bestCheckpoint=\(publication.bestCheckpointPath ?? "n/a") publishReasons=\(publication.reasons.joined(separator: ",")) decision=\(publication.decisionPath)")
         printEvolutionSearchSummary(artifacts: artifacts, adaptiveMutation: adaptiveMutation)
         do {
-            try artifactVerifier.requireAcceptedEvolutionCheckpoint(publication)
-        } catch GeneratedTrainingArtifactCompatibilityVerifier.VerificationError.evolutionCheckpointNotAccepted {
+            try artifactReader.requireAcceptedEvolutionCheckpoint(publication)
+        } catch KuyuCLITrainingArtifactReaderError.evolutionCheckpointNotAccepted(_) {
             throw ExitCode.failure
         }
     }
