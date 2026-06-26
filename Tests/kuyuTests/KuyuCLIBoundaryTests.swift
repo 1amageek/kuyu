@@ -145,7 +145,7 @@ import Testing
     let commandSource = try extractSource(
         source,
         from: "struct EvaluateManasCheckpoint",
-        to: "struct CalibrateManasCheckpoint"
+        to: "struct RunFoundationAcceptance"
     )
 
     #expect(commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService().evaluate"))
@@ -153,6 +153,26 @@ import Testing
     #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact"))
     #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationAcceptanceService()"))
     #expect(!commandSource.contains("private func evaluateCheckpointAcceptanceIfNeeded"))
+}
+
+@Test func foundationAcceptanceDelegatesPipelineToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct RunFoundationAcceptance",
+        to: "struct CalibrateManasCheckpoint"
+    )
+
+    #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceService().run"))
+    #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceRequest("))
+    #expect(!commandSource.contains("LearningCampaignRunner("))
+    #expect(!commandSource.contains("LearningCampaignAcceptedCheckpointResolver("))
+    #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService().evaluate"))
+    #expect(!commandSource.contains("ReferenceQuadrotorG1AttitudeAcceptanceGate"))
 }
 
 @Test func daggerRelabelDelegatesRolloutRelabelingToReferenceOwnerService() throws {
