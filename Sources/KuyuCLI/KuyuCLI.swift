@@ -2175,9 +2175,7 @@ struct BenchmarkReferenceAttitudeM2: AsyncParsableCommand {
             ),
             onEvent: Self.printM2BenchmarkEvent
         )
-        let allPassed = result.artifact.suiteSummaries.allSatisfy { summary in
-            summary.taskPassCount == summary.episodeCount && summary.violationCount == 0
-        }
+        let allPassed = result.decision.allPassed
         print("[attitude-m2-benchmark] label=\(trimmedLabel) allPassed=\(allPassed) artifact=\(result.artifactURL.path)")
         print("[attitude-m2-benchmark] legacySuiteQuality=\(result.legacySuiteQualityURL.path)")
         if requireAllPass && !allPassed {
