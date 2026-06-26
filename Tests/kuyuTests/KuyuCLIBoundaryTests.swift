@@ -449,6 +449,22 @@ import Testing
     #expect(!regressionMatrixSource.contains("private struct KuyuRegressionMatrixSummary"))
 }
 
+@Test func regressionRunStoreDelegatesInspectionStateToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Services/RegressionRunStore.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("typealias PostRegressionGateState = ReferenceQuadrotorRegressionInspectionState"))
+    #expect(source.contains("loader.loadInspectionState(from: artifactDirectory)"))
+    #expect(!source.contains("rolloutSuites.reduce"))
+    #expect(!source.contains("flatMap(\\.workerSummaries)"))
+    #expect(!source.contains("taskQuality.map"))
+    #expect(!source.contains("gateReport.accepted"))
+    #expect(!source.contains("gateReport.qualityGateTask"))
+}
+
 @Test func rolloutDefinitionsDelegateScenarioSelectionToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()

@@ -1,6 +1,7 @@
 import Foundation
 import Logging
 import KuyuCore
+import KuyuMLX
 import KuyuPhysics
 import KuyuScenarios
 public enum KuyuUIPreviewFactory {
@@ -135,25 +136,7 @@ public enum KuyuUIPreviewFactory {
             bestCheckpointID: "preview-checkpoint",
             artifactDirectoryPath: "/tmp/kuyu-preview"
         )
-        model.lastPostRegressionGate = PostRegressionGateState(
-            artifactDirectory: URL(fileURLWithPath: "/tmp/kuyu-preview/post-regression", isDirectory: true),
-            accepted: true,
-            qualityTask: "lift",
-            rolloutCount: 1,
-            episodeCount: 1,
-            rewardAverage: 63.656,
-            taskPassRate: 1.0,
-            achievedHoldTime: 7.5,
-            requiredHoldTime: 2.0,
-            minimumHoldTimeRatio: 3.75,
-            maxAltitudeErrorAfterWarmup: 0.0,
-            tolerance: 0.2,
-            maximumAltitudeErrorRatio: 0.0,
-            worstTrack: "longHorizonTask",
-            worstScenarioID: "PREVIEW-SCN",
-            minimumWorkerThroughput: 0.33,
-            rejectReasons: []
-        )
+        model.lastPostRegressionGate = makePreviewPostRegressionGate()
         model.trainingTimeline = [
             TrainingTimelineEntry(phase: .evaluating, message: "Suite passed", iteration: 3),
             TrainingTimelineEntry(phase: .supervisedTraining, message: "Training completed", iteration: 3),
@@ -162,6 +145,92 @@ public enum KuyuUIPreviewFactory {
         ]
         for entry in logEntries(output: output) { store.emit(entry) }
         return model
+    }
+
+    private static func makePreviewPostRegressionGate() -> PostRegressionGateState? {
+        do {
+            let artifactDirectory = URL(fileURLWithPath: "/tmp/kuyu-preview/post-regression", isDirectory: true)
+            let rolloutSuites = [
+                ReferenceQuadrotorRegressionRolloutEntry(
+                    suite: 6,
+                    track: "longHorizonTask",
+                    policyID: "preview-policy",
+                    episodeCount: 1,
+                    rewardSum: 63.656,
+                    rewardAverage: 63.656,
+                    doneCount: 1,
+                    truncatedCount: 0,
+                    failureCount: 0,
+                    cancelledCount: 0,
+                    failureReasons: [],
+                    taskPassCount: 1,
+                    taskFailureCount: 0,
+                    taskFailureReasons: [],
+                    taskQuality: [
+                        ReferenceQuadrotorTaskQualitySummary(
+                            task: "lift",
+                            scenarioID: "PREVIEW-SCN",
+                            seed: 1,
+                            passed: true,
+                            failureReasons: [],
+                            evaluatorID: ReferenceQuadrotorRegressionQualityGatePolicy.qualityEvaluatorID,
+                            targetZ: 1,
+                            tolerance: 0.2,
+                            warmupTime: 1,
+                            requiredHoldTime: 2.0,
+                            achievedHoldTime: 7.5,
+                            maxAltitudeErrorAfterWarmup: 0,
+                            maxVerticalVelocityAfterWarmup: 0
+                        )
+                    ],
+                    workerSummaries: [
+                        ReferenceQuadrotorRegressionWorkerSummary(
+                            workerIndex: 0,
+                            snapshotID: nil,
+                            rolloutShardPath: nil,
+                            episodeCount: 1,
+                            rewardSum: 63.656,
+                            rewardAverage: 63.656,
+                            throughput: 0.33,
+                            doneCount: 1,
+                            truncatedCount: 0,
+                            failureCount: 0,
+                            cancelledCount: 0
+                        )
+                    ],
+                    artifactPath: nil
+                )
+            ]
+            let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
+                preflightFailure: nil,
+                environmentTasks: [],
+                rolloutSuites: rolloutSuites,
+                failOnTruncation: false,
+                minimumRewardAverage: nil,
+                qualityGateTask: "lift"
+            )
+            let summary = ReferenceQuadrotorRegressionSummary(
+                artifactRoot: artifactDirectory.path,
+                startedAt: Date(timeIntervalSince1970: 0),
+                controller: "manasMLX",
+                environmentController: "preview",
+                snapshot: nil,
+                preflightPassed: true,
+                preflightFailure: nil,
+                environmentReady: true,
+                environmentTasks: [],
+                rolloutPassed: true,
+                rolloutSuites: rolloutSuites,
+                gateReport: gateReport,
+                allPassed: gateReport.accepted
+            )
+            return try ReferenceQuadrotorRegressionArtifactLoader().inspectionState(
+                artifactDirectory: artifactDirectory,
+                summary: summary
+            )
+        } catch {
+            return nil
+        }
     }
 
     public static func runRecord(output: KuyAtt1RunOutput) -> RunRecord {
