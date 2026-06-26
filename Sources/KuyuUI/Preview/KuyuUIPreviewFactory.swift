@@ -28,16 +28,6 @@ public enum KuyuUIPreviewFactory {
             hfStabilityScore: nil,
             failures: []
         )
-        let replay = ReplayVerification.notPerformed(reason: "Preview fixtures do not execute simulations.")
-        let result = SuiteRunResult(evaluations: [evaluation], replay: replay, passed: true)
-        let aggregate = EvaluationAggregate.from(evaluations: [evaluation])
-        let summary = ValidationSummary(
-            suitePassed: true,
-            evaluations: [evaluation],
-            replay: replay,
-            manifest: [],
-            aggregate: aggregate
-        )
         let timeStep = try TimeStep(delta: 0.02)
         let determinism = DeterminismConfig.tier1Baseline
         let log = SimulationLog(
@@ -49,20 +39,21 @@ public enum KuyuUIPreviewFactory {
             events: []
         )
         let entry = ScenarioLogEntry(key: ScenarioKey(scenarioId: scenarioId, seed: seed), log: log)
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: [entry])
+        return KuyAtt1RunOutputFactory().makeEvaluationOnly(
+            evaluations: [evaluation],
+            logs: [entry],
+            manifest: [],
+            replaySkippedReason: "Preview fixtures do not execute simulations."
+        )
     }
 
     private static func emptyOutput() -> KuyAtt1RunOutput {
-        let replay = ReplayVerification.notPerformed(reason: "Preview fixture construction failed.")
-        let result = SuiteRunResult(evaluations: [], replay: replay, passed: false)
-        let summary = ValidationSummary(
-            suitePassed: false,
+        KuyAtt1RunOutputFactory().makeEvaluationOnly(
             evaluations: [],
-            replay: replay,
+            logs: [],
             manifest: [],
-            aggregate: EvaluationAggregate.from(evaluations: [])
+            replaySkippedReason: "Preview fixture construction failed."
         )
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: [])
     }
 
     @MainActor

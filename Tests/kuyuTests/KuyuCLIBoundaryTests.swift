@@ -393,6 +393,19 @@ import Testing
     #expect(!source.contains("passed: log.failureReason == nil"))
 }
 
+@Test func uiPreviewFactoryDelegatesOutputAssemblyToScenarios() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Preview/KuyuUIPreviewFactory.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("KuyAtt1RunOutputFactory().makeEvaluationOnly"))
+    #expect(!source.contains("SuiteRunResult("))
+    #expect(!source.contains("ValidationSummary("))
+    #expect(!source.contains("KuyAtt1RunOutput(result:"))
+}
+
 @Test func commandSystemDelegatesReferenceTrainingBackendBundleToProfileOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
