@@ -260,7 +260,7 @@ import Testing
         encoding: .utf8
     )
 
-    #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters(modelPath: modelPath)"))
+    #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parametersOrReferenceBaseline(modelPath: modelPath)"))
     #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
     #expect(conformanceSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionService()"))
@@ -276,6 +276,7 @@ import Testing
     #expect(!runnerServiceSource.contains("ReferenceQuadrotorParameters.reference("))
     #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.reference("))
     #expect(!cliSource.contains("ReferenceQuadrotorParameters.baseline"))
+    #expect(!cliSource.contains("?? .baseline"))
     #expect(!conformanceSource.contains("ReferenceQuadrotorParameters.baseline"))
     #expect(!runnerServiceSource.contains("ReferenceQuadrotorParameters.baseline"))
     #expect(!viewModelSource.contains("ReferenceQuadrotorParameters.baseline"))

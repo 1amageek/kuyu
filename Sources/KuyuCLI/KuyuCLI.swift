@@ -5188,7 +5188,7 @@ private func learningCampaignRolloutTask(from task: RolloutTaskChoice) -> Learni
 }
 
 func loadParameters(modelPath: String) throws -> ReferenceQuadrotorParameters {
-    try ReferenceQuadrotorParameterResolutionService().parameters(modelPath: modelPath) ?? .baseline
+    try ReferenceQuadrotorParameterResolutionService().parametersOrReferenceBaseline(modelPath: modelPath)
 }
 
 func loadEmbodiment(modelPath: String) throws -> EmbodimentContract? {
