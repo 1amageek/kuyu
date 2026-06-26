@@ -228,6 +228,26 @@ import Testing
     #expect(!commandSource.contains("ReferenceQuadrotorG1AttitudeAcceptanceGate"))
 }
 
+@Test func m2BenchmarkDelegatesPassDecisionToReferenceOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct BenchmarkReferenceAttitudeM2",
+        to: "struct CalibrateManasCheckpoint"
+    )
+
+    #expect(commandSource.contains("ReferenceQuadrotorM2BenchmarkService().run"))
+    #expect(commandSource.contains("ReferenceQuadrotorM2BenchmarkRequest("))
+    #expect(commandSource.contains("result.decision.allPassed"))
+    #expect(!commandSource.contains("result.artifact.suiteSummaries.allSatisfy"))
+    #expect(!commandSource.contains("summary.taskPassCount == summary.episodeCount"))
+    #expect(!commandSource.contains("summary.violationCount == 0"))
+}
+
 @Test func daggerRelabelDelegatesRolloutRelabelingToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
