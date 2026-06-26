@@ -201,32 +201,23 @@ public enum KuyuUIPreviewFactory {
                     artifactPath: nil
                 )
             ]
-            let gateReport = try ReferenceQuadrotorRegressionGatePolicy.report(
-                preflightFailure: nil,
-                environmentTasks: [],
-                rolloutSuites: rolloutSuites,
-                failOnTruncation: false,
-                minimumRewardAverage: nil,
-                qualityGateTask: "lift"
-            )
-            let summary = ReferenceQuadrotorRegressionSummary(
-                artifactRoot: artifactDirectory.path,
-                startedAt: Date(timeIntervalSince1970: 0),
-                controller: "manasMLX",
-                environmentController: "preview",
-                snapshot: nil,
-                preflightPassed: true,
-                preflightFailure: nil,
-                environmentReady: true,
-                environmentTasks: [],
-                rolloutPassed: true,
-                rolloutSuites: rolloutSuites,
-                gateReport: gateReport,
-                allPassed: gateReport.accepted
-            )
             return try ReferenceQuadrotorRegressionArtifactLoader().inspectionState(
                 artifactDirectory: artifactDirectory,
-                summary: summary
+                request: ReferenceQuadrotorRegressionInspectionRequest(
+                    startedAt: Date(timeIntervalSince1970: 0),
+                    controller: "manasMLX",
+                    environmentController: "preview",
+                    snapshot: nil,
+                    preflightPassed: true,
+                    preflightFailure: nil,
+                    environmentReady: true,
+                    environmentTasks: [],
+                    rolloutPassed: true,
+                    rolloutSuites: rolloutSuites,
+                    failOnTruncation: false,
+                    minimumRewardAverage: nil,
+                    qualityGateTask: "lift"
+                )
             )
         } catch {
             return nil

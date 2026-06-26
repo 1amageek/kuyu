@@ -455,9 +455,18 @@ import Testing
             .appendingPathComponent("Sources/KuyuUI/Services/RegressionRunStore.swift", isDirectory: false),
         encoding: .utf8
     )
+    let previewSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuUI/Preview/KuyuUIPreviewFactory.swift", isDirectory: false),
+        encoding: .utf8
+    )
 
     #expect(source.contains("typealias PostRegressionGateState = ReferenceQuadrotorRegressionInspectionState"))
     #expect(source.contains("loader.loadInspectionState(from: artifactDirectory)"))
+    #expect(previewSource.contains("ReferenceQuadrotorRegressionInspectionRequest"))
+    #expect(previewSource.contains("inspectionState("))
+    #expect(!previewSource.contains("ReferenceQuadrotorRegressionGatePolicy"))
+    #expect(!previewSource.contains("ReferenceQuadrotorRegressionSummary("))
     #expect(!source.contains("rolloutSuites.reduce"))
     #expect(!source.contains("flatMap(\\.workerSummaries)"))
     #expect(!source.contains("taskQuality.map"))
