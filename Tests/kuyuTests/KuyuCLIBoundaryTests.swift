@@ -493,8 +493,13 @@ import Testing
         to: "private func runKuyuRegression("
     ))
 
-    #expect(regressionMatrixSource.contains("ReferenceQuadrotorRegressionMatrixSummaryService().makeSummary"))
+    #expect(regressionMatrixSource.contains("let matrixSummaryService = ReferenceQuadrotorRegressionMatrixSummaryService()"))
+    #expect(regressionMatrixSource.contains("matrixSummaryService.entry"))
+    #expect(regressionMatrixSource.contains("matrixSummaryService.failedEntry"))
+    #expect(regressionMatrixSource.contains("matrixSummaryService.makeSummary"))
     #expect(regressionMatrixSource.contains("ReferenceQuadrotorRegressionMatrixSummaryRequest"))
+    #expect(!regressionMatrixSource.contains("summary.gateReport.accepted"))
+    #expect(!regressionMatrixSource.contains("accepted: summary.gateReport.accepted"))
     #expect(!regressionMatrixSource.contains("entries.allSatisfy(\\.accepted)"))
     #expect(!regressionMatrixSource.contains("private struct KuyuRegressionMatrixSummary"))
 }

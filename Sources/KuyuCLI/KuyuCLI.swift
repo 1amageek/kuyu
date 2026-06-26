@@ -3391,6 +3391,7 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
         }
         try FileManager.default.createDirectory(at: artifactRoot, withIntermediateDirectories: true)
 
+        let matrixSummaryService = ReferenceQuadrotorRegressionMatrixSummaryService()
         var entries: [ReferenceQuadrotorRegressionMatrixEntry] = []
         for controller in selectedControllers {
             let selectedController = controllerSelection(from: controller)
@@ -3422,29 +3423,29 @@ struct CheckKuyuRegressionMatrix: AsyncParsableCommand {
                         minimumRewardAverage: minimumRewardAverage,
                         useQualityGating: true
                     )
-                    let summary = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: cellRoot)
-                    entries.append(ReferenceQuadrotorRegressionMatrixEntry(
+                    let regressionSummary = try ReferenceQuadrotorRegressionArtifactLoader().loadSummary(from: cellRoot)
+                    let entry = matrixSummaryService.entry(
                         controller: controller.rawValue,
                         task: taskName,
                         artifactPath: cellRoot.path,
-                        accepted: summary.gateReport.accepted,
-                        reasons: summary.gateReport.reasons
-                    ))
-                    print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=\(summary.gateReport.accepted) artifact=\(cellRoot.path)")
+                        summary: regressionSummary
+                    )
+                    entries.append(entry)
+                    print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=\(entry.accepted) artifact=\(cellRoot.path)")
                 } catch {
-                    entries.append(ReferenceQuadrotorRegressionMatrixEntry(
+                    let entry = matrixSummaryService.failedEntry(
                         controller: controller.rawValue,
                         task: taskName,
                         artifactPath: cellRoot.path,
-                        accepted: false,
-                        reasons: [String(describing: error)]
-                    ))
-                    print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=false reason=\(error)")
+                        reason: String(describing: error)
+                    )
+                    entries.append(entry)
+                    print("[regression-matrix] controller=\(controller.rawValue) task=\(taskName) accepted=\(entry.accepted) reason=\(error)")
                 }
             }
         }
 
-        let summary = ReferenceQuadrotorRegressionMatrixSummaryService().makeSummary(
+        let summary = matrixSummaryService.makeSummary(
             request: ReferenceQuadrotorRegressionMatrixSummaryRequest(
                 artifactRoot: artifactRoot.path,
                 controllers: selectedControllers.map(\.rawValue),
