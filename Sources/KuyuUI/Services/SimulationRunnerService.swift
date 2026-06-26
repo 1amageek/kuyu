@@ -312,46 +312,7 @@ public struct SimulationRunnerService: Sendable {
             control: control,
             telemetry: telemetry
         )
-        let key = ScenarioKey(scenarioId: log.scenarioId, seed: log.seed)
-        let entry = ScenarioLogEntry(key: key, log: log)
-        let evaluation = ScenarioEvaluation(
-            scenarioId: log.scenarioId,
-            seed: log.seed,
-            passed: log.failureReason == nil,
-            maxOmega: log.events.map(\.safetyTrace.omegaMagnitude).max() ?? 0.0,
-            maxTiltDegrees: (log.events.map(\.safetyTrace.tiltRadians).max() ?? 0.0) * 180.0 / Double.pi,
-            sustainedViolationSeconds: 0.0,
-            recoveryTimeSeconds: nil,
-            overshootDegrees: nil,
-            hfStabilityScore: nil,
-            failures: [],
-            failureReason: log.failureReason,
-            failureTime: log.failureTime
-        )
-        let manifest = ReferenceQuadrotorScenarioManifest(
-            scenarioId: log.scenarioId,
-            seed: log.seed,
-            kind: .liftHover,
-            duration: Double(log.events.count) * log.timeStep.delta,
-            timeStep: log.timeStep,
-            torqueEvents: [],
-            actuatorDegradation: nil,
-            gyroDriftScale: 0.0,
-            swapEvents: [],
-            hfEvents: []
-        )
-        let result = SuiteRunResultFactory().makeEvaluationOnly(
-            evaluations: [evaluation],
-            replaySkippedReason: "Articulated dynamic simulation does not execute replay verification."
-        )
-        let summary = ValidationSummary(
-            suitePassed: result.passed,
-            evaluations: result.evaluations,
-            replay: result.replay,
-            manifest: [manifest],
-            aggregate: EvaluationAggregate.from(evaluations: result.evaluations)
-        )
-        return KuyAtt1RunOutput(result: result, summary: summary, logs: [entry])
+        return ArticulatedDynamicScenarioOutputFactory().makeOutput(log: log)
     }
 
     private func isArticulatedDynamicModel(_ loadedRobot: LoadedKuyuRobot) -> Bool {
