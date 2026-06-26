@@ -1900,6 +1900,21 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
     @Flag(name: .customLong("allow-rejected-artifact"), help: "Exit zero after writing a rejected foundation artifact.")
     var allowRejectedArtifact: Bool = false
 
+    @Flag(name: .customLong("m2-benchmark"), inversion: .prefixedNo, help: "Run the service-backed M2 benchmark for the accepted checkpoint.")
+    var m2Benchmark: Bool = true
+
+    @Flag(name: .customLong("m2-optional"), help: "Record M2 benchmark evidence without requiring it for foundation acceptance.")
+    var m2Optional: Bool = false
+
+    @Option(name: .customLong("m2-suites"), help: "Comma-separated M2 benchmark suite list. Supported suites are 6, 7, and 8.")
+    var m2Suites: String = "6,7,8"
+
+    @Option(name: .customLong("m2-episodes-per-suite"), help: "Episodes per M2 benchmark suite.")
+    var m2EpisodesPerSuite: Int = 3
+
+    @Option(name: .customLong("m2-max-steps-per-episode"), help: "Optional maximum simulated steps per M2 benchmark episode.")
+    var m2MaxStepsPerEpisode: Int?
+
     @MainActor
     mutating func run() async throws {
         try validatePositiveFoundationAcceptanceInputs()
@@ -1912,6 +1927,7 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
         }
         let selectedSeeds = try seeds.map(parseFoundationAcceptanceSeeds)
         let selectedSuites = try parseFoundationAcceptanceSuites(suites)
+        let selectedM2Suites = try parseFoundationAcceptanceM2Suites(m2Suites)
         let sourceCheckpointURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
         let result = try await ReferenceQuadrotorFoundationAcceptanceService().run(
@@ -1962,7 +1978,12 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
                 hoverScale: hoverScale,
                 qualityGateEnabled: !noQualityGate,
                 allowsNonEmptyArtifactRoot: allowNonEmptyArtifactRoot,
-                requiresInitialParentPass: !skipInitialParentPass
+                requiresInitialParentPass: !skipInitialParentPass,
+                m2BenchmarkEnabled: m2Benchmark,
+                m2BenchmarkRequired: !m2Optional,
+                m2BenchmarkSuites: selectedM2Suites,
+                m2BenchmarkEpisodesPerSuite: m2EpisodesPerSuite,
+                m2BenchmarkMaxStepsPerEpisode: m2MaxStepsPerEpisode
             ),
             onEvent: { event in
                 Self.printFoundationAcceptanceEvent(event)
@@ -1976,6 +1997,12 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
         }
         if let g1Acceptance = artifact.g1Acceptance {
             print("[foundation-acceptance] g1 accepted=\(g1Acceptance.accepted) taskPassRate=\(String(format: "%.6f", g1Acceptance.taskPassRate)) safetyViolationRate=\(String(format: "%.6f", g1Acceptance.safetyViolationRate))")
+        }
+        if let m2Decision = artifact.m2BenchmarkDecision {
+            print("[foundation-acceptance] m2 allPassed=\(m2Decision.allPassed) failedSuites=\(m2Decision.failedSuites.map(String.init).joined(separator: ","))")
+        }
+        if let m2BenchmarkArtifactPath = artifact.m2BenchmarkArtifactPath {
+            print("[foundation-acceptance] m2Artifact=\(m2BenchmarkArtifactPath)")
         }
         if !artifact.failureReasons.isEmpty {
             print("[foundation-acceptance] failures=\(artifact.failureReasons.joined(separator: ","))")
@@ -2010,6 +2037,12 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
         }
         if let reinforcementWarmupMaxBatches, reinforcementWarmupMaxBatches <= 0 {
             throw ValidationError("--reinforcement-warmup-max-batches must be greater than 0 when specified.")
+        }
+        guard m2EpisodesPerSuite > 0 else {
+            throw ValidationError("--m2-episodes-per-suite must be greater than 0.")
+        }
+        if let m2MaxStepsPerEpisode, m2MaxStepsPerEpisode <= 0 {
+            throw ValidationError("--m2-max-steps-per-episode must be greater than 0 when specified.")
         }
         guard resourceSampleSeconds.isFinite, resourceSampleSeconds >= 0 else {
             throw ValidationError("--resource-sample-seconds must be finite and non-negative.")
@@ -2061,6 +2094,28 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
         return suites
     }
 
+    private func parseFoundationAcceptanceM2Suites(_ raw: String) throws -> [Int] {
+        let values = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else {
+            throw ValidationError("--m2-suites must include at least one suite.")
+        }
+        var seenSuites = Set<Int>()
+        var suites: [Int] = []
+        for value in values {
+            guard let suite = Int(value), (6...8).contains(suite) else {
+                throw ValidationError("--m2-suites contains an unsupported suite: \(value)")
+            }
+            guard seenSuites.insert(suite).inserted else {
+                throw ValidationError("--m2-suites contains a duplicate suite: \(suite)")
+            }
+            suites.append(suite)
+        }
+        return suites
+    }
+
     private static func printFoundationAcceptanceEvent(
         _ event: ReferenceQuadrotorFoundationAcceptanceEvent
     ) {
@@ -2071,6 +2126,10 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
             print("[foundation-acceptance] final-evaluation started checkpoint=\(checkpointPath) artifactRoot=\(artifactRootPath)")
         case .finalEvaluationCompleted(let accepted, let artifactRootPath):
             print("[foundation-acceptance] final-evaluation completed accepted=\(accepted) artifactRoot=\(artifactRootPath)")
+        case .m2BenchmarkStarted(let checkpointPath, let artifactRootPath):
+            print("[foundation-acceptance] m2-benchmark started checkpoint=\(checkpointPath) artifactRoot=\(artifactRootPath)")
+        case .m2BenchmarkCompleted(let allPassed, let artifactRootPath):
+            print("[foundation-acceptance] m2-benchmark completed allPassed=\(allPassed) artifactRoot=\(artifactRootPath)")
         case .artifactWritten(let path):
             print("[foundation-acceptance] artifact-written path=\(path)")
         }
