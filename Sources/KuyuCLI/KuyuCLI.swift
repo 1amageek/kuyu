@@ -20,7 +20,7 @@ struct KuyuCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "kuyu",
         abstract: "Kuyu training world command-line interface.",
-        subcommands: [Run.self, Rollout.self, Loop.self, Train.self, Runs.self, Control.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, RunFoundationAcceptance.self, BenchmarkReferenceAttitudeM2.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, Verify.self, Conformance.self, Doctor.self]
+        subcommands: [Run.self, Rollout.self, Loop.self, Train.self, Runs.self, Control.self, ProbeRoArmM1.self, TrainRoArmM1JointTargets.self, ProbeManas.self, ProbeManasSuite.self, ProbeCTBRPolicy.self, ProbeCTBRPPOBackend.self, ProbeCTBRRollout.self, WriteCTBRCheckpoint.self, BehaviorCloneCTBR.self, DaggerRelabelCTBR.self, TrainManasCore.self, MixTrainingDatasets.self, EvaluateManasCheckpoint.self, RunFoundationAcceptance.self, BenchmarkReferenceAttitudeM2.self, CalibrateManasCheckpoint.self, SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self, CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self, EvolveManas.self, RunLearningCampaign.self, ValidateLearningCampaign.self, TrainWorldModel.self, ImagineTrain.self, PublishWorldModelFusedEvidence.self, Verify.self, Conformance.self, Doctor.self]
     )
 }
 
@@ -5254,6 +5254,57 @@ struct ImagineTrain: AsyncParsableCommand {
         if let stateCheckpoint = manifest.stateWorldModelCheckpointPath {
             print("[imagination] validated stateCheckpoint=\(stateCheckpoint) reason=\(manifest.validationReason ?? "accepted")")
         }
+    }
+}
+
+struct PublishWorldModelFusedEvidence: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "publish-world-model-fused-evidence",
+        abstract: "Publish fused long-horizon evidence from an accepted imagination manifest and Kuyu dataset."
+    )
+
+    @Option(name: .customLong("imagination"), help: "Accepted imagination-training directory containing imagination-training-manifest.json.")
+    var imaginationPath: String
+
+    @Option(help: "Dataset directory containing meta.json and records.jsonl. Defaults to the world-model manifest datasetPath.")
+    var dataset: String?
+
+    @Option(help: "Output directory for fused-environment-long-horizon-artifact.json.")
+    var output: String
+
+    @Option(name: .customLong("dataset-index"), help: "Dataset index when the dataset root contains multiple dataset directories.")
+    var datasetIndex: Int = 0
+
+    @Option(name: .customLong("start-record"), help: "First dataset record index to replay.")
+    var startRecordIndex: Int = 0
+
+    @Option(help: "Optional publication horizon. Defaults to the physics-grounded imagination artifact horizon.")
+    var horizon: Int?
+
+    @Option(name: .customLong("time-step"), help: "Optional timestep override. Must match the dataset timestep.")
+    var timeStep: Double?
+
+    mutating func run() async throws {
+        try MLXRuntimeReadinessService().check()
+        let outputDirectory = URL(fileURLWithPath: output, isDirectory: true)
+        let request = try DatasetBackedFusedLongHorizonPublicationRequest(
+            source: .imaginationTrainingManifestRoot(
+                URL(fileURLWithPath: imaginationPath, isDirectory: true)
+            ),
+            datasetDirectory: dataset.map { URL(fileURLWithPath: $0, isDirectory: true) },
+            outputDirectory: outputDirectory,
+            datasetIndex: datasetIndex,
+            startRecordIndex: startRecordIndex,
+            horizon: horizon,
+            timeStep: timeStep
+        )
+        let artifact = try DatasetBackedFusedLongHorizonEvidenceService().publish(request: request)
+        let artifactURL = outputDirectory.appendingPathComponent(
+            FusedEnvironmentLongHorizonArtifact.fileName
+        )
+        print("[world-model-fused-evidence] artifact=\(artifactURL.path)")
+        print("[world-model-fused-evidence] modelId=\(artifact.modelId) horizon=\(artifact.horizon) timeStep=\(artifact.timeStep)")
+        print("[world-model-fused-evidence] maxResidualAbs=\(artifact.maxResidualAbs) maxUncertainty=\(artifact.maxUncertainty)")
     }
 }
 

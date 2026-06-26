@@ -313,6 +313,28 @@ import Testing
     #expect(!commandSource.contains("summary.violationCount == 0"))
 }
 
+@Test func publishWorldModelFusedEvidenceDelegatesPublicationToWorldModelOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let commandSource = try extractSource(
+        source,
+        from: "struct PublishWorldModelFusedEvidence",
+        to: "struct Verify"
+    )
+
+    #expect(source.contains("PublishWorldModelFusedEvidence.self"))
+    #expect(commandSource.contains("MLXRuntimeReadinessService().check"))
+    #expect(commandSource.contains("DatasetBackedFusedLongHorizonPublicationRequest("))
+    #expect(commandSource.contains("DatasetBackedFusedLongHorizonEvidenceService().publish"))
+    #expect(commandSource.contains("FusedEnvironmentLongHorizonArtifact.fileName"))
+    #expect(!commandSource.contains("StateWorldModel("))
+    #expect(!commandSource.contains("TrainingDatasetContractValidator"))
+    #expect(!commandSource.contains("MLX.loadArrays"))
+}
+
 @Test func daggerRelabelDelegatesRolloutRelabelingToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
