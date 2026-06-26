@@ -222,6 +222,9 @@ import Testing
 
     #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceService().run"))
     #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceRequest("))
+    #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceArtifactValidator()"))
+    #expect(commandSource.contains(".loadAndValidate(from: artifactRoot)"))
+    #expect(!commandSource.contains("let artifact = result.artifact"))
     #expect(!commandSource.contains("LearningCampaignRunner("))
     #expect(!commandSource.contains("LearningCampaignAcceptedCheckpointResolver("))
     #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService().evaluate"))

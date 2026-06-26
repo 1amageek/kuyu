@@ -1930,7 +1930,7 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
         let selectedM2Suites = try parseFoundationAcceptanceM2Suites(m2Suites)
         let sourceCheckpointURL = URL(fileURLWithPath: sourceCheckpointPath, isDirectory: true)
         let artifactRoot = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
-        let result = try await ReferenceQuadrotorFoundationAcceptanceService().run(
+        _ = try await ReferenceQuadrotorFoundationAcceptanceService().run(
             ReferenceQuadrotorFoundationAcceptanceRequest(
                 sourceCheckpointURL: sourceCheckpointURL,
                 artifactRoot: artifactRoot,
@@ -1989,7 +1989,8 @@ struct RunFoundationAcceptance: AsyncParsableCommand {
                 Self.printFoundationAcceptanceEvent(event)
             }
         )
-        let artifact = result.artifact
+        let artifact = try ReferenceQuadrotorFoundationAcceptanceArtifactValidator()
+            .loadAndValidate(from: artifactRoot)
         print("[foundation-acceptance] status=\(artifact.status.rawValue) accepted=\(artifact.accepted) campaignAccepted=\(artifact.campaignAcceptedCount)/\(artifact.campaignSeedCount)")
         print("[foundation-acceptance] source=\(artifact.sourceCheckpointPath)")
         if let acceptedCheckpointPath = artifact.acceptedCheckpointPath {
