@@ -25,6 +25,10 @@ let package = Package(
             name: "kuyu-simulator-preview",
             targets: ["KuyuSimulatorPreview"]
         ),
+        .executable(
+            name: "kuyu-inspection-preview",
+            targets: ["KuyuInspectionPreview"]
+        ),
     ],
     dependencies: [
         .package(path: "../kuyu-core"),
@@ -47,6 +51,8 @@ let package = Package(
                 .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
                 .product(name: "KuyuTraining", package: "kuyu-training"),
                 .product(name: "KuyuMLX", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXCampaignContracts", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXEvolution", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Configuration", package: "swift-configuration"),
@@ -74,6 +80,7 @@ let package = Package(
                 .product(name: "KuyuMLXCore", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXRoArmM1", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXTrainingProbe", package: "kuyu-mlx"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -87,6 +94,13 @@ let package = Package(
             name: "KuyuSimulatorPreview",
             dependencies: [
                 "KuyuUI"
+            ]
+        ),
+        .executableTarget(
+            name: "KuyuInspectionPreview",
+            dependencies: [
+                "KuyuUI",
+                .product(name: "KuyuTraining", package: "kuyu-training"),
             ]
         ),
         .testTarget(

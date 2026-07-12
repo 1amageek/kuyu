@@ -1,4 +1,5 @@
 import Charts
+import KuyuMLXCampaignContracts
 import SwiftUI
 
 struct EvolutionFitnessChartView: View {

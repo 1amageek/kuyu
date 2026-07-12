@@ -1,4 +1,5 @@
 import SwiftUI
+import KuyuMLXCampaignContracts
 
 struct LearningCampaignActivityView: View {
     @Bindable var model: SimulationViewModel

@@ -75,8 +75,8 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         let progressEvents = model.learningCampaignProgressEventsForDisplay
         let latestProgressRecord = progressEvents.last
         let latestCandidateRecord = progressEvents.last { $0.event == "candidate-evaluated" }
-        let latestProgressEventDate = latestProgressRecord.flatMap { Self.parseISOTimestamp($0.timestamp) }
-        let latestCandidateDate = latestCandidateRecord.flatMap { Self.parseISOTimestamp($0.timestamp) }
+        let latestProgressEventDate = latestProgressRecord?.timestamp
+        let latestCandidateDate = latestCandidateRecord?.timestamp
         let lastRunnerEventAt = model.learningCampaignLastRunnerEventAt ?? latestProgressEventDate
         let latestBatch = state?.latestVectorizedBatch
         let latestThroughput = latestCandidateRecord?.workerThroughput.flatMap(Self.finitePositive)
@@ -458,13 +458,4 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         return value
     }
 
-    private static let isoFormatStyle = Date.ISO8601FormatStyle()
-
-    private static func parseISOTimestamp(_ value: String) -> Date? {
-        do {
-            return try isoFormatStyle.parse(value)
-        } catch {
-            return nil
-        }
-    }
 }

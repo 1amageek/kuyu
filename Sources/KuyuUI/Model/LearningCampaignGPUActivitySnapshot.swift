@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLXCampaignContracts
 
 struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
     enum Status: String, Sendable, Equatable {
@@ -65,7 +66,7 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
 
     init(
         batches: [LearningCampaignVectorizedBatchState],
-        progressEvents: [LearningCampaignProgressRecord],
+        progressEvents: [LearningCampaignProgressEvent],
         acceleratorLabel: String?,
         currentAllocatedBytes: UInt64? = nil,
         recommendedMaxWorkingSetBytes: UInt64? = nil
@@ -126,7 +127,7 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
         return min(1, Double(currentAllocatedBytes) / Double(recommendedMaxWorkingSetBytes))
     }
 
-    private static func isGPURelevantEvent(_ record: LearningCampaignProgressRecord) -> Bool {
+    private static func isGPURelevantEvent(_ record: LearningCampaignProgressEvent) -> Bool {
         record.event == "candidate-evaluated"
             && (
                 record.gpuAcceleration != nil ||
@@ -136,7 +137,7 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
             )
     }
 
-    private static func recordUsesGPU(_ record: LearningCampaignProgressRecord) -> Bool {
+    private static func recordUsesGPU(_ record: LearningCampaignProgressEvent) -> Bool {
         executionEvidence(record: record).usesGPU
     }
 
@@ -144,7 +145,7 @@ struct LearningCampaignGPUActivitySnapshot: Sendable, Equatable {
         executionEvidence(batch: batch).usesGPU
     }
 
-    private static func executionEvidence(record: LearningCampaignProgressRecord) -> ExecutionEvidence {
+    private static func executionEvidence(record: LearningCampaignProgressEvent) -> ExecutionEvidence {
         if record.tensorWorldBatch == true {
             return .gpuTensorWorld
         }

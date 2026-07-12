@@ -1,4 +1,5 @@
 import SwiftUI
+import KuyuMLXCampaignContracts
 
 struct PopulationSimulationView: View {
     @Bindable var model: SimulationViewModel
@@ -131,7 +132,7 @@ private struct PopulationSimulationSnapshot {
             ?? state?.plan?.seeds.first
             ?? "seed-1"
 
-        var progressByCandidateID: [String: LearningCampaignProgressRecord] = [:]
+        var progressByCandidateID: [String: LearningCampaignProgressEvent] = [:]
         for record in events where record.event == "candidate-evaluated"
             && record.seed == activeSeed
             && record.generationIndex == activeGenerationIndex {
@@ -241,7 +242,7 @@ private struct PopulationSimulationSnapshot {
     }
 
     private static func bestCandidateID(
-        progress: [String: LearningCampaignProgressRecord],
+        progress: [String: LearningCampaignProgressEvent],
         persisted: [String: LearningCampaignCandidateState]
     ) -> String? {
         let progressBest = progress.max { lhs, rhs in
@@ -268,7 +269,7 @@ private struct PopulationSimulationSnapshot {
 private struct PopulationCandidateSlot: Identifiable, Equatable {
     let index: Int
     let candidateID: String
-    let progress: LearningCampaignProgressRecord?
+    let progress: LearningCampaignProgressEvent?
     let persisted: LearningCampaignCandidateState?
     let isBest: Bool
 

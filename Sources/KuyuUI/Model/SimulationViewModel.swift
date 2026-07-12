@@ -4,6 +4,7 @@ import Logging
 import Observation
 import KuyuCore
 import KuyuMLX
+import KuyuMLXCampaignContracts
 import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
@@ -194,11 +195,11 @@ public final class SimulationViewModel {
     var learningCampaignLiveAltitudeErrorSamples: [MetricSample] = []
     var learningCampaignLiveEpisodeSamples: [MetricSample] = []
     var learningCampaignLiveCandidateEvaluationCount: Int = 0
-    private(set) var learningCampaignLiveProgressEvents: [LearningCampaignProgressRecord] = []
+    private(set) var learningCampaignLiveProgressEvents: [LearningCampaignProgressEvent] = []
     // Stored, bounded snapshot of persisted + live progress events. Keeping it
     // a computed sort made every access O(n log n) over the whole campaign and
     // saturated the main thread once views read it inside per-element closures.
-    private(set) var learningCampaignProgressEventsForDisplay: [LearningCampaignProgressRecord] = []
+    private(set) var learningCampaignProgressEventsForDisplay: [LearningCampaignProgressEvent] = []
     var isLearningCampaignRunning = false
     var learningCampaignMonitorEnabled = false
     var learningCampaignLastRunnerEventAt: Date?
@@ -301,7 +302,7 @@ public final class SimulationViewModel {
         manualActuatorMaster = manualActuatorValues.first ?? 0.0
         installLogObserverIfNeeded()
 
-        loadPersistedModelsOrFallback(defaultStore: store)
+        restoreAvailableModels(defaultStore: store)
         if prepareStarterProjectOnInit && !isPreviewEnvironment {
             scheduleStarterLearningProjectPreparation()
         } else {
@@ -1689,6 +1690,7 @@ public final class SimulationViewModel {
         let robotManifestPath = ensureRobotManifestForTask(reason: "kuyuProject")
         let observationTaskMode = taskMode
         try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
+            projectRootURL: package.rootURL,
             checkpointURL: sourceURL,
             displayName: package.manifest.name,
             robotManifestPath: robotManifestPath,
@@ -2429,10 +2431,10 @@ public final class SimulationViewModel {
     }
 
     func appendLearningCampaignLiveProgressEvent(_ progressEvent: TrainingRunProgressEvent) {
-        appendLearningCampaignLiveProgressRecord(makeLearningCampaignProgressRecord(from: progressEvent))
+        appendLearningCampaignLiveProgressRecord(LearningCampaignProgressEvent(progressEvent: progressEvent))
     }
 
-    func appendLearningCampaignLiveProgressRecord(_ progressRecord: LearningCampaignProgressRecord) {
+    func appendLearningCampaignLiveProgressRecord(_ progressRecord: LearningCampaignProgressEvent) {
         learningCampaignLiveProgressEvents.append(progressRecord)
         let maximumEntryCount = 1_000
         if learningCampaignLiveProgressEvents.count > maximumEntryCount {
@@ -2473,41 +2475,6 @@ public final class SimulationViewModel {
         }
     }
 
-    private func makeLearningCampaignProgressRecord(
-        from progressEvent: TrainingRunProgressEvent
-    ) -> LearningCampaignProgressRecord {
-        return LearningCampaignProgressRecord(
-            event: progressEvent.event,
-            timestamp: ISO8601DateFormatter().string(from: progressEvent.timestamp),
-            status: progressEvent.status,
-            exitCode: progressEvent.exitCode,
-            phase: progressEvent.phase,
-            seed: progressEvent.seed,
-            generationIndex: progressEvent.generationIndex,
-            candidateID: progressEvent.candidateID,
-            fitness: progressEvent.fitness,
-            rewardAverage: progressEvent.rewardAverage,
-            taskPassRate: progressEvent.taskPassRate,
-            safetyViolationRate: progressEvent.safetyViolationRate,
-            holdTimeRatio: progressEvent.holdTimeRatio,
-            altitudeErrorRatio: progressEvent.altitudeErrorRatio,
-            workerThroughput: progressEvent.workerThroughput,
-            gpuAcceleration: progressEvent.gpuAcceleration,
-            tensorWorldBatch: progressEvent.tensorWorldBatch,
-            tensorSummary: progressEvent.tensorSummary,
-            vectorizedPopulationSize: progressEvent.vectorizedPopulationSize,
-            vectorizedWorldCount: progressEvent.vectorizedWorldCount,
-            vectorizedHistoryLength: progressEvent.vectorizedHistoryLength,
-            vectorizedObservationDimension: progressEvent.vectorizedObservationDimension,
-            vectorizedActionDimension: progressEvent.vectorizedActionDimension,
-            failureReasons: progressEvent.failureReasons,
-            bestCandidateID: progressEvent.bestCandidateID,
-            accepted: progressEvent.accepted,
-            path: progressEvent.path,
-            message: progressEvent.message
-        )
-    }
-
     func appendLearningCampaignLiveMetricSamples(_ fitness: FitnessSummary) {
         learningCampaignLiveCandidateEvaluationCount += 1
         let time = Double(fitness.generationIndex)
@@ -2543,7 +2510,7 @@ public final class SimulationViewModel {
         )
     }
 
-    private func appendLearningCampaignLiveMetricSamples(_ progressRecord: LearningCampaignProgressRecord) {
+    private func appendLearningCampaignLiveMetricSamples(_ progressRecord: LearningCampaignProgressEvent) {
         guard progressRecord.event == "candidate-evaluated",
               let generationIndex = progressRecord.generationIndex,
               let candidateID = progressRecord.candidateID,
@@ -2572,7 +2539,7 @@ public final class SimulationViewModel {
                 "vectorized.observationDimension": Double(progressRecord.vectorizedObservationDimension ?? 0),
                 "vectorized.actionDimension": Double(progressRecord.vectorizedActionDimension ?? 0)
             ],
-            failureReasons: progressRecord.failureReasons ?? []
+            failureReasons: progressRecord.failureReasons
         )
         appendLearningCampaignLiveMetricSamples(summary)
     }
@@ -2798,6 +2765,7 @@ public final class SimulationViewModel {
 
         if !sourcePath.isEmpty {
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
+                projectRootURL: projectRootForSourceCheckpoint(sourceURL),
                 checkpointURL: sourceURL,
                 displayName: learningCampaignExperimentName,
                 robotManifestPath: robotManifestPath,
@@ -2838,6 +2806,7 @@ public final class SimulationViewModel {
             policyContract: policyContract
         ) { [runnableProjectAssetPreparer, trainingUseAux, trainingUseQualityGating, observationTaskMode, policyContract, actionContract] checkpointURL in
             try runnableProjectAssetPreparer.prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest(
+                projectRootURL: checkpointURL.deletingLastPathComponent(),
                 checkpointURL: checkpointURL,
                 displayName: "Bounded Drone Autonomy Starter",
                 robotManifestPath: robotManifestPath,
@@ -3658,7 +3627,7 @@ public final class SimulationViewModel {
         return false
     }
 
-    private func loadPersistedModelsOrFallback(defaultStore: ManasMLXModelStore) {
+    private func restoreAvailableModels(defaultStore: ManasMLXModelStore) {
         let persisted = loadPersistedModels()
         if persisted.isEmpty {
             let defaultID = UUID()

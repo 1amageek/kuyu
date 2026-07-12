@@ -1,4 +1,5 @@
 import SwiftUI
+import KuyuMLXCampaignContracts
 
 struct PolicyLineageGraphView: View {
     let state: LearningCampaignRunStoreState?

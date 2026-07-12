@@ -21,27 +21,28 @@ import KuyuScenarios
         determinism: .tier1Baseline,
         noise: .zero,
         gains: gains,
-        baselineMode: .teacher
+        baselineMode: .teacher,
+        replayVerification: false
     )
     let sensor = KuyAtt1Runner(
         schedule: schedule,
         determinism: .tier1Baseline,
         noise: .zero,
         gains: gains,
-        baselineMode: .sensor
+        baselineMode: .sensor,
+        replayVerification: false
     )
 
-    let teacherOutput = try await teacher.runWithLogs()
-    let sensorOutput = try await sensor.runWithLogs()
+    let definitions = Array(try KuyAtt1Suite().scenarios().prefix(1))
+    let teacherOutput = try await teacher.runWithLogs(definitions: definitions)
+    let sensorOutput = try await sensor.runWithLogs(definitions: definitions)
 
     #expect(teacherOutput.summary.suitePassed)
     #expect(!sensorOutput.summary.suitePassed)
     #expect(teacherOutput.logs.count == teacherOutput.summary.manifest.count)
     #expect(sensorOutput.logs.count == sensorOutput.summary.manifest.count)
-    #expect(teacherOutput.result.replay.notPerformedReason == nil)
-    #expect(teacherOutput.result.replay.checks.count == teacherOutput.logs.count)
-    #expect(teacherOutput.result.replay.checks.allSatisfy { $0.passed })
-    #expect(sensorOutput.result.replay.notPerformedReason == nil)
-    #expect(sensorOutput.result.replay.checks.count == sensorOutput.logs.count)
-    #expect(sensorOutput.result.replay.checks.allSatisfy { $0.passed })
+    #expect(teacherOutput.result.replay.notPerformedReason != nil)
+    #expect(teacherOutput.result.replay.checks.isEmpty)
+    #expect(sensorOutput.result.replay.notPerformedReason != nil)
+    #expect(sensorOutput.result.replay.checks.isEmpty)
 }

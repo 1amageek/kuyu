@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLXCampaignContracts
 import KuyuTraining
 
 struct LearningCampaignRunLogRecord: Identifiable, Sendable, Equatable {
@@ -205,13 +206,13 @@ enum LearningCampaignRunLogFormatter {
         .joined(separator: "\n")
     }
 
-    private static func progressEntry(_ record: LearningCampaignProgressRecord) -> LearningCampaignRunLogRecord {
+    private static func progressEntry(_ record: LearningCampaignProgressEvent) -> LearningCampaignRunLogRecord {
         let phase = record.phase ?? record.status ?? "campaign"
         let detail = progressDetail(record)
         let metadata = progressMetadata(record)
         return LearningCampaignRunLogRecord(
-            id: UUID(uuidString: deterministicID(record.timestamp + record.event)) ?? UUID(),
-            timestamp: parseISOTimestamp(record.timestamp) ?? Date.distantPast,
+            id: UUID(uuidString: deterministicID("\(record.timestamp.timeIntervalSince1970)|\(record.event)")) ?? UUID(),
+            timestamp: record.timestamp,
             category: progressCategory(record),
             level: progressLevel(record),
             phase: phase,
@@ -221,7 +222,7 @@ enum LearningCampaignRunLogFormatter {
         )
     }
 
-    private static func progressLevel(_ record: LearningCampaignProgressRecord) -> LearningCampaignRunLogRecord.Level {
+    private static func progressLevel(_ record: LearningCampaignProgressEvent) -> LearningCampaignRunLogRecord.Level {
         if let exitCode = record.exitCode {
             return exitCode == 0 ? .success : .failure
         }
@@ -237,7 +238,7 @@ enum LearningCampaignRunLogFormatter {
         }
     }
 
-    private static func progressCategory(_ record: LearningCampaignProgressRecord) -> LearningCampaignRunLogRecord.Category {
+    private static func progressCategory(_ record: LearningCampaignProgressEvent) -> LearningCampaignRunLogRecord.Category {
         switch record.event {
         case "preflight-started", "preflight-completed":
             return .preflight
@@ -260,7 +261,7 @@ enum LearningCampaignRunLogFormatter {
         }
     }
 
-    private static func progressDetail(_ record: LearningCampaignProgressRecord) -> String {
+    private static func progressDetail(_ record: LearningCampaignProgressEvent) -> String {
         if let message = record.message, !message.isEmpty {
             return message
         }
@@ -285,8 +286,8 @@ enum LearningCampaignRunLogFormatter {
             if !execution.isEmpty {
                 parts.append(execution)
             }
-            if let failureReasons = record.failureReasons, !failureReasons.isEmpty {
-                parts.append("reasons \(failureReasons.joined(separator: ","))")
+            if !record.failureReasons.isEmpty {
+                parts.append("reasons \(record.failureReasons.joined(separator: ","))")
             }
             return parts.joined(separator: ", ")
         }
@@ -299,7 +300,7 @@ enum LearningCampaignRunLogFormatter {
         return record.path ?? ""
     }
 
-    private static func progressMetadata(_ record: LearningCampaignProgressRecord) -> [String] {
+    private static func progressMetadata(_ record: LearningCampaignProgressEvent) -> [String] {
         var metadata: [String] = []
         if let status = record.status {
             metadata.append("status \(status)")
@@ -345,7 +346,7 @@ enum LearningCampaignRunLogFormatter {
         return metadata
     }
 
-    private static func executionDetail(_ record: LearningCampaignProgressRecord) -> String {
+    private static func executionDetail(_ record: LearningCampaignProgressEvent) -> String {
         var parts: [String] = []
         if let gpu = record.gpuAcceleration {
             parts.append(gpu ? "GPU" : "CPU")
@@ -452,11 +453,4 @@ enum LearningCampaignRunLogFormatter {
     // ISO8601DateFormatter's .withInternetDateTime output.
     private static let isoFormatStyle = Date.ISO8601FormatStyle()
 
-    private static func parseISOTimestamp(_ value: String) -> Date? {
-        do {
-            return try isoFormatStyle.parse(value)
-        } catch {
-            return nil
-        }
-    }
 }

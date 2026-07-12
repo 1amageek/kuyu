@@ -1,5 +1,6 @@
 import Charts
 import SwiftUI
+import KuyuMLXCampaignContracts
 
 #if canImport(Metal)
 import Metal
@@ -49,7 +50,7 @@ struct VectorizedExecutionView: View {
         state?.latestVectorizedBatch ?? batches.last
     }
 
-    private var latestLiveRecord: LearningCampaignProgressRecord? {
+    private var latestLiveRecord: LearningCampaignProgressEvent? {
         model.learningCampaignProgressEventsForDisplay.last { record in
             record.event == "candidate-evaluated" &&
             (
@@ -397,7 +398,7 @@ struct VectorizedExecutionView: View {
         state?.latestAcceleratorDevice ?? state?.accelerator?.acceleratorLabel ?? "Metal"
     }
 
-    private func liveShapeLabel(_ record: LearningCampaignProgressRecord) -> String {
+    private func liveShapeLabel(_ record: LearningCampaignProgressEvent) -> String {
         let population = record.vectorizedPopulationSize.map { "B\($0)" } ?? "B?"
         let worlds = record.vectorizedWorldCount.map { "W\($0)" } ?? "W?"
         let history = record.vectorizedHistoryLength.map { "H\($0)" } ?? "H?"

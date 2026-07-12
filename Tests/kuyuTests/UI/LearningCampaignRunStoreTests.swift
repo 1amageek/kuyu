@@ -1,5 +1,6 @@
 import Foundation
 import KuyuMLX
+import KuyuMLXCampaignContracts
 import KuyuTraining
 import KuyuUI
 import Testing
@@ -30,9 +31,9 @@ import Testing
         to: root.appendingPathComponent("learning-campaign-validation.json")
     )
     try writeLine(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "seed-started",
-            timestamp: "2026-05-07T00:00:02Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_112_002),
             status: "running",
             exitCode: nil
         ),
@@ -141,9 +142,9 @@ import Testing
 
     try writeJSON(makeFiveGenerationPlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
     try writeLine(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: "2026-05-07T00:00:02Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_112_002),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -162,9 +163,9 @@ import Testing
         to: root.appendingPathComponent("progress.jsonl")
     )
     try writeLine(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "generation-completed",
-            timestamp: "2026-05-07T00:00:03Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_112_003),
             status: nil,
             exitCode: nil,
             phase: "generation",
@@ -175,9 +176,9 @@ import Testing
         to: root.appendingPathComponent("progress.jsonl")
     )
     try writeLine(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: "2026-05-07T00:00:04Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_112_004),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -248,9 +249,9 @@ import Testing
         encoding: .utf8
     )
     try writeLine(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "validation-failed",
-            timestamp: "2026-05-07T00:01:02Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_112_062),
             status: "failed",
             exitCode: 1
         ),
@@ -453,9 +454,9 @@ import Testing
         encoding: .utf8
     )
     try writeLine(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "campaign-finished",
-            timestamp: "2026-05-07T00:02:02Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_112_122),
             status: "cancelled",
             exitCode: 130
         ),
@@ -579,6 +580,30 @@ import Testing
     #expect(state.candidates(seed: "evolution", generationIndex: 4).first?.parentCandidateIDs == ["g3-c7", "g3-c6"])
     #expect(state.latestGenerations.first?.seed == "evolution")
     #expect(state.latestGenerations.first?.generationIndex == 4)
+}
+
+@Test func learningCampaignRunStoreRejectsInvalidVectorizedBatchArtifactThroughReader() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-invalid-vectorized-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeJSON(makePlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
+
+    let vectorizedRoot = root.appendingPathComponent("vectorized-evaluations", isDirectory: true)
+    try FileManager.default.createDirectory(at: vectorizedRoot, withIntermediateDirectories: true)
+    try writeJSON(
+        UncheckedLearningCampaignVectorizedEvaluationArtifact(
+            artifact: makeVectorizedEvaluationArtifact(),
+            schemaVersion: 0
+        ),
+        to: vectorizedRoot.appendingPathComponent(ManasMLXVectorizedEvaluationArtifact.fileName)
+    )
+
+    do {
+        _ = try LearningCampaignRunStore().load(from: root)
+        Issue.record("Expected invalid vectorized batch artifact to fail through the UI artifact reader.")
+    } catch ManasMLXVectorizedEvaluationArtifactValidator.ValidationError.unsupportedSchemaVersion(let version) {
+        #expect(version == 0)
+    }
 }
 
 private func makePlan(root: URL) -> LearningCampaignPlan {
@@ -797,6 +822,106 @@ private func writeRejectedEvolutionArtifact(to directory: URL) throws {
         ],
         to: directory
     )
+}
+
+private func makeVectorizedEvaluationArtifact() throws -> ManasMLXVectorizedEvaluationArtifact {
+    let quality = try VectorizedTaskQualitySummary(
+        profileID: "attitude",
+        task: "attitude",
+        scenarioID: "ATT-1",
+        seed: 1,
+        passed: true,
+        failureReasons: [],
+        evaluatorID: "test-quality",
+        metrics: ["rewardAverage": 1]
+    )
+    let summary = try VectorizedCandidateRolloutSummary(
+        candidateID: "candidate-a",
+        rewardAverage: 1,
+        fitness: 1,
+        taskPassRate: 1,
+        safetyViolationRate: 0,
+        rolloutCount: 1,
+        taskQuality: [quality]
+    )
+    let batchSpec = try VectorizedTrainingBatchSpec(
+        populationSize: 1,
+        worldCount: 1,
+        rolloutHorizon: 20_000,
+        historyLength: 1,
+        observationDimension: 16,
+        actionDimension: 4,
+        actionEncoding: .ctbr,
+        executionMode: .sharedWorld,
+        requiresAccelerator: .metal
+    )
+    return ManasMLXVectorizedEvaluationArtifact(
+        evaluatorID: "test-vectorized-evaluator",
+        runID: "test-run",
+        taskID: "attitude",
+        profileID: "attitude",
+        generationIndex: 0,
+        candidateIDs: ["candidate-a"],
+        batchSpec: batchSpec,
+        requestedCandidateCount: 1,
+        evaluatedCandidateCount: 1,
+        startedAt: Date(timeIntervalSince1970: 0),
+        completedAt: Date(timeIntervalSince1970: 1),
+        elapsedSeconds: 1,
+        acceleratorDevice: "metal",
+        policyExecutionMode: "mlx-stacked-population-temporal-ctbr",
+        observationExecutionMode: "mlx-tensor-ctbr-observation-bridge-v1",
+        worldExecutionMode: "mlx-tensor-lift-world-v1",
+        worldActiveActionDimension: 4,
+        summaries: [summary]
+    )
+}
+
+private struct UncheckedLearningCampaignVectorizedEvaluationArtifact: Encodable {
+    let schemaVersion: Int
+    let evaluatorID: String
+    let runID: String
+    let taskID: String
+    let profileID: String
+    let generationIndex: Int
+    let candidateIDs: [String]
+    let batchSpec: VectorizedTrainingBatchSpec
+    let requestedCandidateCount: Int
+    let evaluatedCandidateCount: Int
+    let startedAt: Date
+    let completedAt: Date
+    let elapsedSeconds: Double
+    let acceleratorDevice: String
+    let policyExecutionMode: String
+    let observationExecutionMode: String
+    let worldExecutionMode: String
+    let worldActiveActionDimension: Int
+    let summaries: [VectorizedCandidateRolloutSummary]
+
+    init(
+        artifact: ManasMLXVectorizedEvaluationArtifact,
+        schemaVersion: Int
+    ) {
+        self.schemaVersion = schemaVersion
+        evaluatorID = artifact.evaluatorID
+        runID = artifact.runID
+        taskID = artifact.taskID
+        profileID = artifact.profileID
+        generationIndex = artifact.generationIndex
+        candidateIDs = artifact.candidateIDs
+        batchSpec = artifact.batchSpec
+        requestedCandidateCount = artifact.requestedCandidateCount
+        evaluatedCandidateCount = artifact.evaluatedCandidateCount
+        startedAt = artifact.startedAt
+        completedAt = artifact.completedAt
+        elapsedSeconds = artifact.elapsedSeconds
+        acceleratorDevice = artifact.acceleratorDevice
+        policyExecutionMode = artifact.policyExecutionMode
+        observationExecutionMode = artifact.observationExecutionMode
+        worldExecutionMode = artifact.worldExecutionMode
+        worldActiveActionDimension = artifact.worldActiveActionDimension
+        summaries = artifact.summaries
+    }
 }
 
 private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

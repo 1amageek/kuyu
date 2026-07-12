@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLXCampaignContracts
 import KuyuTraining
 @testable import KuyuUI
 import Testing
@@ -47,9 +48,9 @@ import Testing
 @Test(.timeLimit(.minutes(1))) func simulationViewModelExposesLiveVectorizedProgressForDashboardViews() {
     let model = SimulationViewModel(logStore: UILogStore(buffer: UILogBuffer()))
     model.appendLearningCampaignLiveProgressRecord(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: "2026-05-16T00:00:00Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_889_600),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -98,9 +99,9 @@ import Testing
     model.learningCampaignLastArtifactLoadFinishedAt = now.addingTimeInterval(-2)
     model.learningCampaignLastArtifactLoadChangedAt = now.addingTimeInterval(-2)
     model.appendLearningCampaignLiveProgressRecord(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-4)),
+            timestamp: now.addingTimeInterval(-4),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -137,9 +138,9 @@ import Testing
     model.learningCampaignLastArtifactLoadFinishedAt = now.addingTimeInterval(-900)
     model.learningCampaignLastArtifactLoadChangedAt = now.addingTimeInterval(-900)
     model.appendLearningCampaignLiveProgressRecord(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-900)),
+            timestamp: now.addingTimeInterval(-900),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -169,9 +170,9 @@ import Testing
     model.learningCampaignLastArtifactLoadFinishedAt = now.addingTimeInterval(-2)
     model.learningCampaignLastArtifactLoadChangedAt = now.addingTimeInterval(-360)
     model.appendLearningCampaignLiveProgressRecord(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-4)),
+            timestamp: now.addingTimeInterval(-4),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -200,9 +201,9 @@ import Testing
     model.learningCampaignLastRunnerEventAt = now.addingTimeInterval(-5)
     model.learningCampaignLastArtifactLoadStartedAt = now.addingTimeInterval(-360)
     model.appendLearningCampaignLiveProgressRecord(
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: ISO8601DateFormatter().string(from: now.addingTimeInterval(-4)),
+            timestamp: now.addingTimeInterval(-4),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -249,7 +250,7 @@ import Testing
             entry.metadata["action"] == "revealLearningCampaignArtifactRoot" &&
             entry.metadata["path"] == "/tmp/kuyu-monitor"
     })
-    await store.shutdownAndWait()
+    await store.shutdownAwaitingCompletion()
 }
 
 @MainActor
@@ -269,9 +270,9 @@ private func waitForSimulationViewModelUIEntries(
 
 @Test(.timeLimit(.minutes(1))) func gpuActivitySnapshotSummarizesLiveAndBatchExecution() {
     let records = [
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: "2026-05-16T00:00:00Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_889_600),
             status: nil,
             exitCode: nil,
             phase: "candidate",
@@ -283,9 +284,9 @@ private func waitForSimulationViewModelUIEntries(
             tensorWorldBatch: true,
             tensorSummary: true
         ),
-        LearningCampaignProgressRecord(
+        LearningCampaignProgressEvent(
             event: "candidate-evaluated",
-            timestamp: "2026-05-16T00:00:01Z",
+            timestamp: Date(timeIntervalSince1970: 1_778_889_601),
             status: nil,
             exitCode: nil,
             phase: "candidate",
