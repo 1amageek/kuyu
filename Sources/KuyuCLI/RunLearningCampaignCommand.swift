@@ -191,6 +191,13 @@ struct RunLearningCampaign: AsyncParsableCommand {
   var reinforcementDualLearningRate: Double?
 
   @Option(
+    name: .customLong("reinforcement-initial-lambda"),
+    help:
+      "Initial Lagrangian safety-cost multiplier (backend default 0). The dual state advances only on committed iterations, so set this above zero to apply cost pressure from the first iteration when chaining short runs."
+  )
+  var reinforcementInitialLambda: Double?
+
+  @Option(
     name: .customLong("reinforcement-min-iterations"),
     help: "Minimum PPO iteration count before plateau stopping is allowed.")
   var reinforcementMinimumIterations: Int = 10
