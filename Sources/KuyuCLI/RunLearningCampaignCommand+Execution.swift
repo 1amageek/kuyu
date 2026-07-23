@@ -71,6 +71,20 @@ extension RunLearningCampaign {
        !reinforcementInitialLambda.isFinite || reinforcementInitialLambda < 0 {
       throw ValidationError("--reinforcement-initial-lambda must be finite and >= 0.")
     }
+    let selectedTrainingSuites: [Int]?
+    if let reinforcementTrainingSuites {
+      let parsed = try parseRegressionSuites(reinforcementTrainingSuites)
+      guard !parsed.isEmpty else {
+        throw ValidationError("--reinforcement-training-suites must list at least one suite.")
+      }
+      guard searchStressSeverity != nil else {
+        throw ValidationError(
+          "--reinforcement-training-suites requires --search-stress-severity.")
+      }
+      selectedTrainingSuites = parsed
+    } else {
+      selectedTrainingSuites = nil
+    }
     let contractResolver = ReferenceQuadrotorLearningCampaignTrainingContractResolver(
       explorationLogStandardDeviation: explorationLogStd
     )
@@ -202,6 +216,7 @@ extension RunLearningCampaign {
         maxBatches: reinforcementWarmupMaxBatches,
         dualLearningRate: reinforcementDualLearningRate,
         dualInitialLambda: reinforcementInitialLambda,
+        trainingSuites: selectedTrainingSuites,
         stopping: try TrainingReinforcementStoppingSettings(
           minimumIterationCount: reinforcementMinimumIterations,
           plateauWindow: reinforcementPlateauWindow,

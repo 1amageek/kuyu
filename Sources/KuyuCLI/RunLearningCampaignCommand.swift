@@ -198,6 +198,13 @@ struct RunLearningCampaign: AsyncParsableCommand {
   var reinforcementInitialLambda: Double?
 
   @Option(
+    name: .customLong("reinforcement-training-suites"),
+    help:
+      "Comma-separated A1 suite IDs whose graded scenarios are injected into the RR PPO training distribution at --search-stress-severity (e.g. 2 to train on actuator-swap stress). Requires --search-stress-severity."
+  )
+  var reinforcementTrainingSuites: String?
+
+  @Option(
     name: .customLong("reinforcement-min-iterations"),
     help: "Minimum PPO iteration count before plateau stopping is allowed.")
   var reinforcementMinimumIterations: Int = 10
