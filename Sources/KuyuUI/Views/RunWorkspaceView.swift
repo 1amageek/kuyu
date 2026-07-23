@@ -13,13 +13,8 @@ struct RunWorkspaceView: View {
                 header
                 campaignControls
                 TrainingLaunchReviewView(model: runModel)
-                HStack(alignment: .top, spacing: KuyuSpacing.lg) {
-                    LaunchValidationView(model: runModel)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    TrainingConfigurationView(model: runModel)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                baselineSection
+                LaunchValidationView(model: runModel)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(KuyuSpacing.xl)
@@ -46,7 +41,7 @@ struct RunWorkspaceView: View {
                         Label("Start Campaign", systemImage: "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(runModel.isLearningCampaignRunning)
+                    .disabled(runModel.isRunning || runModel.isLearningCampaignRunning)
 
                     Button {
                         runModel.continueLearningCampaignFromLastCheckpoint()
@@ -79,6 +74,7 @@ struct RunWorkspaceView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
+                        .textSelection(.enabled)
                 }
             }
             .padding(.vertical, KuyuSpacing.xs)
@@ -88,25 +84,6 @@ struct RunWorkspaceView: View {
         }
     }
 
-    private var baselineSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                Button {
-                    runModel.runBaseline()
-                } label: {
-                    Label("Run Baseline", systemImage: "play.circle")
-                }
-                .disabled(runModel.isRunning || runModel.isLearningCampaignRunning)
-                Text("Runs the deterministic baseline scenario without learning for comparison.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, KuyuSpacing.xs)
-        } label: {
-            Label("Baseline", systemImage: "scope")
-                .font(.headline)
-        }
-    }
 }
 
 private struct TrainingLaunchReviewView: View {
@@ -126,9 +103,6 @@ private struct TrainingLaunchReviewView: View {
     private var launchChecklist: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                checklistRow("Template Configured", status: "OK", tone: .success)
-                checklistRow("Environment Configured", status: "OK", tone: .success)
-                checklistRow("Strategy Configured", status: "OK", tone: .success)
                 checklistRow(
                     "Resource Estimate",
                     status: model.learningCampaignLaunchEstimate == nil ? "Not run" : "OK",

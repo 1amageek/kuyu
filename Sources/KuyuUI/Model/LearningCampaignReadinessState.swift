@@ -32,6 +32,10 @@ struct LearningCampaignReadinessState: Sendable, Equatable {
         LearningCampaignReadinessState(status: .ready, message: message, checkedAt: Date())
     }
 
+    static func checking(message: String) -> LearningCampaignReadinessState {
+        LearningCampaignReadinessState(status: .idle, message: message, checkedAt: nil)
+    }
+
     static func blocked(message: String) -> LearningCampaignReadinessState {
         LearningCampaignReadinessState(status: .blocked, message: message, checkedAt: Date())
     }

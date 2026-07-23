@@ -1,10 +1,11 @@
 import Foundation
 import KuyuCore
 import KuyuMLX
-import KuyuMLXReferenceQuadrotor
+import KuyuMLXTrainingRuntime
 import KuyuPhysics
 import KuyuScenarios
 import KuyuTraining
+import KuyuWorkerRuntime
 
 public enum KuyuCommand: Sendable {
     case runSuite(SimulationRunRequest)
@@ -16,7 +17,6 @@ public enum KuyuCommand: Sendable {
         directory: URL,
         observationMetadata: TrainingObservationMetadata?
     )
-    case trainCore(TrainingRequest)
 }
 
 public enum KuyuCommandResult: Sendable {
@@ -25,7 +25,6 @@ public enum KuyuCommandResult: Sendable {
     case runStopped
     case logsExported(ScenarioLogBundle)
     case datasetExported(count: Int)
-    case trainingCompleted(TrainingResult)
 }
 
 @MainActor
@@ -44,61 +43,34 @@ public final class CommandSystem {
     private var runnerService: SimulationRunnerService
     private let logWriter: KuyAtt1LogWriter
     private let datasetExporter: TrainingDatasetExporter
-    private let trainingService: TrainingService
     private let trainingRunExecutor: any AnyTrainingRunExecuting
-    private lazy var trainingLoopController = TrainingLoopController(commandExecutor: self)
+    private let continuationSelector: any TrainingContinuationSelecting
 
     public init(
         modelStore: ManasMLXModelStore,
         runnerService: SimulationRunnerService? = nil,
         logWriter: KuyAtt1LogWriter = KuyAtt1LogWriter(),
         datasetExporter: TrainingDatasetExporter = TrainingDatasetExporter(),
-        trainingService: TrainingService? = nil,
-        trainingRunExecutor: any AnyTrainingRunExecuting = ManasMLXTrainingRunExecutor()
+        trainingRunExecutor: (any AnyTrainingRunExecuting)? = nil,
+        continuationSelector: (any TrainingContinuationSelecting)? = nil
     ) {
         self.modelStore = modelStore
         self.runnerService = runnerService ?? SimulationRunnerService(modelStore: modelStore)
         self.logWriter = logWriter
         self.datasetExporter = datasetExporter
-        self.trainingService = trainingService ?? TrainingService(modelStore: modelStore)
-        self.trainingRunExecutor = trainingRunExecutor
+        self.trainingRunExecutor = trainingRunExecutor ?? Self.defaultTrainingRunExecutor()
+        self.continuationSelector = continuationSelector
+            ?? TrainingRunExecutorContinuationSelector(
+                executor: trainingRunExecutor ?? ManasMLXTrainingRunExecutor()
+            )
     }
 
     public func setTelemetry(_ handler: WorldStepTelemetry?) {
         telemetry = handler
-        trainingLoopController.setTelemetry(handler)
     }
 
     public func setManualActuatorStore(_ store: ManualActuatorStore?) {
         runnerService = SimulationRunnerService(modelStore: modelStore, manualActuatorStore: store)
-    }
-
-    public func startTrainingLoop(
-        config: TrainingLoopConfig,
-        runRequest: SimulationRunRequest,
-        trainingTemplate: TrainingRequest,
-        datasetRoot: URL,
-        onEvent: @Sendable @escaping (TrainingLoopEvent) -> Void
-    ) {
-        trainingLoopController.start(
-            config: config,
-            runRequest: runRequest,
-            trainingTemplate: trainingTemplate,
-            datasetRoot: datasetRoot,
-            onEvent: onEvent
-        )
-    }
-
-    public func pauseTrainingLoop() async {
-        await trainingLoopController.pause()
-    }
-
-    public func resumeTrainingLoop() async {
-        await trainingLoopController.resume()
-    }
-
-    public func stopTrainingLoop() async {
-        await trainingLoopController.stop()
     }
 
     public func startTrainingRun(request: TrainingRunRequest) async throws -> any TrainingRunHandle {
@@ -109,14 +81,37 @@ public final class CommandSystem {
         try await trainingRunExecutor.resume(request)
     }
 
+    public func reconnectTrainingRun(
+        artifactRoot: URL
+    ) async throws -> (any TrainingRunHandle)? {
+        try await trainingRunExecutor.reconnect(artifactRoot: artifactRoot)
+    }
+
     public func learningCampaignContinuationSelection(
         from artifactRoot: URL
     ) throws -> TrainingContinuationSelection {
-        try trainingRunExecutor.continuationSelection(from: artifactRoot)
+        try continuationSelector.continuationSelection(from: artifactRoot)
     }
 
     public func validateLearningCampaign(request: TrainingRunRequest) throws {
         try trainingRunExecutor.validate(request)
+    }
+
+    private static func defaultTrainingRunExecutor() -> any AnyTrainingRunExecuting {
+        let executablePath = KuyuUIModelPaths.defaultKuyuExecutablePath()
+        guard !executablePath.isEmpty else {
+            return UnavailableTrainingRunExecutor(
+                reason: "the kuyu worker executable could not be resolved"
+            )
+        }
+        do {
+            let configuration = try ManasMLXTrainingWorkerProcessConfigurationFactory().userCache(
+                executableURL: URL(fileURLWithPath: executablePath, isDirectory: false)
+            )
+            return ManasMLXTrainingRunProcessExecutor(configuration: configuration)
+        } catch {
+            return UnavailableTrainingRunExecutor(reason: String(describing: error))
+        }
     }
 
     public func submit(_ command: KuyuCommand) async throws -> KuyuCommandResult {
@@ -178,9 +173,6 @@ public final class CommandSystem {
                 observation: observationMetadata
             )
             return .datasetExported(count: outputs.count)
-        case .trainCore(let request):
-            let result = try await trainingService.trainCore(request: request)
-            return .trainingCompleted(result)
         }
     }
 
@@ -191,61 +183,6 @@ public final class CommandSystem {
     ) async throws -> KuyAtt1RunOutput {
         let runnerService = self.runnerService
         return try await runnerService.run(request: request, control: control, telemetry: telemetry)
-    }
-}
-
-extension CommandSystem: TrainingLoopCommandExecuting {
-    public func runTrainingRunForTrainingLoop(
-        config: TrainingRunConfig,
-        runRequest: SimulationRunRequest,
-        trainingTemplate: TrainingBackendRequest,
-        datasetRoot: URL,
-        observationMetadata: TrainingObservationMetadata?,
-        onEvent: @Sendable @escaping (TrainingRunEvent) -> Void
-    ) async throws -> TrainingRunResult {
-        let backendBundle = try ReferenceQuadrotorTrainingBackendBundleFactory(
-            workerModelStoreFactory: { ManasMLXModelStore() }
-        ).makeWorkerLocalBackend(
-            activeStore: modelStore,
-            runID: config.runID,
-            robotManifestPath: runRequest.robotManifestPath,
-            datasetRoot: datasetRoot
-        )
-        let effectiveTrainingTemplate = TrainingBackendRequest(
-            datasetURL: trainingTemplate.datasetURL,
-            sequenceLength: trainingTemplate.sequenceLength,
-            epochs: trainingTemplate.epochs,
-            learningRate: trainingTemplate.learningRate,
-            useAux: trainingTemplate.useAux,
-            useQualityGating: trainingTemplate.useQualityGating,
-            maxBatches: trainingTemplate.maxBatches,
-            sourceSnapshot: backendBundle.sourceSnapshot
-        )
-        let orchestrator = TrainingRunOrchestrator(
-            scenarioExecutor: self,
-            backend: backendBundle.backend,
-            datasetExporter: datasetExporter
-        )
-        return await orchestrator.run(
-            config: config,
-            runRequest: runRequest,
-            trainingTemplate: effectiveTrainingTemplate,
-            artifactDirectory: datasetRoot,
-            observationMetadata: observationMetadata,
-            onEvent: onEvent
-        )
-    }
-
-    public func pauseActiveTrainingRun() async {
-        await activeControl?.requestPause()
-    }
-
-    public func resumeActiveTrainingRun() async {
-        await activeControl?.requestResume()
-    }
-
-    public func stopActiveTrainingRun() async {
-        await activeControl?.requestStop()
     }
 }
 

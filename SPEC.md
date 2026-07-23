@@ -38,19 +38,29 @@ Kuyu APIs are the source of truth for training execution, scenario rollout,
 learning campaign orchestration, checkpoint evaluation, checkpoint selection,
 artifact writing, artifact validation, regression gates, readiness checks, and
 continuation/resume selection. KuyuUI/Bounded and KuyuCLI are adapters over the
-same in-process Kuyu APIs; they are not independent execution engines.
+same typed Kuyu APIs and worker service; they are not independent execution
+engines. Heavy MLX work MAY run in an authenticated child process, but the
+process boundary MUST NOT duplicate acceptance, validation, or terminal-state
+semantics.
 
 The package and target ownership skeleton is fixed in
 `../KUYU_PACKAGE_ARCHITECTURE.md`. This Kuyu spec defines behavior; the package
 architecture document defines where that behavior may live.
+
+The end-to-end learning artifact, optimizer-input, trajectory, policy
+distribution, promotion, and observability contracts are fixed in
+`LEARNING_SYSTEM_SPEC.md`. Implementations MUST NOT define alternate contracts
+in a backend, trainer, CLI, or UI target.
 
 Required layering:
 
 ```mermaid
 flowchart LR
   A["kuyu-training typed contracts"] --> B["kuyu-mlx Manas/MLX backend"]
-  B --> C["kuyu-app KuyuCLI adapter"]
-  B --> D["kuyu-app KuyuUI adapter"]
+  M["manas / ManasLearningContracts"] --> B
+  C["kuyu-app KuyuCLI adapter"] --> W["shared worker service"]
+  D["kuyu-app KuyuUI adapter"] --> W
+  W --> B
   D --> E["Bounded document shell"]
   B --> F["Artifact validators"]
   G["Shell launchers"] --> C
@@ -58,6 +68,8 @@ flowchart LR
 
 - `KuyuTraining` owns portable task profiles, rollout contracts, evaluation
   artifacts, project package contracts, and validation schemas.
+- `manas` owns only optimizer-ready in-memory `ManasLearningContracts`; it does
+  not own or read a persisted Kuyu dataset schema.
 - The `kuyu-mlx` package owns Manas/MLX bridge execution, campaign runners,
   checkpoint evaluators, regression gates, continuation resolution, and artifact
   publication.
@@ -65,8 +77,44 @@ flowchart LR
   command-line or UI intent into Kuyu API configuration, subscribe to Kuyu
   events, and report or render Kuyu artifacts. They MUST NOT implement separate
   checkpoint acceptance, readiness, continuation, or artifact validity logic.
-- Bounded is a macOS document shell over `KuyuUI`. It MUST NOT own learning
-  execution or success/failure decisions.
+- Bounded is a macOS document shell over `KuyuUI`. Its executable MAY host the
+  shared hidden worker entrypoint so packaged builds can launch themselves, but
+  it MUST NOT own learning algorithms or success/failure decisions.
+- Worker launch MUST use a digest-verified immutable request, explicitly
+  authorized roots, an exclusive active lease, a root-contained cooperative
+  stop request, and a durable terminal summary. Reconnection MUST NOT trust PID
+  identity alone.
+- Before spawning, the launcher MUST materialize the source checkpoint as a
+  read-only copy-on-write snapshot under the immutable launch directory and
+  bind the launch request to that snapshot's verified digest.
+- Before spawning, the launcher MUST stage the selected executable, or its
+  containing application bundle, under the private immutable launch directory.
+  The staged entrypoint MUST match the selected source by byte count and SHA-256
+  digest so path replacement cannot change which worker executes.
+- Worker control and artifacts MUST be bound to one attempt identity consisting
+  of launch ID, attempt ID, and launch digest. Stop requests, progress snapshots,
+  lease adoption, and terminal outcomes MUST NOT be accepted across attempts.
+- Every worker progress event MUST be appended to an attempt-bound monotonic
+  journal and synchronized durably. Reconnected observers MUST replay all unread
+  complete records in order and reject identity or sequence discontinuities. A
+  worker that cannot persist progress MUST cancel and terminate the training run;
+  continuing an unobservable run is invalid.
+- Progress observers MUST read journals incrementally from a retained byte
+  cursor. They wait for a partial trailing record, fail closed on a malformed
+  complete record, and revalidate attempt identity after replacement or
+  truncation. UI refresh MUST NOT repeatedly load and decode the entire journal.
+- Runtime progress uses a campaign -> scenario -> control-step hierarchy and
+  preserves concurrently active siblings. Campaign and selected-scenario ETA,
+  producer freshness, observer-receipt freshness, and artifact-load freshness
+  remain distinct. Candidate acceptance reports through this same hierarchy as
+  `candidateGate` work.
+- A reconnected observer MUST have a finite cooperative-stop deadline. A dead
+  worker without a valid attempt-bound outcome MUST produce a failed tombstone
+  instead of remaining indefinitely active.
+- A completed worker summary is successful only when it contains an accepted
+  checkpoint. The worker MUST persist contradictory completion as a failed
+  attempt before releasing its lease, and a supervising parent MUST reject any
+  terminal summary whose disposition contradicts the child exit status.
 - Shell scripts are launch/build wrappers only. They may select an Xcode-built
   binary and set environment values, but MUST NOT be the authority for learning
   success, checkpoint acceptance, or final artifact validity.
@@ -193,6 +241,17 @@ Required semantics:
 - `reset(seed:scenario:)` returns the first formal observation consumed by a
   policy. Reset observations and step observations MUST use the same schema for
   the same scenario class.
+- One `step(action:)` is one control decision, not one physics tick. The action
+  selected from `O[k]` MUST be applied before physics advances, held for the
+  configured control period, and returned with `O[k+1]` as one typed
+  transition. Reward is the sum across the enclosed physics ticks.
+- Failure checks run after every enclosed physics tick. A failure terminates the
+  control period immediately, so the final failure transition MAY be shorter
+  than the nominal control period and MUST retain its actual failure time.
+- Reference environments require sensor sampling every physics tick and a
+  MotorNerve period equal to the Cut control period. Unsupported schedules fail
+  with typed errors at reset. A scenario horizon may end with a shorter final
+  control transition.
 - Lift and single-lift reference tasks use an 8-channel observation schema:
   channels 0...5 are IMU channels, channel 6 is altitude z, and channel 7 is
   vertical velocity z.
@@ -205,6 +264,10 @@ Required semantics:
 - rollout artifacts must record scenario id, seed, policy id, robot manifest id,
   config hash, reward sum, terminal reason, failure metadata, worker count, and
   cancellation/limit state where applicable.
+- each reinforcement rollout record must retain a unique policy decision ID,
+  the exact action-source observation and time, the policy action, the applied
+  actuator command, and the resulting observation. Post-action state MUST NOT be
+  substituted for the policy input.
 
 Parallel rollout is scenario/seed parallelism. Each worker MUST have an
 independent environment and policy instance. Shared `ManasMLXModelStore`
@@ -339,8 +402,10 @@ to the analytical physics reference. M2 world-model execution must validate
 imagined rollouts against physics replay before accepting rewards or terminal
 state.
 
-M2 world-model training uses rollout artifacts to build residual training
-tuples. A trained `StateWorldModel` checkpoint is an auxiliary prediction model,
+M2 world-model training uses causal rollout artifacts to build same-record
+`O[k], U[k], O[k+1]` residual tuples, where `U[k]` is the actuator command
+actually applied after MotorNerve. Policy-space action values are not a valid
+substitute for `U[k]`. A trained `StateWorldModel` checkpoint is an auxiliary prediction model,
 not a replacement for Kuyu physics. `imagine-train` MUST preflight and validate
 the checkpoint before Manas imagination training can publish a new Core/Reflex
 checkpoint. Missing checkpoints, missing config, NaN/Inf predictions,

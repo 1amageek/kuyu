@@ -53,9 +53,14 @@ struct TrainingMonitorCommandCenterView: View {
                 Text(String(format: "%.1f%%", snapshot.progressFraction * 100))
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
                     .monospacedDigit()
-                Text("ETA \(snapshot.estimatedRemainingText)")
+                Text("Campaign \(snapshot.estimatedRemainingText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if snapshot.scenarioEstimatedRemainingText != "--" {
+                    Text("Scenario \(snapshot.scenarioEstimatedRemainingText)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(width: 120, alignment: .trailing)
         }
@@ -63,10 +68,10 @@ struct TrainingMonitorCommandCenterView: View {
 
     private func signalGrid(_ snapshot: TrainingMonitorSnapshot) -> some View {
         LazyVGrid(columns: signalColumns, alignment: .leading, spacing: KuyuSpacing.sm) {
-            MonitorSignalCell(title: "Runner", value: snapshot.eventStreamStatus, detail: snapshot.eventAgeText, tone: freshnessTone(snapshot.eventStreamStatus))
+            MonitorSignalCell(title: "Runner", value: snapshot.eventStreamStatus, detail: "produced \(snapshot.eventAgeText) / received \(snapshot.receivedAgeText)", tone: freshnessTone(snapshot.eventStreamStatus))
             MonitorSignalCell(title: "Artifacts", value: snapshot.artifactMonitorStatus, detail: snapshot.artifactAgeText, tone: freshnessTone(snapshot.artifactMonitorStatus))
             MonitorSignalCell(title: "Loader", value: snapshot.artifactLoadStatus, detail: snapshot.artifactRootLabel, tone: loaderTone(snapshot.artifactLoadStatus))
-            MonitorSignalCell(title: "Candidate", value: snapshot.candidateText, detail: "last \(snapshot.candidateAgeText)", tone: .neutral)
+            MonitorSignalCell(title: "Candidate", value: snapshot.candidateText, detail: "candidate \(snapshot.candidateAgeText) / work \(snapshot.workAgeText)", tone: .neutral)
             MonitorSignalCell(title: "Generation", value: snapshot.generationText, detail: snapshot.phase, tone: .neutral)
             MonitorSignalCell(title: "GPU Evidence", value: snapshot.acceleratorLabel, detail: snapshot.gpuEvidenceLabel, tone: gpuTone(snapshot.gpuEvidenceLabel))
             MonitorSignalCell(title: "Throughput", value: snapshot.throughputText, detail: snapshot.parallelismText, tone: .neutral)
@@ -177,11 +182,11 @@ struct TrainingMonitorCommandCenterView: View {
 
     private func tone(_ health: TrainingMonitorSnapshot.Health) -> StatusPill.Tone {
         switch health {
-        case .idle:
+        case .idle, .cancelled:
             return .neutral
         case .healthy, .complete:
             return .success
-        case .attention:
+        case .attention, .rejected:
             return .warning
         case .stale, .failed:
             return .danger

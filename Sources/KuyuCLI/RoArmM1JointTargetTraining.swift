@@ -69,7 +69,7 @@ struct TrainRoArmM1JointTargets: AsyncParsableCommand {
                 ).train(request: request)
             }
         }
-        let service = RoArmM1ArmGripperTrainingPipelineService(
+        let service = await RoArmM1ArmGripperTrainingPipelineService(
             manasTrainingOperation: manasTrainingOperation
         )
         let pipelineResult = try await service.run(request: RoArmM1ArmGripperTrainingPipelineService.Request(

@@ -113,7 +113,7 @@ struct RunInspectorView: View {
     }
 
     private var reward: String {
-        guard let value = simulationModel.rewardAverageSamples.last?.value else { return "--" }
+        guard let value = simulationModel.learningCampaignRewardSamplesForDisplay.last?.value else { return "--" }
         return String(format: "%.2f", value)
     }
 

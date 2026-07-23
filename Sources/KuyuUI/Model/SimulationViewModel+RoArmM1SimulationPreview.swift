@@ -22,7 +22,7 @@ public extension SimulationViewModel {
 
     func startRoArmM1SimulationPreview() {
         configureRoArmM1SimulationPreview()
-        guard !isRunning, !isLoopRunning else { return }
+        guard !isRunning, !isLearningCampaignRunning else { return }
         runBaseline()
     }
 

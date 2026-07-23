@@ -1,4 +1,5 @@
 import KuyuTraining
+import Logging
 import SwiftUI
 
 /// Workspace that attaches to training runs under the run root: a live run
@@ -6,16 +7,42 @@ import SwiftUI
 /// control through the contract's file-based channel.
 struct TrainingRunsWorkspaceView: View {
     @Bindable var model: TrainingRunsViewModel
+    @State private var selectedGeneration: Int?
+    @State private var selectedTestCaseID: String?
+    @State private var selectedFailureGroupID: String?
+    @State private var replayScenarioIdentity: String?
+    @State private var isReplayPresented = false
+    @State private var isEvidenceExpanded = false
+    @State private var lastScrolledRunID: String?
 
     var body: some View {
         HSplitView {
             runList
-                .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
+                .frame(minWidth: 270, idealWidth: 310, maxWidth: 340)
             detailPane
                 .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
             await model.monitor()
+        }
+        .onChange(of: model.selectedRunID) { _, _ in
+            resetDetailSelection()
+            logRunSelection()
+        }
+        .sheet(isPresented: $isReplayPresented) {
+            if let inspection = model.detail?.latestInspection {
+                TrainingRunReplaySheetView(
+                    artifact: inspection,
+                    scenarioIdentity: replayScenarioIdentity
+                )
+            } else {
+                ContentUnavailableView(
+                    "Replay unavailable",
+                    systemImage: "video.slash",
+                    description: Text("This run does not reference a validated training-inspection artifact.")
+                )
+                .frame(minWidth: 720, minHeight: 480)
+            }
         }
     }
 
@@ -23,6 +50,17 @@ struct TrainingRunsWorkspaceView: View {
 
     private var runList: some View {
         VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: KuyuSpacing.sm) {
+                Label("Training Runs", systemImage: "sidebar.left")
+                    .font(.headline)
+                Spacer(minLength: 0)
+                Text(model.items.count.formatted())
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, KuyuSpacing.md)
+            .padding(.vertical, KuyuSpacing.sm)
+
             if let error = model.lastError {
                 errorBanner(error)
             }
@@ -37,6 +75,7 @@ struct TrainingRunsWorkspaceView: View {
                         .font(.system(.caption2, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.head)
+                        .help(model.runRootPath ?? "Run root unresolved")
                 }
             }
             .overlay {
@@ -69,16 +108,75 @@ struct TrainingRunsWorkspaceView: View {
     @ViewBuilder
     private var detailPane: some View {
         if let detail = model.detail {
-            ScrollView {
-                VStack(alignment: .leading, spacing: KuyuSpacing.md) {
-                    detailHeader(detail)
-                    identitySection(detail)
-                    outcomeSection(detail)
-                    journalSection(detail)
-                    controlSection(detail)
+            let learning = detail.learningProgress
+            let testMatrix = detail.latestEvaluation.map(TrainingRunTestMatrixSnapshot.init)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: KuyuSpacing.lg) {
+                        Color.clear
+                            .frame(height: 0)
+                            .id(detailTopID)
+                        detailHeader(detail)
+                        TrainingRunOverviewView(
+                            detail: detail,
+                            learning: learning,
+                            testMatrix: testMatrix
+                        )
+                        TrainingRunLearningProgressView(
+                            snapshot: learning,
+                            selectedGeneration: $selectedGeneration
+                        )
+                        TrainingRunTestMatrixView(
+                            snapshot: testMatrix,
+                            inspection: detail.latestInspection,
+                            selectedTestCaseID: $selectedTestCaseID,
+                            openReplay: openReplay
+                        )
+                        TrainingRunFailureExplorerView(
+                            snapshot: learning,
+                            inspection: detail.latestInspection,
+                            selectedRevision: selectedGeneration,
+                            selectedFailureGroupID: $selectedFailureGroupID,
+                            openReplay: openReplay,
+                            restoreFailureExplorerPosition: {
+                                proxy.scrollTo(failureExplorerID, anchor: .top)
+                            }
+                        )
+                        .id(failureExplorerID)
+                        TrainingRunEvidenceView(
+                            detail: detail,
+                            isExpanded: $isEvidenceExpanded
+                        )
+                    }
+                    .padding(KuyuSpacing.lg)
                 }
-                .padding(KuyuSpacing.md)
+                .task(id: detail.runID) {
+                    guard lastScrolledRunID != detail.runID else { return }
+                    lastScrolledRunID = detail.runID
+                    await Task.yield()
+                    do {
+                        try await Task.sleep(for: .milliseconds(100))
+                    } catch {
+                        return
+                    }
+                    proxy.scrollTo(detailTopID, anchor: .top)
+                }
             }
+            .onChange(of: selectedTestCaseID) { _, selectedID in
+                synchronizeFailureSelection(
+                    selectedTestCaseID: selectedID,
+                    testMatrix: testMatrix,
+                    learning: learning
+                )
+            }
+        } else if model.isLoadingDetail {
+            VStack(spacing: KuyuSpacing.md) {
+                ProgressView()
+                Text("Loading training run")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView(
                 "No Run Selected",
@@ -88,170 +186,130 @@ struct TrainingRunsWorkspaceView: View {
         }
     }
 
+    private var detailTopID: String {
+        "training-run-detail-top"
+    }
+
+    private var failureExplorerID: String {
+        "training-run-failure-explorer"
+    }
+
     private func detailHeader(_ detail: TrainingRunDetailSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-            HStack(alignment: .firstTextBaseline, spacing: KuyuSpacing.sm) {
+        VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
+            HStack(alignment: .center, spacing: KuyuSpacing.sm) {
                 Text(detail.runID)
                     .font(.system(.headline, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .textSelection(.enabled)
+                    .help(detail.runID)
+
                 StatusPill(detail.liveness.displayLabel, tone: detail.liveness.pillTone)
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: KuyuSpacing.sm) {
-                Button("Pause") { submit(.pause) }
+                Spacer(minLength: KuyuSpacing.sm)
+
+                HStack(spacing: KuyuSpacing.xs) {
+                    Button { submit(.pause) } label: {
+                        Image(systemName: "pause.fill")
+                    }
                     .disabled(!canPause(detail.liveness))
-                Button("Resume") { submit(.resume) }
+                    .accessibilityLabel("Pause")
+                    .help("Pause Training")
+
+                    Button { submit(.resume) } label: {
+                        Image(systemName: "play.fill")
+                    }
                     .disabled(!canResume(detail.liveness))
-                Button("Stop", role: .destructive) { submit(.stop) }
+                    .accessibilityLabel("Resume")
+                    .help("Resume Training")
+
+                    Button(role: .destructive) { submit(.stop) } label: {
+                        Image(systemName: "stop.fill")
+                    }
                     .disabled(!canStop(detail.liveness))
-                if model.pendingControlSequence != nil {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("awaiting acknowledgment")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .controlSize(.small)
-        }
-    }
+                    .accessibilityLabel("Stop")
+                    .help("Stop Training")
 
-    private func identitySection(_ detail: TrainingRunDetailSnapshot) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Task", value: detail.manifest.task, compact: true)
-                StatRow(label: "Profile", value: detail.manifest.profile, compact: true)
-                StatRow(label: "Version", value: detail.manifest.semanticVersion, compact: true)
-                StatRow(
-                    label: "Code",
-                    value: "\(String(detail.manifest.code.gitHead.prefix(12)))\(detail.manifest.code.gitDirty ? " (dirty)" : "")",
-                    compact: true
-                )
-                StatRow(
-                    label: "Determinism",
-                    value: "tier=\(detail.manifest.determinism.tier) seed=\(detail.manifest.determinism.mlxGlobalSeed)",
-                    compact: true
-                )
-                StatRow(
-                    label: "Created",
-                    value: detail.manifest.createdAt.formatted(date: .abbreviated, time: .standard),
-                    compact: true
-                )
-                StatRow(
-                    label: "Host",
-                    value: "\(detail.manifest.host.hostName) pid=\(detail.manifest.host.processIdentifier)",
-                    compact: true
-                )
+                    if model.pendingControlSequence != nil {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-        } label: {
-            Label("Identity", systemImage: "doc.badge.gearshape")
-        }
-    }
 
-    private func outcomeSection(_ detail: TrainingRunDetailSnapshot) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Status", value: detail.outcome.status.rawValue, compact: true)
-                StatRow(
-                    label: "Updated",
-                    value: detail.outcome.updatedAt.formatted(date: .abbreviated, time: .standard),
-                    compact: true
-                )
-                if let finalIteration = detail.outcome.finalIteration {
-                    StatRow(label: "Final Iteration", value: "\(finalIteration)", compact: true)
+            HStack(alignment: .firstTextBaseline, spacing: KuyuSpacing.sm) {
+                HStack(spacing: KuyuSpacing.sm) {
+                    Text(detail.manifest.task)
+                    Text(detail.latestEvaluation?.profileID ?? detail.manifest.profile)
                 }
-                if let failureReason = detail.outcome.failureReason {
-                    StatRow(label: "Failure", value: failureReason, valueColor: .red, compact: true)
-                }
-                if let acceptedCheckpointPath = detail.outcome.acceptedCheckpointPath {
-                    StatRow(label: "Accepted Checkpoint", value: acceptedCheckpointPath, compact: true)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Spacer(minLength: KuyuSpacing.sm)
+                if let refreshed = model.lastRefreshedAt {
+                    Text("updated \(refreshed.formatted(date: .omitted, time: .standard))")
                 }
                 if let heartbeat = detail.heartbeat {
-                    StatRow(
-                        label: "Heartbeat",
-                        value: "iter=\(heartbeat.iteration) \(heartbeat.phase) at \(heartbeat.updatedAt.formatted(date: .omitted, time: .standard))",
-                        compact: true
-                    )
-                } else {
-                    StatRow(label: "Heartbeat", value: "none", compact: true)
+                    Text("attempt \(heartbeat.iteration + 1) / \(heartbeat.phase)")
                 }
             }
-        } label: {
-            Label("Outcome", systemImage: "flag.checkered")
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(.secondary)
         }
-    }
-
-    private func journalSection(_ detail: TrainingRunDetailSnapshot) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Records", value: "\(detail.journalRecordCount)", compact: true)
-                if detail.journalTruncatedTailBytes > 0 {
-                    StatRow(
-                        label: "Torn Tail",
-                        value: "\(detail.journalTruncatedTailBytes) bytes",
-                        valueColor: .yellow,
-                        compact: true
-                    )
-                }
-                if let lastRecord = detail.lastRecord {
-                    StatRow(label: "Last Iteration", value: "\(lastRecord.iteration)", compact: true)
-                    ForEach(
-                        (lastRecord.evaluation?.metrics ?? [:]).sorted { $0.key < $1.key },
-                        id: \.key
-                    ) { metric in
-                        StatRow(
-                            label: metric.key,
-                            value: String(format: "%.4f", metric.value),
-                            compact: true
-                        )
-                    }
-                    if let checkpoint = lastRecord.checkpoint {
-                        StatRow(
-                            label: "Checkpoint",
-                            value: checkpoint.path,
-                            compact: true
-                        )
-                    }
-                }
-            }
-        } label: {
-            Label("Journal", systemImage: "list.bullet.rectangle.portrait")
-        }
-    }
-
-    private func controlSection(_ detail: TrainingRunDetailSnapshot) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                if let control = detail.control {
-                    StatRow(label: "Sequence", value: "\(control.sequence)", compact: true)
-                    if let acknowledgment = control.acknowledgment {
-                        StatRow(label: "Command", value: acknowledgment.command, compact: true)
-                        StatRow(
-                            label: "Result",
-                            value: acknowledgment.rejected
-                                ? "rejected at iteration \(acknowledgment.iteration)"
-                                : "applied at iteration \(acknowledgment.iteration)",
-                            valueColor: acknowledgment.rejected ? .red : .green,
-                            compact: true
-                        )
-                        if let reason = acknowledgment.reason {
-                            StatRow(label: "Reason", value: reason, compact: true)
-                        }
-                    } else {
-                        StatRow(label: "State", value: "pending (not yet acknowledged)", compact: true)
-                    }
-                } else {
-                    StatRow(label: "State", value: "no commands submitted", compact: true)
-                }
-            }
-        } label: {
-            Label("Control", systemImage: "playpause")
-        }
+        .padding(.bottom, KuyuSpacing.sm)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     // MARK: - Control gating
 
+    private func openReplay(_ scenarioIdentity: String) {
+        replayScenarioIdentity = scenarioIdentity
+        isReplayPresented = true
+    }
+
+    private func resetDetailSelection() {
+        selectedGeneration = nil
+        selectedTestCaseID = nil
+        selectedFailureGroupID = nil
+        replayScenarioIdentity = nil
+        isReplayPresented = false
+        isEvidenceExpanded = false
+        lastScrolledRunID = nil
+    }
+
+    private func synchronizeFailureSelection(
+        selectedTestCaseID: String?,
+        testMatrix: TrainingRunTestMatrixSnapshot?,
+        learning: LearningProgressSnapshot
+    ) {
+        guard let selectedTestCaseID,
+              let testCase = testMatrix?.testCases.first(where: { $0.id == selectedTestCaseID }),
+              !testCase.passed,
+              let group = learning.failureGroups.first(where: {
+                  $0.scenario == testCase.scenarioID
+                      && testCase.failureReasons.contains($0.reason)
+              }) else {
+            return
+        }
+        selectedGeneration = learning.currentGeneration
+        selectedFailureGroupID = group.id
+    }
+
+    private func logRunSelection() {
+        guard let selectedRunID = model.selectedRunID else { return }
+        Logger(label: "kuyu.ui").info("Training run selected", metadata: [
+            "action": "selectTrainingRun",
+            "task": .string(model.detail?.manifest.task ?? "loading"),
+            "runID": .string(selectedRunID),
+        ])
+    }
+
     private func submit(_ action: TrainingRunControlAction) {
+        Logger(label: "kuyu.ui").info("Training run control submitted", metadata: [
+            "action": .string(action.rawValue),
+            "task": .string(model.detail?.manifest.task ?? "unknown"),
+            "runID": .string(model.detail?.runID ?? "unknown"),
+        ])
         Task { await model.submitControl(action) }
     }
 
@@ -271,83 +329,6 @@ struct TrainingRunsWorkspaceView: View {
             return true
         case .finished, .interrupted, .paused:
             return false
-        }
-    }
-}
-
-/// One run row: ID, liveness pill, created date, and task label.
-private struct TrainingRunRowView: View {
-    let item: TrainingRunListItem
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: KuyuSpacing.sm) {
-                Text(item.id)
-                    .font(.system(.callout, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-                if let liveness = item.liveness {
-                    StatusPill(liveness.displayLabel, tone: liveness.pillTone)
-                } else {
-                    StatusPill("unreadable", tone: .danger)
-                }
-            }
-            if let unreadableReason = item.unreadableReason {
-                Text(unreadableReason)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            } else {
-                HStack(spacing: KuyuSpacing.sm) {
-                    if let createdAt = item.createdAt {
-                        Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                    }
-                    if let task = item.task {
-                        Text(task)
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private extension TrainingRunLiveness {
-    var displayLabel: String {
-        switch self {
-        case .live(let processIdentifier):
-            return "live (pid \(processIdentifier))"
-        case .finished(let status):
-            return status.rawValue
-        case .paused(let processAlive):
-            return processAlive ? "paused" : "paused (writer dead)"
-        case .interrupted:
-            return "interrupted"
-        }
-    }
-
-    var pillTone: StatusPill.Tone {
-        switch self {
-        case .live:
-            return .info
-        case .finished(let status):
-            switch status {
-            case .completed:
-                return .success
-            case .cancelled:
-                return .neutral
-            case .failed:
-                return .danger
-            case .running, .paused:
-                return .warning
-            }
-        case .paused(let processAlive):
-            return processAlive ? .warning : .danger
-        case .interrupted:
-            return .danger
         }
     }
 }

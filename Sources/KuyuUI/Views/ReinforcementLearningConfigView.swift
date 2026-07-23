@@ -8,17 +8,10 @@ struct ReinforcementLearningConfigView: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: KuyuSpacing.md) {
                     StatRow(label: "Algorithm", value: "Backend Protocol")
-                    IntegerStepperView(label: "Epochs", value: $model.trainingEpochs, range: 1...100)
-                    IntegerStepperView(label: "Sequence Length", value: $model.trainingSequenceLength, range: 4...128)
-                    DoubleSliderView(
-                        label: "Learning Rate",
-                        value: $model.trainingLearningRate,
-                        range: 0.00001...0.01,
-                        display: String(format: "%.5f", model.trainingLearningRate)
-                    )
+                    IntegerStepperView(label: "Episodes", value: $model.learningCampaignEpisodes, range: 1...100)
                     Toggle("Auxiliary Loss", isOn: $model.trainingUseAux)
-                    TextField("Training Dataset", text: $model.trainingInputDirectory)
-                        .textFieldStyle(.roundedBorder)
+                    Toggle("Quality Gating", isOn: $model.trainingUseQualityGating)
+                    Toggle("Require Initial Parent Pass", isOn: $model.learningCampaignRequiresInitialParentPass)
                 }
             } label: {
                 Label("Reinforcement Learning", systemImage: "flask")

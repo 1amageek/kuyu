@@ -15,12 +15,3 @@ struct LearningCampaignTemplateDraft: Sendable, Codable, Equatable {
     var artifactRetention: String
     var createdAt: Date
 }
-
-struct LearningCampaignQueuedRun: Identifiable, Sendable, Equatable {
-    let id: UUID
-    var name: String
-    var strategy: LearningStrategySelection
-    var candidateEvaluations: Int
-    var regressionEpisodes: Int
-    var queuedAt: Date
-}

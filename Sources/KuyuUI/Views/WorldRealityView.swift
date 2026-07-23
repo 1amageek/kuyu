@@ -4,6 +4,11 @@ import SwiftUI
 import KuyuCore
 
 public struct WorldRealityView: View {
+    public enum RenderingMode: Sendable {
+        case live
+        case staticFallback
+    }
+
     let roll: Double
     let pitch: Double
     let yaw: Double
@@ -15,6 +20,7 @@ public struct WorldRealityView: View {
     /// Live per-actuator command/thrust values for the forces/actuator debug overlay.
     let actuatorChannels: [ActuatorChannelSnapshot]
     let showsSensorReadouts: Bool
+    let renderingMode: RenderingMode
 
     public init(
         roll: Double,
@@ -26,7 +32,8 @@ public struct WorldRealityView: View {
         jointAngles: [Double] = [],
         jointValues: [String: Double] = [:],
         actuatorChannels: [ActuatorChannelSnapshot] = [],
-        showsSensorReadouts: Bool = true
+        showsSensorReadouts: Bool = true,
+        renderingMode: RenderingMode = .live
     ) {
         self.roll = roll
         self.pitch = pitch
@@ -38,6 +45,7 @@ public struct WorldRealityView: View {
         self.jointValues = jointValues
         self.actuatorChannels = actuatorChannels
         self.showsSensorReadouts = showsSensorReadouts
+        self.renderingMode = renderingMode
     }
 
     @State private var rootEntity: Entity?
@@ -70,7 +78,12 @@ public struct WorldRealityView: View {
     @ViewBuilder
     private var renderContent: some View {
         #if KUYU_USE_REALITYVIEW
-        realityBody
+        switch renderingMode {
+        case .live:
+            realityBody
+        case .staticFallback:
+            fallbackBody
+        }
         #else
         fallbackBody
         #endif

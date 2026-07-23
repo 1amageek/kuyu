@@ -101,7 +101,7 @@ struct LearningExperimentListView: View {
     }
 
     private var latestReward: String {
-        guard let value = model.rewardAverageSamples.last?.value ?? model.loopScoreSamples.last?.value else {
+        guard let value = model.learningCampaignRewardSamplesForDisplay.last?.value else {
             return "--"
         }
         return String(format: "%.2f", value)

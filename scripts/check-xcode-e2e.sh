@@ -9,20 +9,18 @@ DERIVED_DATA="${KUYU_XCODE_DERIVED_DATA:-$ARTIFACT_ROOT/DerivedData}"
 DESTINATION="${KUYU_XCODE_DESTINATION:-platform=macOS}"
 CONFIGURATION="${KUYU_XCODE_CONFIGURATION:-Debug}"
 TIMEOUT_SECONDS="${KUYU_XCODE_E2E_TIMEOUT_SECONDS:-900}"
+TIMEOUT_GRACE_SECONDS="${KUYU_XCODE_E2E_TIMEOUT_GRACE_SECONDS:-5}"
 TEST_TIMEOUT_SECONDS="${KUYU_XCODE_TEST_TIMEOUT_SECONDS:-60}"
 RUN_TESTS="${KUYU_XCODE_RUN_TESTS:-1}"
+TIMEOUT_HELPER="$ROOT_DIR/../scripts/run-with-process-group-timeout.py"
 
 mkdir -p "$ARTIFACT_ROOT"
 
 run_with_timeout() {
-  python3 - "$TIMEOUT_SECONDS" "$@" <<'PY'
-import subprocess
-import sys
-
-timeout = int(sys.argv[1])
-command = sys.argv[2:]
-sys.exit(subprocess.run(command, timeout=timeout).returncode)
-PY
+  python3 "$TIMEOUT_HELPER" \
+    --timeout "$TIMEOUT_SECONDS" \
+    --grace-period "$TIMEOUT_GRACE_SECONDS" \
+    -- "$@"
 }
 
 run_allowing_harness_reject() {
@@ -30,7 +28,10 @@ run_allowing_harness_reject() {
   run_with_timeout "$@"
   local status=$?
   set -e
-  return "$status"
+  if [[ $status -eq 124 || $status -ge 128 ]]; then
+    return "$status"
+  fi
+  return 0
 }
 
 if [[ "$RUN_TESTS" == "1" ]]; then
@@ -88,7 +89,7 @@ run_allowing_harness_reject "$KUYU_BIN" check-kuyu-regression \
   --tasks lift \
   --suites 6 \
   --episodes 1 \
-  --artifact-root "$ARTIFACT_ROOT/incumbent-regression" || true
+  --artifact-root "$ARTIFACT_ROOT/incumbent-regression"
 
 run_allowing_harness_reject "$KUYU_BIN" evolve-manas \
   --snapshot "$INCUMBENT_CHECKPOINT" \
@@ -103,7 +104,7 @@ run_allowing_harness_reject "$KUYU_BIN" evolve-manas \
   --variation copy \
   --evaluation regression \
   --search-strategy qualityDiversity \
-  --artifact-root "$ARTIFACT_ROOT/evolution" || true
+  --artifact-root "$ARTIFACT_ROOT/evolution"
 
 python3 - "$ARTIFACT_ROOT" <<'PY'
 import json

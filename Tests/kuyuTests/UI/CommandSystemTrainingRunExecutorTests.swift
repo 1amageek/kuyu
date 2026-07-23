@@ -81,9 +81,11 @@ private struct StaticTrainingRunExecutor: AnyTrainingRunExecuting {
     }
 
     func validate(_ request: TrainingRunRequest) throws {}
+
+    func validate(_ request: TrainingResumeRequest) throws {}
 }
 
-private final class StaticTrainingRunHandle: TrainingRunHandle {
+private final class StaticTrainingRunHandle: TrainingRunHandle, Sendable {
     let runID: TrainingRunID
     let progress: Progress
     let events: AsyncStream<TrainingRunEvent>

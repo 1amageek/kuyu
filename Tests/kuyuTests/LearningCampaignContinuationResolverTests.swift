@@ -21,6 +21,31 @@ import Testing
     }
 }
 
+@Test(.timeLimit(.minutes(1))) func continuationResolverRejectsPlanFromDifferentArtifactRoot() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-plan-root-\(UUID().uuidString)", isDirectory: true)
+    let otherRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-plan-other-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        removeContinuationTestDirectory(root)
+        removeContinuationTestDirectory(otherRoot)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeContinuationJSON(
+        makeContinuationResolverPlan(root: otherRoot, task: "lift"),
+        to: root.appendingPathComponent("learning-campaign-plan.json")
+    )
+
+    do {
+        _ = try LearningCampaignContinuationResolver().resolve(from: root)
+        Issue.record("Expected continuation resolver to reject a plan from a different artifact root.")
+    } catch LearningCampaignContinuationError.invalidPlan(let reason) {
+        #expect(reason.contains("artifactRoot mismatch"))
+    } catch {
+        throw error
+    }
+}
+
 @Test(.timeLimit(.minutes(1))) func continuationResolverIgnoresCandidateFitnessForOtherTask() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-continuation-task-filter-\(UUID().uuidString)", isDirectory: true)
@@ -45,6 +70,7 @@ import Testing
     try writeContinuationCheckpointSkeleton(at: matchingCheckpoint)
     try writeContinuationCheckpointSkeleton(at: otherTaskCheckpoint)
     try FileManager.default.createDirectory(at: evolution, withIntermediateDirectories: true)
+    try writeContinuationEvolutionManifest(at: evolution, task: "lift")
 
     try writeContinuationJSONLines([
         makeContinuationCandidate(id: "g1-c0", generation: 1, checkpoint: matchingCheckpoint),
@@ -87,6 +113,7 @@ import Testing
     try writeContinuationCheckpointSkeleton(at: internalCheckpoint)
     try writeContinuationCheckpointSkeleton(at: externalCheckpoint)
     try FileManager.default.createDirectory(at: evolution, withIntermediateDirectories: true)
+    try writeContinuationEvolutionManifest(at: evolution, task: "lift")
 
     try writeContinuationJSONLines([
         makeContinuationCandidate(id: "g1-c0", generation: 1, checkpoint: internalCheckpoint),
@@ -123,6 +150,7 @@ import Testing
         .appendingPathComponent("candidate-ctbr", isDirectory: true)
     try writeContinuationCTBRCheckpointSkeleton(at: ctbrCheckpoint)
     try FileManager.default.createDirectory(at: evolution, withIntermediateDirectories: true)
+    try writeContinuationEvolutionManifest(at: evolution, task: "lift")
 
     try writeContinuationJSONLines([
         makeContinuationCandidate(id: "g3-c4", generation: 3, checkpoint: ctbrCheckpoint),
@@ -136,6 +164,100 @@ import Testing
     #expect(selection.source == .bestCandidate)
     #expect(selection.candidateID == "g3-c4")
     #expect(selection.checkpointURL.standardizedFileURL == ctbrCheckpoint.standardizedFileURL)
+}
+
+@Test(.timeLimit(.minutes(1))) func continuationResolverIgnoresCancelledEvolutionCandidates() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-cancelled-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        removeContinuationTestDirectory(root)
+    }
+    let sourceCheckpoint = root
+        .appendingPathComponent("training-continuation", isDirectory: true)
+        .appendingPathComponent("SOURCE_SNAPSHOT", isDirectory: true)
+    try writeContinuationCheckpointSkeleton(at: sourceCheckpoint)
+    try writeContinuationJSON(
+        makeContinuationResolverPlan(
+            root: root,
+            task: "lift",
+            sourceCheckpoint: sourceCheckpoint.path,
+            sourceCheckpointProvenance: "/tmp/ephemeral-launch-source"
+        ),
+        to: root.appendingPathComponent("learning-campaign-plan.json")
+    )
+    let evolution = root
+        .appendingPathComponent("seeds", isDirectory: true)
+        .appendingPathComponent("seed-1", isDirectory: true)
+        .appendingPathComponent("evolution", isDirectory: true)
+    let interruptedCheckpoint = evolution
+        .appendingPathComponent("candidates", isDirectory: true)
+        .appendingPathComponent("generation-0", isDirectory: true)
+        .appendingPathComponent("candidate-interrupted", isDirectory: true)
+    try writeContinuationCheckpointSkeleton(at: interruptedCheckpoint)
+    try writeContinuationEvolutionManifest(
+        at: evolution,
+        task: "lift",
+        terminalState: .cancelled
+    )
+    try writeContinuationJSONLines([
+        makeContinuationCandidate(
+            id: "g0-c0",
+            generation: 0,
+            checkpoint: interruptedCheckpoint
+        ),
+    ], to: evolution.appendingPathComponent("candidates.jsonl"))
+    try writeContinuationJSONLines([
+        makeContinuationFitness(
+            id: "g0-c0",
+            generation: 0,
+            task: "lift",
+            fitness: -1_000_000_000_000
+        ),
+    ], to: evolution.appendingPathComponent("fitness.jsonl"))
+    try writeContinuationJSON(
+        LearningCampaignSummary(
+            artifactRoot: root.path,
+            seedCount: 1,
+            acceptedCount: 0,
+            finalCheckpoint: sourceCheckpoint.path,
+            runs: [
+                LearningCampaignSeedRunSummary(
+                    seed: "1",
+                    terminalState: "cancelled",
+                    accepted: false,
+                    acceptedCandidateID: nil,
+                    acceptedCheckpointURL: nil,
+                    incumbentCandidateID: "g0-c0",
+                    incumbentFitness: -1_000_000_000_000,
+                    bestCandidateID: "g0-c0",
+                    bestFitness: -1_000_000_000_000,
+                    bestVsIncumbentDelta: 0,
+                    bestTaskPassRate: 0,
+                    bestHoldTimeRatio: 0,
+                    bestAltitudeErrorRatio: 1,
+                    bestSafetyViolationRate: 1,
+                    bestRewardAverage: -1_000_000_000_000,
+                    gateNearestCandidateID: "g0-c0",
+                    gateNearestFitness: -1_000_000_000_000,
+                    gateNearestTaskPassRate: 0,
+                    gateNearestHoldTimeRatio: 0,
+                    gateNearestAltitudeErrorRatio: 1,
+                    gateNearestSafetyViolationRate: 1,
+                    gateNearestRewardAverage: -1_000_000_000_000,
+                    fitnessCount: 1,
+                    reasonCount: 1,
+                    evaluationTraceCount: 1,
+                    overlappedEvaluation: false
+                ),
+            ]
+        ),
+        to: root.appendingPathComponent("learning-campaign-summary.json")
+    )
+
+    let selection = try LearningCampaignContinuationResolver().resolve(from: root)
+
+    #expect(selection.source == .finalCheckpoint)
+    #expect(selection.checkpointURL.standardizedFileURL == sourceCheckpoint.standardizedFileURL)
 }
 
 @Test(.timeLimit(.minutes(1))) func continuationResolverRejectsFinalCheckpointMismatchForAcceptedRun() throws {
@@ -172,6 +294,48 @@ import Testing
         Issue.record("Expected continuation resolver to reject a final checkpoint that does not match the accepted seed.")
     } catch LearningCampaignContinuationError.invalidSummary(let reason) {
         #expect(reason.contains("finalCheckpoint mismatch"))
+    } catch {
+        throw error
+    }
+}
+
+@Test(.timeLimit(.minutes(1))) func continuationResolverRejectsSummaryFromDifferentArtifactRoot() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-summary-root-\(UUID().uuidString)", isDirectory: true)
+    let otherRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-summary-other-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        removeContinuationTestDirectory(root)
+        removeContinuationTestDirectory(otherRoot)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeContinuationJSON(
+        makeContinuationResolverPlan(root: root, task: "lift"),
+        to: root.appendingPathComponent("learning-campaign-plan.json")
+    )
+    let bootstrapCheckpoint = root.appendingPathComponent("bootstrap-checkpoint", isDirectory: true)
+    try writeContinuationCheckpointSkeleton(at: bootstrapCheckpoint)
+    try writeContinuationJSON(
+        LearningCampaignSummary(
+            artifactRoot: otherRoot.path,
+            seedCount: 1,
+            acceptedCount: 0,
+            finalCheckpoint: bootstrapCheckpoint.path,
+            runs: [
+                makeContinuationSeedSummary(
+                    accepted: false,
+                    acceptedCheckpoint: nil
+                )
+            ]
+        ),
+        to: root.appendingPathComponent("learning-campaign-summary.json")
+    )
+
+    do {
+        _ = try LearningCampaignContinuationResolver().resolve(from: root)
+        Issue.record("Expected continuation resolver to reject a summary from a different artifact root.")
+    } catch LearningCampaignContinuationError.invalidSummary(let reason) {
+        #expect(reason.contains("artifactRoot mismatch"))
     } catch {
         throw error
     }
@@ -215,10 +379,100 @@ import Testing
     #expect(selection.checkpointURL.standardizedFileURL == sourceCheckpoint.standardizedFileURL)
 }
 
+@Test(.timeLimit(.minutes(1))) func continuationResolverRejectsExternalFinalCheckpointForAcceptedSeed() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-source-final-accepted-\(UUID().uuidString)", isDirectory: true)
+    let sourceCheckpoint = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-source-accepted-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("source.manasbundle", isDirectory: true)
+    defer {
+        removeContinuationTestDirectory(root)
+        removeContinuationTestDirectory(sourceCheckpoint.deletingLastPathComponent())
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeContinuationCheckpointSkeleton(at: sourceCheckpoint)
+    try writeContinuationJSON(
+        makeContinuationResolverPlan(root: root, task: "lift", sourceCheckpoint: sourceCheckpoint.path),
+        to: root.appendingPathComponent("learning-campaign-plan.json")
+    )
+    try writeContinuationJSON(
+        LearningCampaignSummary(
+            artifactRoot: root.path,
+            seedCount: 1,
+            acceptedCount: 1,
+            finalCheckpoint: sourceCheckpoint.path,
+            runs: [
+                makeContinuationSeedSummary(
+                    accepted: true,
+                    acceptedCheckpoint: sourceCheckpoint
+                )
+            ]
+        ),
+        to: root.appendingPathComponent("learning-campaign-summary.json")
+    )
+
+    do {
+        _ = try LearningCampaignContinuationResolver().resolve(from: root)
+        Issue.record("Expected continuation resolver to reject external accepted final checkpoints.")
+    } catch LearningCampaignContinuationError.noCompleteCheckpoint(let path) {
+        #expect(path == root.path)
+    } catch {
+        throw error
+    }
+}
+
+@Test(.timeLimit(.minutes(1))) func continuationResolverRejectsExternalFinalCheckpointWhenNotPlanSource() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-final-not-source-\(UUID().uuidString)", isDirectory: true)
+    let sourceCheckpoint = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-planned-source-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("source.manasbundle", isDirectory: true)
+    let otherCheckpoint = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-continuation-other-source-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("other.manasbundle", isDirectory: true)
+    defer {
+        removeContinuationTestDirectory(root)
+        removeContinuationTestDirectory(sourceCheckpoint.deletingLastPathComponent())
+        removeContinuationTestDirectory(otherCheckpoint.deletingLastPathComponent())
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeContinuationCheckpointSkeleton(at: sourceCheckpoint)
+    try writeContinuationCheckpointSkeleton(at: otherCheckpoint)
+    try writeContinuationJSON(
+        makeContinuationResolverPlan(root: root, task: "lift", sourceCheckpoint: sourceCheckpoint.path),
+        to: root.appendingPathComponent("learning-campaign-plan.json")
+    )
+    try writeContinuationJSON(
+        LearningCampaignSummary(
+            artifactRoot: root.path,
+            seedCount: 1,
+            acceptedCount: 0,
+            finalCheckpoint: otherCheckpoint.path,
+            runs: [
+                makeContinuationSeedSummary(
+                    accepted: false,
+                    acceptedCheckpoint: nil
+                )
+            ]
+        ),
+        to: root.appendingPathComponent("learning-campaign-summary.json")
+    )
+
+    do {
+        _ = try LearningCampaignContinuationResolver().resolve(from: root)
+        Issue.record("Expected continuation resolver to reject an external final checkpoint that is not the plan source.")
+    } catch LearningCampaignContinuationError.invalidSummary(let reason) {
+        #expect(reason.contains("finalCheckpoint mismatch"))
+    } catch {
+        throw error
+    }
+}
+
 private func makeContinuationResolverPlan(
     root: URL,
     task: String,
-    sourceCheckpoint: String? = nil
+    sourceCheckpoint: String? = nil,
+    sourceCheckpointProvenance: String? = nil
 ) -> LearningCampaignPlan {
     LearningCampaignPlan(
         artifactRoot: root.path,
@@ -226,15 +480,19 @@ private func makeContinuationResolverPlan(
         trainingStageID: "evolution-search",
         trainingStageDisplayName: "Evolution Search",
         trainingStageKind: .evolution,
-        suites: ["6"],
-        episodes: 1,
+        searchSuites: ["6"],
+        searchEpisodes: 1,
+        acceptanceSuites: ["6"],
+        acceptanceEpisodes: 1,
         workers: 1,
         population: 100,
         generations: 1_000,
         eliteCount: 10,
         candidateEvaluationConcurrency: 100,
+        cutPeriodSteps: 2,
         seeds: ["1"],
         sourceCheckpoint: sourceCheckpoint,
+        sourceCheckpointProvenance: sourceCheckpointProvenance,
         robotManifest: nil,
         variation: "gaussian",
         searchStrategy: "qualityDiversity",
@@ -330,6 +588,31 @@ private func makeContinuationFitness(id: String, generation: Int, task: String, 
         safetyViolationRate: 0,
         holdTimeRatio: 0,
         altitudeErrorRatio: 1
+    )
+}
+
+private func writeContinuationEvolutionManifest(
+    at evolution: URL,
+    task: String,
+    terminalState: EvolutionRunTerminalState = .completed
+) throws {
+    try FileManager.default.createDirectory(at: evolution, withIntermediateDirectories: true)
+    let completedAt: Date? = terminalState == .running ? nil : Date(timeIntervalSince1970: 1)
+    try writeContinuationJSON(
+        EvolutionRunManifest(
+            runID: "continuation-test",
+            taskID: task,
+            configHash: "continuation-config",
+            policyID: "continuation-policy",
+            populationSize: 2,
+            generationCount: 4,
+            eliteCount: 1,
+            workerCount: 1,
+            startedAt: Date(timeIntervalSince1970: 0),
+            completedAt: completedAt,
+            terminalState: terminalState
+        ),
+        to: evolution.appendingPathComponent("evolution-manifest.json")
     )
 }
 

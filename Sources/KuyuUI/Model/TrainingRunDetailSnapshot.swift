@@ -24,7 +24,13 @@ public struct TrainingRunDetailSnapshot: Sendable {
     public let heartbeat: TrainingRunHeartbeat?
     public let journalRecordCount: Int
     public let journalTruncatedTailBytes: Int
+    public let journalRecords: [TrainingRunIterationRecord]
     public let lastRecord: TrainingRunIterationRecord?
+    /// Runtime-owned projection of iteration metrics, decisions, and failures.
+    public let learningProgress: LearningProgressSnapshot
+    public let latestEvaluation: CheckpointEvaluationArtifact?
+    public let evaluationProfile: TaskEvaluationProfile?
+    public let latestInspection: TrainingRunInspectionArtifact?
     public let control: ControlStatus?
 
     public init(
@@ -36,7 +42,12 @@ public struct TrainingRunDetailSnapshot: Sendable {
         heartbeat: TrainingRunHeartbeat?,
         journalRecordCount: Int,
         journalTruncatedTailBytes: Int,
+        journalRecords: [TrainingRunIterationRecord],
         lastRecord: TrainingRunIterationRecord?,
+        learningProgress: LearningProgressSnapshot,
+        latestEvaluation: CheckpointEvaluationArtifact?,
+        evaluationProfile: TaskEvaluationProfile?,
+        latestInspection: TrainingRunInspectionArtifact?,
         control: ControlStatus?
     ) {
         self.runID = runID
@@ -47,7 +58,12 @@ public struct TrainingRunDetailSnapshot: Sendable {
         self.heartbeat = heartbeat
         self.journalRecordCount = journalRecordCount
         self.journalTruncatedTailBytes = journalTruncatedTailBytes
+        self.journalRecords = journalRecords
         self.lastRecord = lastRecord
+        self.learningProgress = learningProgress
+        self.latestEvaluation = latestEvaluation
+        self.evaluationProfile = evaluationProfile
+        self.latestInspection = latestInspection
         self.control = control
     }
 }

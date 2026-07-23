@@ -15,7 +15,7 @@ import Testing
 
     let entries = try await waitForUILogEntries(store: store, count: 3, latestMessage: "fourth")
     #expect(entries.map(\.message) == ["second", "third", "fourth"])
-    await store.shutdownAndWait()
+    await store.shutdownAwaitingCompletion()
 }
 
 @MainActor

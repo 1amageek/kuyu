@@ -75,7 +75,7 @@ import KuyuTraining
     #expect(meta.observation?.modalities?.first?.id == "imu")
 }
 
-@Test(.timeLimit(.minutes(1))) func trainingDatasetWriterBackfillsLeadingEmptyDriveIntents() async throws {
+@Test(.timeLimit(.minutes(1))) func trainingDatasetWriterPreservesLeadingEmptyDriveIntents() async throws {
     let log = try makeLog(firstStepHasDrive: false)
     let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -88,13 +88,10 @@ import KuyuTraining
 
     #expect(recordLines.count == log.events.count)
     let first = try JSONDecoder().decode(TrainingDatasetRecord.self, from: Data(recordLines[0].utf8))
-    #expect(first.driveIntents.count == 1)
-    guard let firstDrive = first.driveIntents.first else {
-        Issue.record("Expected leading drive intent to be backfilled")
-        return
-    }
-    #expect(firstDrive.driveIndex == 0)
-    #expect(firstDrive.value == 0.2)
+    #expect(first.driveIntents.isEmpty)
+    let second = try JSONDecoder().decode(TrainingDatasetRecord.self, from: Data(recordLines[1].utf8))
+    #expect(second.driveIntents.map(\.driveIndex) == [0])
+    #expect(second.driveIntents.map(\.value) == [0.2])
 }
 
 @Test(.timeLimit(.minutes(1))) func trainingDatasetWriterExportsProvenanceManifest() async throws {

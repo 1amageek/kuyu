@@ -43,8 +43,7 @@ private func rejectedValidation(root: URL) throws -> LearningCampaignValidation 
     let validation = try LearningCampaignArtifactValidationService().report(
         for: LearningCampaignArtifactValidationService.Request(
             artifactRoot: root,
-            allowFailed: true,
-            allowRunning: true,
+            policy: .diagnosticFailedAndRunningCampaign,
             writesValidationArtifact: false
         )
     )
@@ -74,13 +73,16 @@ private func makePlan(
         trainingStageID: trainingStageID,
         trainingStageDisplayName: nil,
         trainingStageKind: trainingStageKind,
-        suites: ["6"],
-        episodes: 1,
+        searchSuites: ["6"],
+        searchEpisodes: 1,
+        acceptanceSuites: ["6"],
+        acceptanceEpisodes: 1,
         workers: 1,
         population: 100,
         generations: 1_000,
         eliteCount: 10,
         candidateEvaluationConcurrency: 100,
+        cutPeriodSteps: 2,
         seeds: ["1"],
         sourceCheckpoint: nil,
         robotManifest: nil,

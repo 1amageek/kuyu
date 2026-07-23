@@ -76,7 +76,7 @@ public struct SimulationWorkbenchView: View {
             }
             .disabled(!model.isRunning)
             Slider(value: $model.simulationPlaybackFraction, in: 0...1)
-                .disabled(model.isRunning || model.isLoopRunning)
+                .disabled(model.isRunning)
             Text(String(format: "%3.0f%%", model.simulationPlaybackFraction * 100))
                 .font(.system(.caption, design: .monospaced))
                 .monospacedDigit()
@@ -87,7 +87,7 @@ public struct SimulationWorkbenchView: View {
             Button { model.resetSimulationPlayback() } label: {
                 Label("Reset", systemImage: "backward.end.fill")
             }
-            .disabled(model.isRunning || model.isLoopRunning)
+            .disabled(model.isRunning)
         }
         .padding(KuyuSpacing.md)
         .background(.bar)

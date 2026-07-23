@@ -30,7 +30,8 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
         profile: "P1",
         semanticVersion: "ui-runs-test-v1",
         cacheKey: "ui-runs-test-cache-v1",
-        mlxGlobalSeed: 0,
+        mlxRandomSeedBase: 0,
+        mlxRandomnessContractID: "mlx-task-local-random-state-v1",
         noiseSeedSalt: nil,
         determinismTier: 0,
         runRoot: runRoot,
@@ -97,6 +98,100 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
     #expect(item.id == "broken-run")
     #expect(item.liveness == nil)
     #expect(item.unreadableReason != nil)
+}
+
+@MainActor
+@Test(.timeLimit(.minutes(1))) func trainingRunsViewModelLoadsValidatedEvaluationMatrix() async throws {
+    let runRoot = makeRunsViewModelTestRoot(label: "evaluation-matrix")
+    defer { removeRunsViewModelTestRoot(runRoot) }
+
+    let driver = try beginRunsViewModelTestRun(runRoot: runRoot)
+    let runDirectory = URL(fileURLWithPath: driver.runDirectoryPath, isDirectory: true)
+    let artifactDirectory = runDirectory
+        .appendingPathComponent("evaluations", isDirectory: true)
+        .appendingPathComponent("iteration-1", isDirectory: true)
+    try FileManager.default.createDirectory(at: artifactDirectory, withIntermediateDirectories: true)
+
+    let scenarioKey = CheckpointEvaluationScenarioKey(scenarioID: "scenario-a", seed: 7)
+    let artifact = CheckpointEvaluationArtifact(
+        evaluationID: "evaluation-a",
+        startedAt: Date(timeIntervalSince1970: 1),
+        task: "attitude",
+        profileID: "attitude-v1",
+        checkpointPath: "/tmp/checkpoint-a",
+        teacherScore: 1,
+        policyScore: 0.25,
+        teacherPassed: true,
+        policyPassed: false,
+        failureReasons: ["sustained-fall"],
+        expectedQualityKeys: [scenarioKey],
+        qualitySummary: [
+            ReferenceQuadrotorTaskQualitySummary(
+                task: "attitude",
+                scenarioID: "scenario-a",
+                seed: 7,
+                passed: false,
+                failureReasons: ["sustained-fall"],
+                evaluatorID: "ReferenceQuadrotorTaskQualityEvaluator",
+                targetZ: nil,
+                tolerance: nil,
+                warmupTime: nil,
+                requiredHoldTime: nil,
+                achievedHoldTime: nil,
+                maxAltitudeErrorAfterWarmup: nil,
+                maxVerticalVelocityAfterWarmup: nil
+            ),
+        ],
+        scenarioHorizons: [
+            CheckpointEvaluationScenarioHorizon(
+                scenarioID: "scenario-a",
+                seed: 7,
+                durationSeconds: 20,
+                timeStepSeconds: 0.001,
+                stepCount: 20_000
+            ),
+        ],
+        motorMAE: nil,
+        driveMAE: nil,
+        finalAltitudeDelta: nil,
+        policyAverageMotorFinalOutputByIndex: nil,
+        teacherAverageMotorFinalOutputByIndex: nil,
+        diagnostics: nil
+    )
+    try TrainingRunContractCodec.makeDocumentEncoder().encode(artifact).write(
+        to: artifactDirectory.appendingPathComponent(CheckpointEvaluationArtifact.fileName),
+        options: [.atomic]
+    )
+    try driver.recordIteration(TrainingRunIterationRecord(
+        iteration: 0,
+        recordedAt: Date(),
+        evaluation: TrainingRunIterationRecord.EvaluationRecord(
+            evaluationHorizon: 20_000,
+            metrics: ["policyPassed": 0, "policyScore": 0.25],
+            artifacts: [
+                TrainingRunIterationRecord.EvaluationRecord.ArtifactReference(
+                    kind: CheckpointEvaluationArtifact.artifactKind,
+                    path: "evaluations/iteration-1/\(CheckpointEvaluationArtifact.fileName)"
+                ),
+            ]
+        )
+    ))
+    try driver.finishCancelled(acceptedCheckpointPath: nil)
+
+    let model = TrainingRunsViewModel(environment: ["KUYU_RUN_ROOT": runRoot.path])
+    await model.refresh()
+    model.selectedRunID = driver.runIDString
+    await model.refresh()
+
+    #expect(model.lastError == nil)
+    let detail = try #require(model.detail)
+    #expect(detail.latestEvaluation == artifact)
+    #expect(detail.evaluationProfile?.profileID == "attitude-v1")
+    let matrix = TrainingRunTestMatrixSnapshot(artifact: artifact)
+    #expect(matrix.scenarioIDs == ["scenario-a"])
+    #expect(matrix.seeds == [7])
+    #expect(matrix.failedCount == 1)
+    #expect(matrix.testCases[0].stepCount == 20_000)
 }
 
 @MainActor
@@ -242,69 +337,6 @@ private func beginRunsViewModelTestRun(runRoot: URL) throws -> TrainingRunDriver
     #expect(acknowledgment.command == "stop")
     #expect(acknowledgment.rejected == false)
     #expect(acknowledgment.iteration == 0)
-}
-
-@Test(.timeLimit(.minutes(1))) func trainingRunStoreLoadsGeneratedRunArtifactsThroughCompatibilityVerifier() throws {
-    let artifactDirectory = makeRunsViewModelTestRoot(label: "generated-artifact")
-    defer { removeRunsViewModelTestRoot(artifactDirectory) }
-
-    let manifest = LearningRunManifest(
-        runID: "ui-generated-artifact-run",
-        mode: .supervised,
-        configHash: "ui-generated-artifact-config",
-        suiteID: "attitude",
-        seedSet: [1],
-        policyID: "policy",
-        outputCheckpointID: "candidate",
-        workerCount: 1,
-        startedAt: Date(timeIntervalSince1970: 1),
-        completedAt: Date(timeIntervalSince1970: 2),
-        terminalState: .completed
-    )
-    let metrics = [
-        TrainingMetricRecord(runID: manifest.runID, iteration: 1, kind: .loss, value: 0.2),
-        TrainingMetricRecord(runID: manifest.runID, iteration: 1, kind: .score, value: 0.8),
-    ]
-    let convergence = ConvergenceSummary(
-        runID: manifest.runID,
-        accepted: true,
-        reason: "accepted",
-        bestCheckpointID: "candidate",
-        finalTrainingLoss: 0.2,
-        finalValidationLoss: nil,
-        rewardMovingAverage: nil,
-        passRate: 1,
-        failureRate: 0,
-        safetyRegressionDetected: false,
-        plateauDetected: false,
-        overfitRiskDetected: false
-    )
-    let checkpointDecision = CheckpointDecision(
-        runID: manifest.runID,
-        state: .accepted,
-        reason: "accepted",
-        candidateCheckpointID: "candidate",
-        candidateCheckpointURL: artifactDirectory.appendingPathComponent("candidate", isDirectory: true),
-        publishedCheckpointURL: artifactDirectory.appendingPathComponent("published", isDirectory: true),
-        decidedAt: Date(timeIntervalSince1970: 3)
-    )
-    let scenarioRuns = try makeGeneratedArtifactScenarioRuns(runID: manifest.runID)
-    try TrainingArtifactWriter().write(
-        manifest: manifest,
-        metrics: metrics,
-        convergence: convergence,
-        checkpointDecision: checkpointDecision,
-        scenarioRuns: scenarioRuns,
-        to: artifactDirectory
-    )
-
-    let state = try TrainingRunStore().load(from: artifactDirectory)
-
-    #expect(state.manifest.runID == manifest.runID)
-    #expect(state.metrics.count == metrics.count)
-    #expect(state.lossSamples.map(\.value) == [0.2])
-    #expect(state.scoreSamples.map(\.value) == [0.8])
-    #expect(state.checkpointDecision.state == .accepted)
 }
 
 private func makeGeneratedArtifactScenarioRuns(runID: String) throws -> [TrainingScenarioRunArtifact] {

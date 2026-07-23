@@ -11,6 +11,7 @@ public struct TrainingRunListItem: Identifiable, Sendable, Equatable {
     public let id: String
     public let createdAt: Date?
     public let task: String?
+    public let profile: String?
     /// Liveness at snapshot time; nil when the run directory or its
     /// liveness inputs could not be read.
     public let liveness: TrainingRunLiveness?
@@ -20,12 +21,14 @@ public struct TrainingRunListItem: Identifiable, Sendable, Equatable {
         id: String,
         createdAt: Date?,
         task: String?,
+        profile: String?,
         liveness: TrainingRunLiveness?,
         unreadableReason: String?
     ) {
         self.id = id
         self.createdAt = createdAt
         self.task = task
+        self.profile = profile
         self.liveness = liveness
         self.unreadableReason = unreadableReason
     }

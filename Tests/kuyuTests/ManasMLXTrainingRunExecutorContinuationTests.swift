@@ -168,15 +168,72 @@ private func singleLiftActionContract() -> LearningProjectActionContract {
 @Test func manasMLXTrainingRunExecutorAcceptsFileURLAcceptedCheckpoint() throws {
     let acceptedCheckpoint = FileManager.default.temporaryDirectory
         .appendingPathComponent("accepted-\(UUID().uuidString).manasbundle", isDirectory: true)
+    try writeExecutorContinuationCheckpointSkeleton(at: acceptedCheckpoint)
+    let artifactRoot = acceptedCheckpoint.deletingLastPathComponent()
+    let digest = try EvolutionCheckpointIntegrity().reference(
+        checkpointID: "fixture",
+        checkpointURL: acceptedCheckpoint,
+        artifactRoot: artifactRoot
+    ).sha256Digest
     let summary = makeExecutorCampaignSummary(
         finalCheckpoint: acceptedCheckpoint.path,
-        acceptedCheckpoint: acceptedCheckpoint.absoluteString
+        acceptedCheckpoint: acceptedCheckpoint.absoluteString,
+        acceptedCheckpointDigest: digest,
+        artifactRoot: artifactRoot
     )
 
     let optionalReference = try LearningCampaignAcceptedCheckpointResolver().resolve(from: summary)
     let reference = try #require(optionalReference)
     #expect(reference.url.path == acceptedCheckpoint.path)
     #expect(reference.kind == ModelBundleReferenceKind.accepted)
+}
+
+private func writeExecutorContinuationCheckpointSkeleton(at url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    try Data("{}".utf8).write(to: url.appendingPathComponent("model.json"), options: [.atomic])
+    try Data("core".utf8).write(to: url.appendingPathComponent("core.safetensors"), options: [.atomic])
+    try Data("reflex".utf8).write(to: url.appendingPathComponent("reflex.safetensors"), options: [.atomic])
+    try Data(ExecutorContinuationBundleManifestFixture.json.utf8).write(
+        to: url.appendingPathComponent("manas-bundle.json"),
+        options: [.atomic]
+    )
+}
+
+private enum ExecutorContinuationBundleManifestFixture {
+    static let json = """
+    {
+      "bundleID" : "fixture",
+      "components" : [
+        {
+          "contentType" : "application/json",
+          "path" : "model.json",
+          "required" : true,
+          "role" : "modelConfig"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "core.safetensors",
+          "required" : true,
+          "role" : "coreWeights"
+        },
+        {
+          "contentType" : "application/vnd.safetensors",
+          "path" : "reflex.safetensors",
+          "required" : true,
+          "role" : "reflexWeights"
+        }
+      ],
+      "createdAt" : "1970-01-01T00:00:00Z",
+      "modelFamily" : "manas",
+      "runtimeContract" : {
+        "configHash" : "config",
+        "embodimentHash" : "embodiment",
+        "driveSemanticsID" : "drive",
+        "observationSchemaID" : "observation"
+      },
+      "schemaVersion" : 1
+    }
+    """
 }
 
 private func makeContinuationArtifactRoot(
@@ -219,12 +276,13 @@ private func makeContinuationConfiguration(
 
 private func makeExecutorCampaignSummary(
     finalCheckpoint: String,
-    acceptedCheckpoint: String?
+    acceptedCheckpoint: String?,
+    acceptedCheckpointDigest: String? = nil,
+    artifactRoot: URL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("executor-summary-\(UUID().uuidString)", isDirectory: true)
 ) -> LearningCampaignSummary {
     LearningCampaignSummary(
-        artifactRoot: FileManager.default.temporaryDirectory
-            .appendingPathComponent("executor-summary-\(UUID().uuidString)", isDirectory: true)
-            .path,
+        artifactRoot: artifactRoot.path,
         seedCount: 1,
         acceptedCount: 1,
         finalCheckpoint: finalCheckpoint,
@@ -235,6 +293,7 @@ private func makeExecutorCampaignSummary(
                 accepted: true,
                 acceptedCandidateID: "g0-c0",
                 acceptedCheckpointURL: acceptedCheckpoint,
+                acceptedCheckpointSHA256Digest: acceptedCheckpointDigest,
                 incumbentCandidateID: nil,
                 incumbentFitness: nil,
                 bestCandidateID: "g0-c0",
@@ -277,13 +336,16 @@ private func makeContinuationPlan(
         trainingStageID: trainingStageID,
         trainingStageDisplayName: nil,
         trainingStageKind: trainingStageKind,
-        suites: ["6"],
-        episodes: 1,
+        searchSuites: ["6"],
+        searchEpisodes: 1,
+        acceptanceSuites: ["6"],
+        acceptanceEpisodes: 1,
         workers: 1,
         population: 100,
         generations: 1_000,
         eliteCount: 10,
         candidateEvaluationConcurrency: 100,
+        cutPeriodSteps: 2,
         seeds: ["1"],
         sourceCheckpoint: nil,
         robotManifest: nil,

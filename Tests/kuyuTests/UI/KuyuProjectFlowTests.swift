@@ -369,7 +369,7 @@ func droneStarterTemplateRunsSmallLearningCampaignEndToEnd() async throws {
             trainingStageID: stage.stageID,
             trainingStageDisplayName: stage.displayName,
             trainingStageKind: stage.kind,
-            scenarioSelection: TrainingScenarioSelection(
+            searchScenarioSelection: TrainingScenarioSelection(
                 suiteIDs: [6],
                 episodesPerSuite: 1,
                 tier: .tier1
@@ -497,6 +497,9 @@ func droneStarterTemplateRunsSmallLearningCampaignEndToEnd() async throws {
         )
     ], to: evolution.appendingPathComponent("fitness.jsonl"))
 
+    let continuation = try LearningCampaignContinuationResolver().resolve(from: run)
+    #expect(continuation.checkpointURL.standardizedFileURL == candidateCheckpoint.standardizedFileURL)
+
     let model = AppViewModel(logStore: UILogStore(buffer: UILogBuffer()))
     model.simulationViewModel.configureForProjectPackage(package)
     await model.simulationViewModel.waitForLearningCampaignArtifactLoad()
@@ -528,7 +531,7 @@ private let mlxProjectFlowEndToEndEnabled =
 private final class RecordingRunnableProjectAssetPreparer: RunnableProjectAssetPreparing {
     private(set) var requests: [RunnableProjectAssetPreparationRequest] = []
 
-    func prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest) throws {
+    func prepareSourceCheckpoint(request: RunnableProjectAssetPreparationRequest) async throws {
         requests.append(request)
         try writeCompleteCheckpointSkeleton(at: request.checkpointURL)
     }
@@ -617,13 +620,16 @@ private func makeProjectFlowContinuationPlan(root: URL, task: String) -> Learnin
         trainingStageID: "evolution-search",
         trainingStageDisplayName: "Evolution Search",
         trainingStageKind: .evolution,
-        suites: ["6"],
-        episodes: 1,
+        searchSuites: ["6"],
+        searchEpisodes: 1,
+        acceptanceSuites: ["6"],
+        acceptanceEpisodes: 1,
         workers: 1,
         population: 100,
         generations: 1_000,
         eliteCount: 10,
         candidateEvaluationConcurrency: 100,
+        cutPeriodSteps: 2,
         seeds: ["1"],
         sourceCheckpoint: nil,
         robotManifest: nil,

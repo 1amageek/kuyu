@@ -28,14 +28,15 @@ public struct LearningStarterProjectStore: Sendable {
         self.checkpointRequirements = checkpointRequirements ?? ManasMLXStarterCheckpointFileRequirements()
     }
 
+    @MainActor
     public func prepareStarterProject(
         regenerateSourceCheckpoint: Bool = false,
         policyContract: LearningProjectPolicyContract,
-        checkpointWriter: (URL) throws -> Void
-    ) throws -> LearningStarterProject {
+        checkpointWriter: @MainActor (URL) async throws -> Void
+    ) async throws -> LearningStarterProject {
         let fileManager = FileManager.default
         let sourceCheckpoint = projectRoot
-            .appendingPathComponent("SourceCheckpoint", isDirectory: true)
+            .appendingPathComponent("SourceCheckpoint.manasbundle", isDirectory: true)
         let runsRoot = projectRoot
             .appendingPathComponent("Runs", isDirectory: true)
 
@@ -43,14 +44,12 @@ public struct LearningStarterProjectStore: Sendable {
         try fileManager.createDirectory(at: runsRoot, withIntermediateDirectories: true)
 
         if regenerateSourceCheckpoint || !checkpointIsComplete(at: sourceCheckpoint, policyContract: policyContract) {
-            if fileManager.fileExists(atPath: sourceCheckpoint.path) {
-                try fileManager.removeItem(at: sourceCheckpoint)
-            }
-            try fileManager.createDirectory(at: sourceCheckpoint, withIntermediateDirectories: true)
-            try checkpointWriter(sourceCheckpoint)
-            let missing = missingCheckpointFiles(at: sourceCheckpoint, policyContract: policyContract)
-            guard missing.isEmpty else {
-                throw LearningStarterProjectStoreError.checkpointWriterDidNotCreateRequiredFiles(missing)
+            try await TransactionalDirectoryPublisher().publish(to: sourceCheckpoint) { stagingURL in
+                try await checkpointWriter(stagingURL)
+                let missing = missingCheckpointFiles(at: stagingURL, policyContract: policyContract)
+                guard missing.isEmpty else {
+                    throw LearningStarterProjectStoreError.checkpointWriterDidNotCreateRequiredFiles(missing)
+                }
             }
         }
 

@@ -109,7 +109,7 @@ struct KeyTrainingChartsView: View {
         if let live = model.learningCampaignState?.liveRewardAverageSamples, !live.isEmpty {
             return live
         }
-        return model.rewardAverageSamples
+        return []
     }
 
     private var fitnessSamples: [MetricSample] {

@@ -84,7 +84,7 @@ Run creation atomically establishes the full skeleton: the run directory
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schemaVersion` | Int | Contract schema version (current: 1) |
+| `schemaVersion` | Int | Contract schema version (current: 2) |
 | `runID` | String | Run identity |
 | `createdAt` | ISO-8601 date | Creation time (UTC) |
 | `task` | String | Task identifier (e.g. `attitude-rr-ppo`) |
@@ -100,6 +100,10 @@ Determinism rules:
 
 - `mlxGlobalSeed` is mandatory. A run that does not seed the global MLX RNG
   cannot claim Tier-0 and MUST record `tier` ≥ 1.
+- RR-PPO records its base rollout exploration seed as `noiseSeedSalt`.
+  Iteration and horizon seeds are derived from that value by the profile owner
+  and are persisted in evaluation scopes; an unrelated placeholder salt is not
+  valid determinism evidence.
 - `environmentOverrides` records only the allow-listed `KUYU_*` /
   `MANAS_*` variables that influence training; it never captures the full
   environment (no secrets).
@@ -117,11 +121,12 @@ Per-record content (all optional groups may be omitted when not applicable):
 |---|---|
 | Identity | `iteration` (Int, 0-based, strictly increasing), `recordedAt` |
 | Horizon state | `supportHorizon`, `frontierHorizon`, `fullHorizon`, `mode` |
-| Candidate decision | `accepted` (Bool), `rejectionReasons` ([String], typed reason identifiers), per-horizon health metrics |
-| Evaluation | metric name → Double map, plus `evaluationHorizon` |
+| Candidate decision | `accepted` (Bool), `materiallyImproved` (Bool), `rejectionReasons` ([String]), `progressSignals` ([String]), `progressRejectionReasons` ([String]), and aggregate/per-horizon health metrics for the retained policy |
+| Evaluation | metric name → Double map, `evaluationHorizon`, and typed run-relative artifact references `{kind, path}` |
 | Failure episodes | array of `{scenario, seed, terminalStep, reason}` |
 | Phase timings | phase name → seconds map |
 | Environment sample | optional small map of sampled DR parameters |
+| Constraint state | optional `{metricID, observedCost, costLimit, constraintGap, dualLambda, episodeCount, transitionCount}` committed by constrained training |
 | Checkpoint | optional `{path, sha256Digest}` of any checkpoint written this iteration |
 
 Writer rules:
@@ -130,6 +135,14 @@ Writer rules:
   continues from the last journaled iteration + 1.
 - A record line MUST be a single line of UTF-8 JSON terminated by `\n`.
 - The writer MUST NOT buffer multiple iterations before flushing.
+- A constraint state MUST identify its aggregation metric. `observedCost` and
+  `costLimit` without the same `metricID` are not comparable evidence.
+- `accepted` means the candidate may be retained locally. It does not imply
+  `materiallyImproved`; learning-stage promotion requires independent material
+  progress evidence from the profile owner.
+- Evaluation artifact paths MUST be relative to the run directory and reload
+  through the artifact owner. Absolute paths, parent traversal, missing files,
+  duplicate kinds, and duplicate paths fail closed.
 
 Reader rules:
 
@@ -140,6 +153,26 @@ Reader rules:
 - Invalid JSON in any newline-terminated line is genuine corruption and MUST
   throw (an interrupted single-write append can only tear the unterminated
   tail, never a terminated line).
+
+### Reference attitude RR-PPO owner contract
+
+The reference attitude profile uses a stricter profile-owned contract above the
+generic journal:
+
+| Boundary | Required evidence |
+|---|---|
+| Training scope | Every horizon is a typed scope with its own role, exploration seed, scenario set, and Kuyu dataset paths. Paths are not flattened across horizons. |
+| Dataset identity | Kuyu owner validation binds every dataset to its scenario, embodiment SHA-256, and source checkpoint SHA-256. |
+| Scenario split | Training and held-out scenario sets are disjoint and remain identical across all iterations of one run. |
+| Held-out evaluation | The evaluator writes one owner artifact containing every candidate × horizon × scenario result. The iteration artifact stores its path and SHA-256. |
+| Aggregate metrics | Stage reload reconstructs each horizon aggregate from the scenario results and rejects missing, duplicate, substituted, or rewritten results. |
+| Retention | A candidate is retained only when it is accepted, materially improved, and its actor-only parameter digest differs from the source. A later safe but non-improving candidate cannot replace an earlier qualified checkpoint. |
+| Terminal outcome | A staged run's `acceptedCheckpointPath` is exactly the stage's retained checkpoint and must reload successfully. |
+
+The actor-only digest is computed directly from the `actor.*` safetensors byte
+ranges. Digest verification does not load unrelated tensors into MLX. Training
+and evaluation that do use MLX execute through `ManasMLXExecutionActor`, so two
+campaigns cannot concurrently mutate process-global MLX execution state.
 
 ### heartbeat.json — liveness
 
@@ -286,7 +319,8 @@ journal; there is no compatibility shim.
 - Training executors (e.g. KuyuMLX RR-PPO) depend on `KuyuTraining` to write
   the contract; the contract package never depends on MLX.
 
-Reference implementation (`kuyu-training/Sources/KuyuTraining/RunContract/`):
+Reference implementation
+(`kuyu-training/Sources/KuyuTrainingRuntime/RunContract/`):
 
 | Role | Type |
 |---|---|

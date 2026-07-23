@@ -38,10 +38,10 @@ struct AnalysisInspectorView: View {
     private var sampleStatistics: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: KuyuSpacing.sm) {
-                StatRow(label: "Reward Samples", value: "\(model.rewardAverageSamples.count)", compact: true)
+                StatRow(label: "Reward Samples", value: "\(model.learningCampaignRewardSamplesForDisplay.count)", compact: true)
                 StatRow(label: "Loss Samples", value: "\(model.trainingLossSamples.count)", compact: true)
-                StatRow(label: "Loop Score Samples", value: "\(model.loopScoreSamples.count)", compact: true)
-                StatRow(label: "Pass Rate Samples", value: "\(model.passRateSamples.count)", compact: true)
+                StatRow(label: "Fitness Samples", value: "\(model.learningCampaignLiveFitnessSamples.count)", compact: true)
+                StatRow(label: "Pass Rate Samples", value: "\(model.learningCampaignTaskPassSamplesForDisplay.count)", compact: true)
             }
         } label: {
             Label("Samples", systemImage: "square.stack.3d.up")

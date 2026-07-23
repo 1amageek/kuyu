@@ -100,12 +100,9 @@ struct Train: AsyncParsableCommand {
             isDirectory: true
         )
 
-        // Seed the global MLX RNG before any model is constructed so the
-        // manifest's determinism stamp matches the actual run.
-        let mlxGlobalSeed = try TrainingRunDriver.resolveMLXGlobalSeed(
+        let mlxRandomSeedBase = try TrainingRunDriver.resolveMLXRandomSeedBase(
             environment: ProcessInfo.processInfo.environment
         )
-        ManasMLXRandomSeed.seed(mlxGlobalSeed)
 
         let determinismTier: Int
         switch tier {
@@ -119,7 +116,8 @@ struct Train: AsyncParsableCommand {
             profile: profile,
             semanticVersion: "kuyu-train-v1",
             cacheKey: "kuyu-train-v1",
-            mlxGlobalSeed: mlxGlobalSeed,
+            mlxRandomSeedBase: mlxRandomSeedBase,
+            mlxRandomnessContractID: ManasMLXRandomSeed.executionContractID,
             noiseSeedSalt: nil,
             determinismTier: determinismTier,
             runRoot: runRoot,
@@ -147,6 +145,11 @@ struct Train: AsyncParsableCommand {
         let workerStore = ManasMLXModelStore()
         try MLXRuntimeReadinessService().check()
 
+        let backend = await ManasMLXTrainingBackend(
+            runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
+            saveDirectory: checkpointDirectory,
+            rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
+        )
         let orchestrator = TrainingRunOrchestrator(
             scenarioExecutor: CLIScenarioExecutor(
                 store: scenarioStore,
@@ -154,11 +157,7 @@ struct Train: AsyncParsableCommand {
                 schedule: schedule,
                 embodiment: embodiment
             ),
-            backend: ManasMLXTrainingBackend(
-                runtime: ManasMLXTrainingRuntime(modelStore: workerStore),
-                saveDirectory: checkpointDirectory,
-                rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
-            ),
+            backend: backend,
             convergenceEvaluator: ConvergenceEvaluator(config: .init(minDelta: 0.01))
         )
         let config = TrainingRunConfig(

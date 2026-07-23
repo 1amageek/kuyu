@@ -2,9 +2,12 @@
 
 ## Purpose
 Kuyu is the **learning simulator** for Manas. It generates data and injects
-swappability and HF stress for MLX‑based learning. Kuyu **does not** implement
-learning algorithms, and metric computation is external. This document defines
-the **M1‑ATT reference suite**, not the only supported morphology.
+swappability and HF stress for MLX-based learning. `kuyu-training` owns portable
+training contracts and orchestration but does not implement optimizer kernels;
+concrete MLX algorithms live in `kuyu-mlx`. Scenario reward, cost, failure, and
+task-quality semantics remain owned by `kuyu-scenarios`; derived analysis may be
+computed downstream. This document defines the **M1-ATT reference suite**, not
+the only supported morphology.
 
 ## Training Loop (Conceptual)
 Scenario + Seed
@@ -86,6 +89,12 @@ The rollout harness MUST:
 - construct one policy instance per worker,
 - keep the primary action path as `DriveIntent`,
 - reserve direct actuator actions for teacher/test escape hatches,
+- treat one environment step as one control-period decision with the exact
+  causal transition `O[k] -> A[k] -> O[k+1]`,
+- preserve a unique policy decision ID, action-source observation/time, policy
+  action, applied actuator command, and outcome for every decision,
+- aggregate reward over physics ticks inside the control period and stop at the
+  first failing physics tick,
 - sort merged parallel artifacts by `scenarioId`, `seed`, and `workerIndex`,
 - reject cancellation, max-step, and wall-time limit termination as typed errors
   unless an explicit cancelled artifact contract is introduced later.
@@ -133,38 +142,52 @@ M2+ benchmark bundles SHOULD include:
 - control quality summary (recovery/overshoot/safety-envelope violations),
 - planner degradation test summary (normal vs delayed/disconnected).
 
-## Dataset Export Format (JSONL)
-Kuyu exports a training dataset as a directory containing:
-- `meta.json`: dataset metadata (scenario, seed, dt, driveCount, channelCount)
-- `records.jsonl`: one JSON object per time step
+## Persisted Dataset Contract
 
-`TrainingDatasetMetadata.currentSchemaVersion` is `4`. Readers currently accept
-schema versions `3` and `4`; schema v3 is a legacy accepted format for existing
-rollout datasets. Schema v1/v2 datasets are not accepted by the current training
-loaders.
+The normative persisted contract is `KuyuDataset` schema version 7, defined in
+`LEARNING_SYSTEM_SPEC.md`. It contains `manifest.json` plus streamable
+`records.jsonl` envelopes and uses purpose-specific record types instead of one
+optional-field aggregate.
 
-Record fields:
-- `time`: simulation time (seconds)
-- `sensors`: array of `{channelIndex, value, timestamp}`
-- `driveIntents`: array of `{driveIndex, value}`
-- `reflexCorrections`: array of `{driveIndex, clamp, damping, delta}`
-- Rollout records additionally MAY include `reward`, `cost`, `done`,
-  `truncated`, `episodeId`, and `policyId`.
-- M2 world-model records additionally MAY include `physicsState`,
-  `actualState`, `actionValues`, and `continueValue`. These fields are required
-  for `StateWorldModel` residual training and remain optional when the dataset is
-  not used for world-model training.
+Runtime training accepts v7 only. Versions 3 through 6 are legacy inspection
+inputs and may enter the current contract only through an explicit offline
+migration command. A runtime loader MUST NOT decode a legacy dataset and infer
+missing causal, action-space, terminal, trajectory, or behavior-policy facts.
+The migrator either preserves a fully proved target record, downgrades a complete
+causal transition to off-policy use, or rejects it with typed missing facts. It
+never fabricates on-policy evidence.
 
-`meta.json` MUST include:
-- `failureReason` (nullable)
-- `failureTime` (nullable)
-- for rollout datasets: `episodeId`, `policyId`, `rewardSum`, `done`,
-  `truncated`, `terminalReason`, and `rewardDescriptor`.
-- for M2+ datasets when available: `taskReference`, modality-aware `observation`,
-  and distributed-data `provenance`.
+The required record kinds are:
 
-Implementation reference: `TrainingDatasetWriter` in `kuyu-training`
-(`KuyuTraining`).
+| Record kind | Record relation | Consumer contract |
+|---|---|---|
+| `demonstration` | `O[label] -> A[teacher]` | Supervised actor training only |
+| `onPolicyTransition` | `O[k], A[k], E[behavior] -> O[k+1]` | PPO and constrained PPO |
+| `offPolicyTransition` | `O[k], A[k] -> O[k+1]` | Replay algorithms and analysis |
+| `worldTransition` | `X[k], U[actuator], events -> X[k+1]` | World-model residual training |
+
+Policy action, realized DriveIntent/Reflex output, and actuator command are
+different typed spaces. On-policy records require behavior-distribution
+evidence from the action-producing forward pass. Trajectory continuity,
+bootstrap permission, and trace continuation are explicit facts; file or array
+order does not imply continuity.
+
+Temporal policies also declare their execution context. A fixed-history policy
+replays the exact bounded window; a recurrent policy records segment-initial
+state, burn-in, and loss masks. GAE is computed over whole validated segments
+before minibatch partition and bootstraps from `O[k+1]`, never the source state.
+
+`timeStep` is the nominal control period. The manifest physics step and control
+period tick count define it exactly. A fail-fast terminal interval may be
+shorter and MUST record its actual duration and completed physics tick count.
+
+Readers decode records incrementally. Writers stream records into a staging
+directory, calculate count/digest, write the manifest last, validate the staged
+artifact, and atomically rename it into place.
+
+Implementation MUST NOT claim conformance until the v7 producer-consumer,
+trajectory-boundary, and behavior-evidence gates in `LEARNING_SYSTEM_SPEC.md`
+pass.
 
 ## M2 World-Model and Imagination Smoke
 `train-world-model` trains two artifacts from rollout datasets:

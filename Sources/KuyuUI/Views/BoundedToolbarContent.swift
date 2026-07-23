@@ -92,15 +92,13 @@ private struct BoundedHeaderControlsView: View {
 
     private var pauseButton: some View {
         Button {
-            if model.simulationViewModel.isLoopRunning {
-                model.simulationViewModel.pauseTrainingLoop()
-            } else if model.simulationViewModel.isRunning {
+            if model.simulationViewModel.isRunning {
                 model.simulationViewModel.pauseRun()
             }
         } label: {
             Image(systemName: "pause.fill")
         }
-        .disabled(!model.simulationViewModel.isRunning && !model.simulationViewModel.isLoopRunning)
+        .disabled(!model.simulationViewModel.isRunning)
         .help("Pause")
         .accessibilityLabel("Pause")
     }

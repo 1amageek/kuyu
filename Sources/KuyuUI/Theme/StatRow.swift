@@ -9,12 +9,20 @@ public struct StatRow: View {
     let value: String
     let valueColor: Color?
     let compact: Bool
+    let valueLineLimit: Int
 
-    public init(label: String, value: String, valueColor: Color? = nil, compact: Bool = false) {
+    public init(
+        label: String,
+        value: String,
+        valueColor: Color? = nil,
+        compact: Bool = false,
+        valueLineLimit: Int = 1
+    ) {
         self.label = label
         self.value = value
         self.valueColor = valueColor
         self.compact = compact
+        self.valueLineLimit = max(1, valueLineLimit)
     }
 
     public var body: some View {
@@ -29,7 +37,10 @@ public struct StatRow: View {
                       : .system(.callout, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(valueColor ?? .primary)
-                .lineLimit(1)
+                .lineLimit(valueLineLimit)
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
     }
 }

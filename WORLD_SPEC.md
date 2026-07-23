@@ -13,19 +13,20 @@ Define the simulation world rigorously for reproducible verification while allow
 - **Cost control without semantic drift**: Zeroing is a controlled approximation, not a different model.
 - **Fidelity is a view**: Lower fidelity is a partition and projection over the canonical physics kernel, not a separate engine.
 
-## Canonical Physics Kernel (Normative)
-Kuyu physics implementations are organized around a single canonical kernel for a
-plant family. A fidelity rung MUST NOT redefine state, force equations, or the
-integrator. It selects a view over the kernel.
+## Canonical Physics Program (Normative)
+Kuyu physics implementations are organized around one typed
+`CanonicalDynamicsProgram` for a plant family. A fidelity rung MUST NOT redefine
+state, force equations, actuator dynamics, constraints, or the integrator. It
+selects a validated view over the program.
 
 ```mermaid
 flowchart LR
-  Model["Canonical PhysicsModel"] --> Registry["ForceTerm registry"]
-  Registry --> Fidelity["Fidelity partition"]
-  Fidelity --> RHS["RHS assembly"]
-  RHS --> Integrator["canonical integrator"]
-  Integrator --> State["CanonicalState"]
-  Registry --> Residual["analytical residual target"]
+  Program["CanonicalDynamicsProgram"] --> Fidelity["Fidelity partition"]
+  Fidelity --> Scalar["ScalarDynamicsExecutor"]
+  Fidelity --> MLX["MLXDynamicsExecutor"]
+  Scalar --> Trace["Canonical state trace"]
+  MLX --> Trace
+  Program --> Residual["Analytical residual target"]
 ```
 
 Required invariants:
@@ -33,11 +34,23 @@ Required invariants:
 | Invariant | Requirement |
 |---|---|
 | Canonical state | All fidelity rungs in a plant family share the same state type. Lower fidelity constrains state; it does not shrink it. |
-| Term registry | Each force, torque, or environment effect is defined once as a force term. Fidelity rungs select terms; they do not copy equations. |
+| Typed operation graph | Each actuator, force, torque, constraint, integration stage, normalization/projection point, and derived physical observable is defined once in a closed versioned opcode graph with validated shape, units, and differentiability. |
 | Fidelity partition | Every term is exactly one of `active`, `worldModelTarget`, or `ignoredByNegligibilityPolicy` for a rung. |
 | Constraint projection | A constrained rung projects both derivatives and post-step state back to the allowed manifold. |
 | Integrator independence | The integrator is chosen by the canonical kernel and does not vary by fidelity rung. Current explicit terms use the fixed-step RK path; implicit terms enter the same integrator boundary rather than a separate engine. |
 | Residual target | The analytical world-model residual target from low to high fidelity is the sum of terms active in high and inactive in low, evaluated by the same registry. |
+| Backend identity | Scalar and accelerated executors record the same program digest. Backend-local physics equations are prohibited. |
+| Execution identity | Program version/digest, fidelity, projection, mixer, rotor-spin convention, executor version, numeric dtype, and device class identify an execution. |
+| Numeric parity | Scalar `Double` and accelerated numeric traces use declared per-output absolute/relative tolerances and identical boundary classification rules. |
+
+Opaque closure-backed terms may remain only during migration. Conformance
+requires a typed operation graph that the scalar executor can evaluate and the
+MLX executor can compile and cache by program digest.
+
+Scenario/event scheduling, policy cadence, reward, cost, and failure semantics
+remain outside the dynamics program and are supplied by the scenario execution
+plan. Final checkpoint acceptance MUST replay held-out evidence with the scalar
+executor; accelerated evaluation alone is not authoritative.
 
 Single-prop lift is therefore the quadrotor canonical model with the vertical
 constraint projection and a reduced active term set. It MUST NOT have an
@@ -72,13 +85,24 @@ Baseline target:
   are not required for correctness.
 
 ### Execution order (fixed)
-1. time advance
-2. event injection
-3. actuator update
-4. physics integration
-5. sensor sampling
-6. control update (CUT/Manas)
-7. logging + replay checks
+
+Reset samples `O[k]` at `t[k]`. CUT/Manas selects an action from that exact
+observation, MotorNerve realizes the held actuator command, and the world then
+advances one control interval. Each physics tick executes:
+
+1. event injection for the current tick,
+2. actuator dynamics update,
+3. canonical physics integration,
+4. constraint projection and finite-state validation,
+5. fail-fast condition evaluation,
+6. sensor sampling from the resulting state, and
+7. tick logging and replay checks.
+
+Reward and safety cost aggregate over completed ticks. The interval stops on the
+first failure tick and emits `O[k+1]`, actual duration, tick count, and an
+explicit terminal boundary. The next control decision is not evaluated after
+failure. Full causal and trajectory semantics are defined in
+`LEARNING_SYSTEM_SPEC.md`.
 
 ### RenderSystem (spec detail)
 - Input: read-only scene state (poses, geometry ids, materials)
@@ -95,8 +119,9 @@ Baseline target:
 
 ## 1. World State and Time
 - Fixed step Δt; all subsystem update periods are integer multiples of Δt.
-- Deterministic execution order per step:
-  time → disturbance → actuator → plant RK4 → sensor → CUT → external MotorNerve → apply → log → replay check.
+- The policy/control decision occurs once at the control-interval boundary. It
+  is not interleaved into the physics-tick order unless the declared control
+  period is exactly one physics tick.
 
 ## 1.1 Failure & Termination (Normative)
 Failure is **fail‑fast** and terminates the scenario immediately. The world must

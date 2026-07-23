@@ -4,7 +4,8 @@ import KuyuTraining
 import KuyuUI
 import Testing
 
-@Test func learningStarterProjectStoreCreatesCompleteStarterProject() throws {
+@MainActor
+@Test func learningStarterProjectStoreCreatesCompleteStarterProject() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-starter-\(UUID().uuidString)", isDirectory: true)
     let store = LearningStarterProjectStore(
@@ -12,7 +13,7 @@ import Testing
         now: { Date(timeIntervalSince1970: 1_778_400_000) }
     )
 
-    let project = try store.prepareStarterProject(policyContract: .simpleFeedForward(
+    let project = try await store.prepareStarterProject(policyContract: .simpleFeedForward(
         observationDimension: 8,
         actionDimension: 1,
         actionEncoding: .directMotor
@@ -22,13 +23,15 @@ import Testing
     }
 
     #expect(project.projectRoot == root)
+    #expect(project.sourceCheckpoint.lastPathComponent == "SourceCheckpoint.manasbundle")
     #expect(store.checkpointIsComplete(at: project.sourceCheckpoint))
     #expect(project.artifactRoot.lastPathComponent == "run-1778400000")
     #expect(!FileManager.default.fileExists(atPath: project.artifactRoot.path))
     #expect(try store.artifactRootIsReusable(project.artifactRoot))
 }
 
-@Test func learningStarterProjectStoreRejectsIncompleteCheckpointWriter() throws {
+@MainActor
+@Test func learningStarterProjectStoreRejectsIncompleteCheckpointWriter() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-starter-incomplete-\(UUID().uuidString)", isDirectory: true)
     let store = LearningStarterProjectStore(
@@ -36,9 +39,9 @@ import Testing
         now: { Date(timeIntervalSince1970: 1_778_400_000) }
     )
 
-    #expect(throws: LearningStarterProjectStoreError.self) {
+    await #expect(throws: LearningStarterProjectStoreError.self) {
         let policy = directMotorPolicy()
-        _ = try store.prepareStarterProject(policyContract: policy) { checkpoint in
+        _ = try await store.prepareStarterProject(policyContract: policy) { checkpoint in
             try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
             let url = checkpoint.appendingPathComponent(
                 ManasMLXCheckpointFileLayout.current.requiredFiles(policyContract: policy)[0]
@@ -48,7 +51,8 @@ import Testing
     }
 }
 
-@Test func learningStarterProjectStoreAcceptsCTBRStarterWithoutReflexWeights() throws {
+@MainActor
+@Test func learningStarterProjectStoreAcceptsCTBRStarterWithoutReflexWeights() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-starter-ctbr-\(UUID().uuidString)", isDirectory: true)
     let store = LearningStarterProjectStore(
@@ -61,7 +65,7 @@ import Testing
         actionEncoding: .ctbr
     )
 
-    let project = try store.prepareStarterProject(policyContract: policy) { checkpoint in
+    let project = try await store.prepareStarterProject(policyContract: policy) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
         try writeCheckpointFiles(at: checkpoint, policyContract: policy)
     }
@@ -90,7 +94,8 @@ import Testing
     #expect(second.lastPathComponent == "run-1778400000-2")
 }
 
-@Test func learningStarterProjectStoreRegeneratesRequestedSourceCheckpoint() throws {
+@MainActor
+@Test func learningStarterProjectStoreRegeneratesRequestedSourceCheckpoint() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-starter-regenerate-\(UUID().uuidString)", isDirectory: true)
     let store = LearningStarterProjectStore(
@@ -104,12 +109,12 @@ import Testing
         actionEncoding: .directMotor
     )
 
-    _ = try store.prepareStarterProject(policyContract: directMotorPolicy) { checkpoint in
+    _ = try await store.prepareStarterProject(policyContract: directMotorPolicy) { checkpoint in
         try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
         try writeCheckpointFiles(at: checkpoint, policyContract: directMotorPolicy, prefix: "first-")
     }
 
-    let project = try store.prepareStarterProject(
+    let project = try await store.prepareStarterProject(
         regenerateSourceCheckpoint: true,
         policyContract: directMotorPolicy
     ) { checkpoint in
@@ -123,6 +128,48 @@ import Testing
         encoding: .utf8
     )
     #expect(model == "second-\(modelFileName)")
+}
+
+@MainActor
+@Test func learningStarterProjectStorePreservesCheckpointWhenRegenerationFails() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-starter-preserve-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Issue.record("Failed to remove starter project root: \(error)")
+        }
+    }
+    let store = LearningStarterProjectStore(projectRoot: root)
+    let policy = directMotorPolicy()
+    let project = try await store.prepareStarterProject(policyContract: policy) { checkpoint in
+        try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
+        try writeCheckpointFiles(at: checkpoint, policyContract: policy, prefix: "accepted-")
+    }
+
+    await #expect(throws: StarterProjectWriterFailure.self) {
+        _ = try await store.prepareStarterProject(
+            regenerateSourceCheckpoint: true,
+            policyContract: policy
+        ) { checkpoint in
+            try FileManager.default.createDirectory(at: checkpoint, withIntermediateDirectories: true)
+            try Data("partial".utf8).write(
+                to: checkpoint.appendingPathComponent(ManasMLXCheckpointFileLayout.current.modelManifestFileName),
+                options: .atomic
+            )
+            throw StarterProjectWriterFailure()
+        }
+    }
+
+    let modelFileName = ManasMLXCheckpointFileLayout.current.modelManifestFileName
+    let model = try String(
+        contentsOf: project.sourceCheckpoint.appendingPathComponent(modelFileName),
+        encoding: .utf8
+    )
+    #expect(model == "accepted-\(modelFileName)")
+    let childNames = try Set(FileManager.default.contentsOfDirectory(atPath: root.path))
+    #expect(childNames == ["Runs", "SourceCheckpoint.manasbundle"])
 }
 
 @Test func learningStarterProjectStoreDetectsReusableArtifactRoots() throws {
@@ -156,6 +203,8 @@ private func directMotorPolicy() -> LearningProjectPolicyContract {
         actionEncoding: .directMotor
     )
 }
+
+private struct StarterProjectWriterFailure: Error {}
 
 private func writeCheckpointFiles(
     at checkpoint: URL,

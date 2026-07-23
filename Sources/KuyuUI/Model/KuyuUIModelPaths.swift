@@ -4,10 +4,16 @@ import KuyuScenarios
 
 public enum KuyuUIModelPaths {
     public static func defaultKuyuExecutablePath() -> String {
-        if let bundled = Bundle.main.executableURL,
-           bundled.lastPathComponent == "kuyu",
-           FileManager.default.fileExists(atPath: bundled.path) {
-            return bundled.path
+        if let executable = Bundle.main.executableURL,
+           FileManager.default.fileExists(atPath: executable.path) {
+            if executable.lastPathComponent == "kuyu" {
+                return executable.path
+            }
+            if Bundle.main.object(
+                forInfoDictionaryKey: "KuyuTrainingWorkerModeEnabled"
+            ) as? Bool == true {
+                return executable.path
+            }
         }
         if let source = sourceRootKuyuExecutablePath() {
             return source

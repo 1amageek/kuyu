@@ -29,12 +29,14 @@ public final class TrainingRunsViewModel {
     /// Control sequence submitted from this UI and not yet acknowledged.
     public private(set) var pendingControlSequence: Int?
     public private(set) var lastRefreshedAt: Date?
+    public private(set) var isLoadingDetail = false
 
     public var selectedRunID: String? {
         didSet {
             guard oldValue != selectedRunID else { return }
             detail = nil
             pendingControlSequence = nil
+            isLoadingDetail = selectedRunID != nil
             Task { await self.refresh() }
         }
     }
@@ -71,6 +73,7 @@ public final class TrainingRunsViewModel {
             guard selectedRunID == selected else { return }
             items = snapshot.items
             detail = snapshot.detail
+            isLoadingDetail = false
             if let pending = pendingControlSequence,
                let control = snapshot.detail?.control,
                control.sequence >= pending,
@@ -80,6 +83,7 @@ public final class TrainingRunsViewModel {
             lastRefreshedAt = Date()
             lastError = nil
         } catch {
+            isLoadingDetail = false
             lastError = String(describing: error)
         }
     }
@@ -129,6 +133,7 @@ public final class TrainingRunsViewModel {
                         id: id,
                         createdAt: manifest.createdAt,
                         task: manifest.task,
+                        profile: manifest.profile,
                         liveness: liveness,
                         unreadableReason: nil
                     ))
@@ -137,6 +142,7 @@ public final class TrainingRunsViewModel {
                         id: id,
                         createdAt: manifest.createdAt,
                         task: manifest.task,
+                        profile: manifest.profile,
                         liveness: nil,
                         unreadableReason: String(describing: error)
                     ))
@@ -146,6 +152,7 @@ public final class TrainingRunsViewModel {
                     id: id,
                     createdAt: nil,
                     task: nil,
+                    profile: nil,
                     liveness: nil,
                     unreadableReason: reason
                 ))
@@ -167,6 +174,22 @@ public final class TrainingRunsViewModel {
         let outcome = try reader.loadOutcome()
         let heartbeat = try reader.loadHeartbeat()
         let journal = try reader.readJournalValidatingEvaluationArtifacts()
+        let latestEvaluation = try latestCheckpointEvaluationArtifact(
+            journal: journal,
+            runDirectory: runDirectory
+        )
+        let evaluationProfile: TaskEvaluationProfile?
+        if let latestEvaluation {
+            evaluationProfile = try TaskEvaluationProfile.profile(
+                profileID: latestEvaluation.profileID
+            )
+        } else {
+            evaluationProfile = nil
+        }
+        let latestInspection = try latestInspectionArtifact(
+            journal: journal,
+            runDirectory: runDirectory
+        )
         var control: TrainingRunDetailSnapshot.ControlStatus?
         if let sequence = try reader.latestControlSequence() {
             control = TrainingRunDetailSnapshot.ControlStatus(
@@ -183,9 +206,67 @@ public final class TrainingRunsViewModel {
             heartbeat: heartbeat,
             journalRecordCount: journal.records.count,
             journalTruncatedTailBytes: journal.truncatedTailBytes,
+            journalRecords: journal.records,
             lastRecord: journal.records.last,
+            learningProgress: LearningProgressSnapshot(records: journal.records),
+            latestEvaluation: latestEvaluation,
+            evaluationProfile: evaluationProfile,
+            latestInspection: latestInspection,
             control: control
         )
+    }
+
+    private nonisolated static func latestCheckpointEvaluationArtifact(
+        journal: TrainingRunJournalReadResult,
+        runDirectory: URL
+    ) throws -> CheckpointEvaluationArtifact? {
+        for record in journal.records.reversed() {
+            guard let reference = record.evaluation?.artifacts.first(where: {
+                $0.kind == CheckpointEvaluationArtifact.artifactKind
+            }) else {
+                continue
+            }
+            let artifact = try CheckpointEvaluationArtifactStore().validatedArtifact(
+                at: reference.path,
+                relativeTo: runDirectory
+            )
+            if let journalPass = record.evaluation?.metrics["policyPassed"],
+               (journalPass >= 0.5) != artifact.policyPassed {
+                throw TrainingRunContractError.corruptedFile(
+                    name: reference.path,
+                    runID: runDirectory.lastPathComponent,
+                    reason: "policyPassed disagrees with the journal at iteration \(record.iteration)"
+                )
+            }
+            if let journalScore = record.evaluation?.metrics["policyScore"],
+               journalScore != artifact.policyScore {
+                throw TrainingRunContractError.corruptedFile(
+                    name: reference.path,
+                    runID: runDirectory.lastPathComponent,
+                    reason: "policyScore disagrees with the journal at iteration \(record.iteration)"
+                )
+            }
+            return artifact
+        }
+        return nil
+    }
+
+    private nonisolated static func latestInspectionArtifact(
+        journal: TrainingRunJournalReadResult,
+        runDirectory: URL
+    ) throws -> TrainingRunInspectionArtifact? {
+        for record in journal.records.reversed() {
+            guard let reference = record.evaluation?.artifacts.first(where: {
+                $0.kind == TrainingRunInspectionArtifact.artifactKind
+            }) else {
+                continue
+            }
+            return try TrainingRunInspectionArtifactStore().validatedArtifact(
+                at: reference.path,
+                relativeTo: runDirectory
+            )
+        }
+        return nil
     }
 
     private nonisolated static func submitControlCommand(

@@ -6,15 +6,13 @@ cd "$ROOT_DIR"
 
 ARTIFACT_ROOT="${1:-${TMPDIR:-/tmp}/kuyu-training-harness-$(date +%Y%m%d-%H%M%S)}"
 TIMEOUT_SECONDS="${KUYU_HARNESS_TIMEOUT_SECONDS:-360}"
+TIMEOUT_GRACE_SECONDS="${KUYU_HARNESS_TIMEOUT_GRACE_SECONDS:-5}"
+TIMEOUT_HELPER="$ROOT_DIR/../scripts/run-with-process-group-timeout.py"
 
-python3 - "$TIMEOUT_SECONDS" swift run kuyu check-training-harness --artifact-root "$ARTIFACT_ROOT" <<'PY'
-import subprocess
-import sys
-
-timeout = int(sys.argv[1])
-command = sys.argv[2:]
-sys.exit(subprocess.run(command, timeout=timeout).returncode)
-PY
+python3 "$TIMEOUT_HELPER" \
+  --timeout "$TIMEOUT_SECONDS" \
+  --grace-period "$TIMEOUT_GRACE_SECONDS" \
+  -- swift run kuyu check-training-harness --artifact-root "$ARTIFACT_ROOT"
 
 python3 - "$ARTIFACT_ROOT/training-harness-summary.json" <<'PY'
 import json

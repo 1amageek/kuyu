@@ -47,7 +47,7 @@ struct SystemStatusSummaryView: View {
         if model.isLearningCampaignRunning {
             return "Learning"
         }
-        if model.isRunning || model.isLoopRunning || model.isTraining {
+        if model.isRunning {
             return "Job running"
         }
         switch model.learningCampaignReadiness.status {
@@ -61,7 +61,7 @@ struct SystemStatusSummaryView: View {
     }
 
     private var primarySystemImage: String {
-        if model.isLearningCampaignRunning || model.isRunning || model.isLoopRunning || model.isTraining {
+        if model.isLearningCampaignRunning || model.isRunning {
             return "play.circle.fill"
         }
         switch model.learningCampaignReadiness.status {
@@ -75,7 +75,7 @@ struct SystemStatusSummaryView: View {
     }
 
     private var primaryColor: Color {
-        if model.isLearningCampaignRunning || model.isRunning || model.isLoopRunning || model.isTraining {
+        if model.isLearningCampaignRunning || model.isRunning {
             return .green
         }
         switch model.learningCampaignReadiness.status {
@@ -94,9 +94,6 @@ struct SystemStatusSummaryView: View {
         }
         if model.isRunning {
             return "simulation"
-        }
-        if model.isLoopRunning || model.isTraining {
-            return "training"
         }
         return "idle"
     }

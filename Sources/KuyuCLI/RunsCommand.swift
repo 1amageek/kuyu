@@ -109,7 +109,12 @@ struct Runs: AsyncParsableCommand {
             print("Task:        \(manifest.task)  profile=\(manifest.profile)  version=\(manifest.semanticVersion)")
             print("Code:        \(manifest.code.gitHead)\(manifest.code.gitDirty ? " (dirty)" : "") [\(manifest.code.buildConfiguration)]")
             let salt = manifest.determinism.noiseSeedSalt.map(String.init) ?? "none"
-            print("Determinism: tier=\(manifest.determinism.tier) mlxSeed=\(manifest.determinism.mlxGlobalSeed) noiseSalt=\(salt)")
+            print(
+                "Determinism: tier=\(manifest.determinism.tier) "
+                    + "mlxSeedBase=\(manifest.determinism.mlxRandomSeedBase) "
+                    + "randomness=\(manifest.determinism.mlxRandomnessContractID) "
+                    + "noiseSalt=\(salt)"
+            )
             print("Host:        \(manifest.host.hostName) pid=\(manifest.host.processIdentifier)")
 
             let liveness = try reader.liveness()

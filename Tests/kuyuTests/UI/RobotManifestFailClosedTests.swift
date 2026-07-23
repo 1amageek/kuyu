@@ -102,24 +102,6 @@ import KuyuScenarios
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1))) func simulationViewModelStopsTrainingLoopWhenModelPreflightFails() throws {
-    let missing = FileManager.default.temporaryDirectory
-        .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")
-        .path
-    let model = makeSimulationViewModel()
-
-    model.controllerSelection = .manasMLX
-    model.taskMode = .singleLift
-    model.setRobotManifestPath(missing, source: "test")
-    model.startTrainingLoop()
-
-    #expect(model.isLoopRunning == false)
-    #expect(model.loopStatusMessage.isEmpty)
-    #expect(model.runError?.contains("Model preflight failed") == true)
-    #expect(model.runError?.contains(missing) == true)
-}
-
-@MainActor
 @Test(.timeLimit(.minutes(1))) func uiActionLogsIncludeRequiredContextForRobotManifestAndPreflightFailure() async throws {
     let missing = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-missing-\(UUID().uuidString).json")

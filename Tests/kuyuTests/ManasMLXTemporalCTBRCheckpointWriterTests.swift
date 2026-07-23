@@ -32,6 +32,7 @@ func temporalCheckpointWriterInitializesConfiguredStarterActionMean() throws {
         observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
         actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
         embodiment: nil,
+        initializationSeed: 42,
         starterActionMean: starterActionMean
     ))
 
@@ -51,6 +52,40 @@ func temporalCheckpointWriterInitializesConfiguredStarterActionMean() throws {
 
 private let temporalCheckpointWriterSmokeEnabled =
     ProcessInfo.processInfo.environment["KUYU_MLX_RUN_TEMPORAL_CHECKPOINT_WRITER_SMOKE"] == "1"
+
+@Test func temporalCheckpointWriterFailsBeforeWritingWithoutRuntimeReadiness() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("temporal-ctbr-writer-preflight-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer {
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Issue.record("Failed to remove temporary checkpoint root: \(error)")
+        }
+    }
+
+    let checkpoint = root.appendingPathComponent("source.manasbundle", isDirectory: true)
+    let writer = ManasMLXTemporalCheckpointWriter(
+        runtimeReadiness: MLXRuntimeReadinessService { _ in
+            throw MLXRuntimePreflightError.missingMetalDevice
+        }
+    )
+
+    #expect(throws: MLXRuntimePreflightError.missingMetalDevice) {
+        _ = try writer.write(request: ManasMLXTemporalCheckpointWriteRequest(
+            checkpointURL: checkpoint,
+            name: "ctbr-starter",
+            policyContract: ReferenceQuadrotorLearningContracts.temporalCTBRPolicyContract(),
+            observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
+            actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
+            embodiment: nil,
+            initializationSeed: 42
+        ))
+    }
+    #expect(!FileManager.default.fileExists(atPath: checkpoint.path))
+    #expect((try FileManager.default.contentsOfDirectory(atPath: root.path)).isEmpty)
+}
 
 @Test func temporalCTBRTemporaryCheckpointURLIsNotHidden() throws {
     let id = try #require(UUID(uuidString: "1298D3DD-9A87-40D8-B0D1-E419211CC5B6"))
@@ -80,8 +115,10 @@ private let temporalCheckpointWriterSmokeEnabled =
     let checkpoint = root.appendingPathComponent("source.manasbundle", isDirectory: true)
     let stale = ManasMLXTemporaryBundleURL.makeSiblingURL(for: checkpoint, id: id)
     let unrelated = root.appendingPathComponent("other-writing-\(id.uuidString).writing", isDirectory: true)
+    let malformedSamePrefix = root.appendingPathComponent("source-writing-not-a-uuid.writing", isDirectory: true)
     try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
     try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: malformedSamePrefix, withIntermediateDirectories: true)
 
     try ManasMLXTemporaryBundleURL.removeStaleSiblings(
         for: checkpoint,
@@ -92,6 +129,7 @@ private let temporalCheckpointWriterSmokeEnabled =
 
     #expect(!FileManager.default.fileExists(atPath: stale.path))
     #expect(FileManager.default.fileExists(atPath: unrelated.path))
+    #expect(FileManager.default.fileExists(atPath: malformedSamePrefix.path))
 }
 
 @Test func temporalCheckpointWriterRejectsInvalidStarterActionMeanCount() throws {
@@ -115,6 +153,7 @@ private let temporalCheckpointWriterSmokeEnabled =
             observationContract: ReferenceQuadrotorLearningContracts.temporalCTBRObservationContract(),
             actionContract: ReferenceQuadrotorLearningContracts.bodyRateActionContract(),
             embodiment: nil,
+            initializationSeed: 42,
             starterActionMean: [0.5]
         ))
     }

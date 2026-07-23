@@ -45,6 +45,7 @@ struct LearningHyperparameterSettingsView: View {
                     TextField("Suites", text: $model.learningCampaignSuites)
                     TextField("Source Checkpoint", text: $model.learningCampaignSourceCheckpointPath)
                     TextField("Artifact Root", text: $model.learningCampaignArtifactDirectory)
+                        .disabled(model.isLearningCampaignRunning)
                     Toggle("Adaptive Mutation", isOn: $model.learningCampaignAdaptiveMutation)
                     Toggle("Compact Retention", isOn: $model.learningCampaignCompactRetention)
                     Toggle("Monitor Artifacts", isOn: $model.learningCampaignMonitorEnabled)

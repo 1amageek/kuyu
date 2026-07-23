@@ -1,4 +1,5 @@
 import SwiftUI
+import KuyuMLX
 import KuyuMLXCampaignContracts
 
 struct TrainingArtifactsView: View {
@@ -28,7 +29,18 @@ struct TrainingArtifactsView: View {
                         artifactRow(label: "Plan", path: artifactPath("learning-campaign-plan.json"))
                         artifactRow(label: "Status", path: artifactPath("campaign-status.json"))
                         artifactRow(label: "Summary", path: artifactPath("learning-campaign-summary.json"))
-                        artifactRow(label: "Validation", path: artifactPath("learning-campaign-validation.json"))
+                        artifactRow(
+                            label: "Strict Validation",
+                            path: artifactPath(LearningCampaignValidationReceiptStore.strictAliasFileName)
+                        )
+                        artifactRow(
+                            label: "Diagnostic Validation",
+                            path: artifactPath(LearningCampaignValidationReceiptStore.diagnosticAliasFileName)
+                        )
+                        artifactRow(
+                            label: "Validation Receipts",
+                            path: artifactPath(LearningCampaignValidationReceiptStore.receiptDirectoryName)
+                        )
                     }
                 } label: {
                     Label("Campaign Artifacts", systemImage: "shippingbox")
@@ -36,7 +48,7 @@ struct TrainingArtifactsView: View {
 
                 GroupBox {
                     VStack(alignment: .leading, spacing: KuyuSpacing.xs) {
-                        artifactRow(label: "Training Run", path: model.trainingLiveStatus.artifactDirectoryPath)
+                        artifactRow(label: "Training Run", path: model.learningCampaignState?.artifactDirectory.path)
                         artifactRow(label: "Post Regression", path: model.lastPostRegressionGate?.artifactDirectory.path)
                     }
                 } label: {

@@ -59,6 +59,110 @@ import KuyuScenarios
     }
 }
 
+@Test func bundledRoArmM1DescriptorCorpusAcceptanceRecordsHardwareParityGap() async throws {
+    let loaded = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
+    let timeStep = loaded.world.time.fixedStepSeconds
+    let entry = DescriptorCorpusEntry(
+        loadedRobot: loaded,
+        entryID: "bundled-roarm-m1-real-profile-dynamic",
+        label: "Bundled RoArm M1 real-profile dynamic descriptor",
+        hardwareReport: try roArmM1DynamicHardwareCalibrationReport(loaded: loaded),
+        requiredReadiness: .dynamicSimulation,
+        duration: timeStep * 4.0,
+        timeStep: try TimeStep(delta: timeStep),
+        seed: ScenarioSeed(42),
+        determinism: try DeterminismConfig(tier: .tier0)
+    )
+
+    let summary = try await DescriptorCorpusAcceptanceService().accept(
+        corpusID: "bundled-real-profile-descriptor-corpus",
+        entries: [entry],
+        generatedAt: "2026-06-29T00:00:00Z"
+    )
+    let record = try #require(summary.records.first)
+    let gap = try #require(summary.hardwareParityGaps.first)
+
+    #expect(summary.accepted)
+    #expect(record.accepted)
+    #expect(record.robotID == "roarm-m1-v0")
+    #expect(record.bodyID == loaded.body.bodyID)
+    #expect(record.worldID == loaded.world.worldID)
+    #expect(record.embodimentContractID == loaded.embodiment.contractID)
+    #expect(record.achievedReadiness == .dynamicSimulation)
+    #expect(record.hardwareParity != .accepted)
+    #expect(gap.entryID == record.entryID)
+    #expect(gap.readinessLevel == .hardwareParity)
+    #expect(gap.reason.contains("insufficientCoverage"))
+    #expect(record.replay.passed)
+    #expect(record.replay.sortedJSONByteStable)
+    #expect(record.replay.stepCount == 4)
+}
+
+@Test func bundledRealProfileDescriptorCorpusAcceptsManipulatorAndAerialReferences() async throws {
+    let roarm = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
+    let quad = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/QuadRef/quadref.kuyurobot.json")
+    let single = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/SingleProp/singleprop.kuyurobot.json")
+    let entries = try [
+        descriptorCorpusEntry(
+            loaded: roarm,
+            entryID: "bundled-roarm-m1-real-profile-dynamic",
+            label: "Bundled RoArm M1 real-profile dynamic descriptor",
+            seed: 42,
+            hardwareReport: try roArmM1DynamicHardwareCalibrationReport(loaded: roarm)
+        ),
+        descriptorCorpusEntry(
+            loaded: quad,
+            entryID: "bundled-quadref-real-profile-dynamic",
+            label: "Bundled QuadRef real-profile dynamic descriptor",
+            seed: 43
+        ),
+        descriptorCorpusEntry(
+            loaded: single,
+            entryID: "bundled-singleprop-real-profile-dynamic",
+            label: "Bundled SingleProp real-profile dynamic descriptor",
+            seed: 44
+        )
+    ]
+
+    let summary = try await DescriptorCorpusAcceptanceService().accept(
+        corpusID: "bundled-real-profile-descriptor-corpus",
+        entries: entries,
+        generatedAt: "2026-06-30T00:00:00Z"
+    )
+    let artifactDirectory = temporaryDescriptorCorpusDirectory()
+    defer {
+        do {
+            try FileManager.default.removeItem(at: artifactDirectory)
+        } catch {
+            Issue.record("Temporary descriptor corpus directory cleanup failed: \(error)")
+        }
+    }
+    let artifactURL = try DescriptorCorpusAcceptanceArtifactStore().write(summary, to: artifactDirectory)
+    let persistedSummary = try DescriptorCorpusAcceptanceArtifactStore().validatedSummary(at: artifactURL)
+    let recordsByRobotID = Dictionary(uniqueKeysWithValues: summary.records.map { ($0.robotID, $0) })
+    let roarmRecord = try #require(recordsByRobotID["roarm-m1-v0"])
+    let quadRecord = try #require(recordsByRobotID["quadref-v0"])
+    let singleRecord = try #require(recordsByRobotID["singleprop-v0"])
+    let gap = try #require(summary.hardwareParityGaps.first)
+
+    #expect(artifactURL.lastPathComponent == DescriptorCorpusAcceptanceArtifactStore.fileName)
+    #expect(persistedSummary == summary)
+    #expect(summary.accepted)
+    #expect(summary.records.count == 3)
+    #expect(summary.records.map(\.robotID).sorted() == ["quadref-v0", "roarm-m1-v0", "singleprop-v0"])
+    #expect(summary.records.allSatisfy { $0.accepted })
+    #expect(summary.records.allSatisfy { $0.achievedReadiness == .dynamicSimulation })
+    #expect(summary.records.allSatisfy { $0.replay.passed })
+    #expect(summary.records.allSatisfy { $0.replay.sortedJSONByteStable })
+    #expect(summary.records.allSatisfy { $0.replay.stepCount == 4 })
+    #expect(roarmRecord.hardwareParity != .accepted)
+    #expect(quadRecord.hardwareParity == .notRequested)
+    #expect(singleRecord.hardwareParity == .notRequested)
+    #expect(gap.entryID == roarmRecord.entryID)
+    #expect(gap.readinessLevel == .hardwareParity)
+    #expect(summary.hardwareParityGaps.count == 1)
+}
+
 @Test func bundledRoArmM1DeclaresFifthDriveAsGripperClampAndPreservesMimicGraph() async throws {
     let loaded = try loadBundledRobot(relativePath: "Sources/KuyuUI/Resources/Models/RoArmM1/roarm-m1.kuyurobot.json")
     let sensors = loaded.embodiment.signals.sensor.sorted { $0.index < $1.index }
@@ -539,6 +643,102 @@ import KuyuScenarios
 private func loadBundledRobot(relativePath: String) throws -> LoadedKuyuRobot {
     let path = try packageRoot().appendingPathComponent(relativePath).path
     return try KuyuModelLoader().loadRobot(path: path)
+}
+
+private func temporaryDescriptorCorpusDirectory() -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("bundled-descriptor-corpus-\(UUID().uuidString)", isDirectory: true)
+}
+
+private func descriptorCorpusEntry(
+    loaded: LoadedKuyuRobot,
+    entryID: String,
+    label: String,
+    seed: UInt64,
+    hardwareReport: HardwareCalibrationReport? = nil
+) throws -> DescriptorCorpusEntry {
+    let timeStep = loaded.world.time.fixedStepSeconds
+    return DescriptorCorpusEntry(
+        loadedRobot: loaded,
+        entryID: entryID,
+        label: label,
+        hardwareReport: hardwareReport,
+        requiredReadiness: .dynamicSimulation,
+        duration: timeStep * 4.0,
+        timeStep: try TimeStep(delta: timeStep),
+        seed: ScenarioSeed(seed),
+        determinism: try DeterminismConfig(tier: .tier0)
+    )
+}
+
+private func roArmM1DynamicHardwareCalibrationReport(
+    loaded: LoadedKuyuRobot
+) throws -> HardwareCalibrationReport {
+    HardwareCalibrationReport(
+        schemaVersion: "kuyu.hardware-calibration.v1",
+        reportID: "bundled-roarm-m1-dynamic-calibration",
+        generatedAt: "2026-06-29T00:00:00Z",
+        robotID: loaded.manifest.robotID,
+        bodyID: loaded.body.bodyID,
+        embodimentContractID: loaded.embodiment.contractID,
+        readinessLevel: .dynamicSimulation,
+        positionToleranceRadians: 0.02,
+        minimumSamplesPerJoint: 3,
+        source: HardwareCalibrationSource(
+            operatorID: "kuyu-resource-test",
+            deviceID: "roarm-m1-resource-bench",
+            firmwareVersion: "fixture-v0",
+            measurementSystem: "resource-fixture",
+            notes: "Dynamic-simulation coverage report used to prove hardware-parity gap recording."
+        ),
+        jointCalibrations: try activeRoArmM1DrivenJoints(body: loaded.body).map { joint in
+            let attachment = try #require(loaded.body.actuatorAttachments.first { $0.jointID == joint.id })
+            return JointHardwareCalibration(
+                jointID: joint.id,
+                actuatorID: attachment.actuatorID,
+                commandDirection: attachment.commandDirection,
+                mechanicalReductionRatio: attachment.mechanicalReductionRatio,
+                identifiedDynamics: IdentifiedJointDynamics(
+                    latencySeconds: 0.004,
+                    timeConstantSeconds: 0.003,
+                    deadbandRadians: 0.001,
+                    backlashRadians: 0.002,
+                    viscousDamping: joint.damping,
+                    coulombFriction: joint.coulombFriction,
+                    meanAbsoluteErrorRadians: 0.006,
+                    maxObservedErrorRadians: 0.012
+                ),
+                samples: [
+                    JointCalibrationSample(
+                        commandedPositionRadians: -0.10,
+                        measuredPositionRadians: -0.096,
+                        commandTimeSeconds: 0.0,
+                        observedTimeSeconds: 0.02
+                    ),
+                    JointCalibrationSample(
+                        commandedPositionRadians: 0.0,
+                        measuredPositionRadians: 0.001,
+                        commandTimeSeconds: 0.1,
+                        observedTimeSeconds: 0.12
+                    ),
+                    JointCalibrationSample(
+                        commandedPositionRadians: 0.10,
+                        measuredPositionRadians: 0.095,
+                        commandTimeSeconds: 0.2,
+                        observedTimeSeconds: 0.22
+                    )
+                ]
+            )
+        }
+    )
+}
+
+private func activeRoArmM1DrivenJoints(body: KuyuBodyModel) -> [JointDefinition] {
+    body.joints.filter { joint in
+        joint.mimic == nil
+            && body.actuatorAttachments.contains { $0.jointID == joint.id }
+            && (joint.kind == .revolute || joint.kind == .continuous || joint.kind == .prismatic)
+    }
 }
 
 private func packageRoot() throws -> URL {

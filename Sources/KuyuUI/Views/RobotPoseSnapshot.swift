@@ -16,9 +16,7 @@ struct RobotPoseSnapshot {
 
     @MainActor
     static func current(model: SimulationViewModel) -> RobotPoseSnapshot {
-        if !model.isRunning,
-           !model.isLoopRunning,
-           let replay = replaySnapshot(model: model) {
+        if !model.isRunning, let replay = replaySnapshot(model: model) {
             return replay
         }
 

@@ -1,35 +1,52 @@
 import Foundation
 import Testing
 
-@Test func evolveManasRejectsSyntheticCandidateOnlyEvaluation() throws {
-    let cliSource = try String(
-        contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+@Test func learningCampaignCLIUsesAttitudeRRPPOAsItsExecutableDefault() throws {
+    let root = kuyuPackageRoot()
+    let commandSource = try String(
+        contentsOf: root.appendingPathComponent(
+            "Sources/KuyuCLI/RunLearningCampaignCommand.swift",
+            isDirectory: false
+        ),
+        encoding: .utf8
+    )
+    let executionSource = try String(
+        contentsOf: root.appendingPathComponent(
+            "Sources/KuyuCLI/RunLearningCampaignCommand+Execution.swift",
+            isDirectory: false
+        ),
         encoding: .utf8
     )
 
-    #expect(cliSource.contains("--evaluation candidateOnly is unsupported"))
-    #expect(cliSource.contains("ReferenceQuadrotorEvolutionRegressionEvaluator("))
-    #expect(!cliSource.contains("CLICandidateOnlyEvolutionEvaluator"))
-    #expect(!cliSource.contains("preflight mode=lightweight"))
-    #expect(!cliSource.contains("taskPassRate: 1"))
-    #expect(!cliSource.contains("safetyViolationRate: 0"))
+    #expect(commandSource.contains("var task: LearningCampaignTask = .attitude"))
+    #expect(executionSource.contains("contracts.supportsReinforcementWarmup && !noReinforcementWarmup"))
+    #expect(executionSource.contains("try contracts.validate(reinforcement: configuration.reinforcement)"))
+}
+
+@Test func evolveManasRejectsSyntheticCandidateOnlyEvaluation() throws {
+    let commandSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/EvolveManasCommand.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(commandSource.contains("--evaluation candidateOnly is unsupported"))
+    #expect(commandSource.contains("ReferenceQuadrotorEvolutionRegressionEvaluator("))
+    #expect(!commandSource.contains("CLICandidateOnlyEvolutionEvaluator"))
+    #expect(!commandSource.contains("preflight mode=lightweight"))
+    #expect(!commandSource.contains("taskPassRate: 1"))
+    #expect(!commandSource.contains("safetyViolationRate: 0"))
 }
 
 @Test func evolveManasDelegatesEvolutionPublicationAcceptanceToTrainingVerifier() throws {
-    let cliSource = try String(
+    let commandSource = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/EvolveManasCommand.swift", isDirectory: false),
         encoding: .utf8
-    )
-    let commandSource = try extractSource(
-        cliSource,
-        from: "struct EvolveManas",
-        to: "struct RunLearningCampaign"
     )
 
     #expect(commandSource.contains("let artifactReader = KuyuCLITrainingArtifactReader()"))
-    #expect(commandSource.contains("artifactReader.loadEvolutionPublication"))
+    #expect(commandSource.contains("artifactReader.validatedEvolutionPublication"))
     #expect(commandSource.contains("artifactReader.requireAcceptedEvolutionCheckpoint"))
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.accepted"))
     #expect(!commandSource.contains("artifacts.acceptedCheckpoint.checkpointURL"))
@@ -42,8 +59,16 @@ import Testing
 
 @Test func cliTrainingArtifactConsumptionGoesThroughTypedReader() throws {
     let root = kuyuPackageRoot()
-    let commandSource = try String(
+    let cliSource = try String(
         contentsOf: root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let evolveSource = try String(
+        contentsOf: root.appendingPathComponent("Sources/KuyuCLI/EvolveManasCommand.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let probeSource = try String(
+        contentsOf: root.appendingPathComponent("Sources/KuyuCLI/ProbeManasCommand.swift", isDirectory: false),
         encoding: .utf8
     )
     let readerSource = try String(
@@ -53,52 +78,42 @@ import Testing
         ),
         encoding: .utf8
     )
+    let commandSource = cliSource + "\n" + evolveSource
 
-    #expect(commandSource.contains("KuyuCLITrainingArtifactReader().loadProbeArtifacts"))
-    #expect(commandSource.contains("artifactReader.loadEvolutionPublication"))
+    #expect(commandSource.contains("KuyuCLITrainingArtifactReader().validatedProbeArtifacts"))
+    #expect(commandSource.contains("artifactReader.validatedEvolutionPublication"))
     #expect(commandSource.contains("artifactReader.requireAcceptedEvolutionCheckpoint"))
-    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadProbeArtifacts"))
-    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadEvolutionArtifacts"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().validatedProbeArtifacts"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().validatedEvolutionArtifacts"))
     #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier.VerificationError"))
     #expect(readerSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
-    #expect(readerSource.contains("func loadProbeArtifacts"))
-    #expect(readerSource.contains("func loadEvolutionPublication"))
+    #expect(readerSource.contains("ManasMLXProbeAcceptanceValidator"))
+    #expect(readerSource.contains("func validatedProbeArtifacts"))
+    #expect(readerSource.contains("func validatedManasMLXProbeAcceptance"))
+    #expect(readerSource.contains("func validatedEvolutionPublication"))
     #expect(readerSource.contains("func requireAcceptedEvolutionCheckpoint"))
+    #expect(probeSource.contains("artifactReader.validatedManasMLXProbeAcceptance"))
 }
 
-@Test func uiTrainingArtifactStoresUseTypedArtifactReader() throws {
+@Test func evolveManasCommandLivesOutsideKuyuCLI() throws {
     let root = kuyuPackageRoot()
-    let readerSource = try String(
-        contentsOf: root.appendingPathComponent(
-            "Sources/KuyuUI/Services/KuyuUITrainingArtifactReader.swift",
-            isDirectory: false
-        ),
-        encoding: .utf8
-    )
-    let runStoreSource = try String(
-        contentsOf: root.appendingPathComponent(
-            "Sources/KuyuUI/Services/TrainingRunStore.swift",
-            isDirectory: false
-        ),
-        encoding: .utf8
-    )
-    let campaignStoreSource = try String(
-        contentsOf: root.appendingPathComponent(
-            "Sources/KuyuUI/Services/LearningCampaignRunStore.swift",
-            isDirectory: false
-        ),
-        encoding: .utf8
-    )
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/EvolveManasCommand.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
 
-    #expect(readerSource.contains("public protocol KuyuUITrainingArtifactReading"))
-    #expect(readerSource.contains("public struct KuyuUITrainingArtifactReader"))
-    #expect(readerSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
-    #expect(runStoreSource.contains("private let artifactReader: any KuyuUITrainingArtifactReading"))
-    #expect(runStoreSource.contains("artifactReader.loadRunArtifacts"))
-    #expect(campaignStoreSource.contains("private let artifactReader: any KuyuUITrainingArtifactReading"))
-    #expect(campaignStoreSource.contains("artifactReader.loadEvolutionArtifacts"))
-    #expect(!runStoreSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
-    #expect(!campaignStoreSource.contains("GeneratedTrainingArtifactCompatibilityVerifier"))
+    #expect(cliSource.contains("EvolveManas.self"))
+    #expect(!cliSource.contains("struct EvolveManas"))
+    #expect(!cliSource.contains("EvolutionRunOrchestrator("))
+    #expect(!cliSource.contains("ReferenceQuadrotorEvolutionRegressionEvaluator("))
+    #expect(commandSource.contains("struct EvolveManas"))
+    #expect(commandSource.contains("EvolutionRunOrchestrator("))
+    #expect(commandSource.contains("ReferenceQuadrotorEvolutionRegressionEvaluator("))
+    #expect(commandSource.contains("artifactReader.validatedEvolutionPublication"))
+    #expect(commandSource.contains("artifactReader.requireAcceptedEvolutionCheckpoint"))
+    #expect(commandSource.contains("candidateOnly is unsupported"))
+    #expect(commandLineCount <= 420)
 }
 
 @Test func trainingHarnessRetryPolicyDelegatesToReferenceOwnerService() throws {
@@ -116,9 +131,14 @@ import Testing
 }
 
 @Test func trainingHarnessSummaryDelegatesCandidateSelectionToReferenceOwnerService() throws {
+    let root = kuyuPackageRoot()
     let cliSource = try String(
+        contentsOf: root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let supportSource = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/TrainingHarnessSupport.swift", isDirectory: false),
         encoding: .utf8
     )
     let commandSource = try extractSource(
@@ -131,7 +151,7 @@ import Testing
     #expect(commandSource.contains("harnessGateService.selectedCandidate"))
     #expect(commandSource.contains("harnessGateService.attemptDecision"))
     #expect(commandSource.contains("attemptDecision.accepted"))
-    #expect(cliSource.contains("ReferenceQuadrotorTrainingHarnessProbeSelectionInput"))
+    #expect(supportSource.contains("ReferenceQuadrotorTrainingHarnessProbeSelectionInput"))
     #expect(!commandSource.contains("gateReport.accepted"))
     #expect(!cliSource.contains("selectedHarnessCandidate"))
     #expect(!cliSource.contains("CheckTrainingHarnessSelectedCandidate"))
@@ -178,7 +198,7 @@ import Testing
 @Test func learningCampaignDelegatesTerminalAcceptanceToTrainingRunClassifier() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/RunLearningCampaignSupport.swift", isDirectory: false),
         encoding: .utf8
     )
 
@@ -186,23 +206,6 @@ import Testing
     #expect(source.contains("terminalAcceptance=\\(classification.status.rawValue)"))
     #expect(!source.contains("result.checkpointDecision.state == .accepted"))
     #expect(!source.contains("accepted=\\(result.convergence.accepted)"))
-}
-
-@Test func trainingLoopEventAdapterDelegatesTerminalAcceptanceToTrainingRunClassifier() throws {
-    let source = try String(
-        contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuUI/Services/TrainingLoopEventAdapter.swift", isDirectory: false),
-        encoding: .utf8
-    )
-
-    #expect(source.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
-    #expect(source.contains("TrainingScenarioKuyAtt1OutputFactory().makeOutput(output)"))
-    #expect(source.contains("passed: classification.accepted"))
-    #expect(!source.contains("ScenarioEvaluation("))
-    #expect(!source.contains("SuiteRunResult("))
-    #expect(!source.contains("ValidationSummary("))
-    #expect(!source.contains("result.convergence.accepted"))
-    #expect(!source.contains("result.manifest.failureReason"))
 }
 
 @Test func conformanceCommandDelegatesOverallAcceptanceToScenarioReportFactory() throws {
@@ -265,71 +268,220 @@ import Testing
 
     #expect(commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService().evaluate"))
     #expect(!commandSource.contains("ManasMLXReferenceQuadrotorCheckpointEvaluator("))
-    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().validatedCheckpointEvaluationArtifact"))
     #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationAcceptanceService()"))
     #expect(!commandSource.contains("private func evaluateCheckpointAcceptanceIfNeeded"))
 }
 
 @Test func foundationAcceptanceDelegatesPipelineToReferenceOwnerService() throws {
+    let root = kuyuPackageRoot()
     let source = try String(
+        contentsOf: root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let supportSource = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/RunFoundationAcceptanceSupport.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let evidenceConfigurationSource = try String(
+        contentsOf: kuyuPackageRoot().appendingPathComponent(
+            "Sources/KuyuCLI/FoundationAcceptanceEvidenceConfiguration.swift",
+            isDirectory: false
+        ),
         encoding: .utf8
     )
     let commandSource = try extractSource(
         source,
         from: "struct RunFoundationAcceptance",
-        to: "struct CalibrateManasCheckpoint"
+        to: "struct CheckEnvironments"
     )
 
     #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceService().run"))
     #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceRequest("))
+    #expect(supportSource.contains("ReferenceQuadrotorFoundationSourceCheckpointService().write"))
+    #expect(commandSource.contains("writeDefaultSourceCheckpoint"))
+    #expect(commandSource.contains("foundationAcceptanceCampaignSource"))
+    #expect(commandSource.contains("completedCampaignArtifactRootPath"))
+    #expect(commandSource.contains("campaignSource: campaignSource"))
+    #expect(commandSource.contains("foundationAcceptanceEvidenceConfiguration"))
+    #expect(commandSource.contains("configuration: evidenceConfiguration"))
+    #expect(evidenceConfigurationSource.contains("ReferenceQuadrotorFoundationCompletedCampaignLoader().load"))
+    #expect(evidenceConfigurationSource.contains("tier: plan.tier"))
+    #expect(evidenceConfigurationSource.contains("robotManifestPath: robotManifestPath"))
+    #expect(supportSource.contains("tier: configuration.tier"))
+    #expect(supportSource.contains("KuyuModelLoader().loadRobot(path: configuration.robotManifestPath)"))
+    #expect(supportSource.contains("ReferenceQuadrotorFoundationStressSuiteManifestService().write"))
+    #expect(commandSource.contains("writeDefaultStressSuiteManifest"))
+    #expect(commandSource.contains("defaultStressScenarioSuite"))
+    #expect(supportSource.contains("coverageMode: defaultStressScenarioSuite ? .scenarioSuite : .referenceM2Benchmark"))
+    #expect(commandSource.contains("m2BenchmarkEnabled: m2Benchmark"))
+    #expect(commandSource.contains("m2BenchmarkRequired: !m2Optional"))
+    #expect(commandSource.contains("stressSuiteEvidenceRequired: !stressSuiteOptional"))
+    #expect(commandSource.contains("stressSuiteManifestURLs: selectedStressSuiteManifestURLs"))
+    #expect(supportSource.contains("--physics-corpus-acceptance-artifacts"))
+    #expect(commandSource.contains("parseFoundationAcceptancePhysicsCorpusAcceptanceURLs"))
+    #expect(commandSource.contains("writeDefaultPhysicsCorpusAcceptance"))
+    #expect(supportSource.contains("defaultFoundationPhysicsCorpusAcceptanceURL"))
+    #expect(supportSource.contains("LoadedRobotDescriptorCorpusAcceptanceService().write"))
+    #expect(commandSource.contains("artifactRoot: artifactRoot"))
+    #expect(commandSource.contains("appendFoundationAcceptancePhysicsCorpusAcceptanceURL"))
+    #expect(commandSource.contains("physicsCorpusAcceptanceURLs: selectedPhysicsCorpusAcceptanceURLs"))
+    #expect(commandSource.contains("incumbentProjectEvidencePackDirectory: incumbentProjectEvidencePackDirectory"))
     #expect(commandSource.contains("ReferenceQuadrotorFoundationAcceptanceArtifactValidator()"))
-    #expect(commandSource.contains(".loadAndValidate(from: artifactRoot)"))
+    #expect(commandSource.contains(".validatedArtifact(in: artifactRoot)"))
     #expect(!commandSource.contains("let artifact = result.artifact"))
+    #expect(!commandSource.contains("StressSuiteManifest.referenceQuadrotor"))
+    #expect(!commandSource.contains("ReferenceQuadrotorScenarioCatalog.scenarios"))
     #expect(!commandSource.contains("LearningCampaignRunner("))
     #expect(!commandSource.contains("LearningCampaignAcceptedCheckpointResolver("))
     #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService().evaluate"))
     #expect(!commandSource.contains("ReferenceQuadrotorG1AttitudeAcceptanceGate"))
 }
 
+@Test func foundationAcceptanceSupportLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let supportURL = root.appendingPathComponent(
+        "Sources/KuyuCLI/RunFoundationAcceptanceSupport.swift",
+        isDirectory: false
+    )
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let supportSource = try String(contentsOf: supportURL, encoding: .utf8)
+    let supportLineCount = supportSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("struct RunFoundationAcceptance"))
+    #expect(cliSource.contains("ReferenceQuadrotorFoundationAcceptanceService().run"))
+    #expect(!cliSource.contains("func validatePositiveFoundationAcceptanceInputs"))
+    #expect(!cliSource.contains("func parseFoundationAcceptanceSeeds"))
+    #expect(!cliSource.contains("func writeDefaultFoundationSourceCheckpoint"))
+    #expect(!cliSource.contains("func writeDefaultFoundationPhysicsCorpusAcceptance"))
+    #expect(!cliSource.contains("static func printFoundationAcceptanceEvent"))
+    #expect(supportSource.contains("extension RunFoundationAcceptance"))
+    #expect(supportSource.contains("func validatePositiveFoundationAcceptanceInputs"))
+    #expect(supportSource.contains("func parseFoundationAcceptanceSeeds"))
+    #expect(supportSource.contains("func writeDefaultFoundationSourceCheckpoint"))
+    #expect(supportSource.contains("func writeDefaultFoundationPhysicsCorpusAcceptance"))
+    #expect(supportSource.contains("static func printFoundationAcceptanceEvent"))
+    #expect(supportLineCount <= 380)
+}
+
 @Test func m2BenchmarkDelegatesPassDecisionToReferenceOwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/BenchmarkReferenceAttitudeM2Command.swift", isDirectory: false),
         encoding: .utf8
     )
-    let commandSource = try extractSource(
-        source,
-        from: "struct BenchmarkReferenceAttitudeM2",
-        to: "struct CalibrateManasCheckpoint"
-    )
 
+    #expect(source.contains("ReferenceQuadrotorM2BenchmarkService().run"))
+    #expect(source.contains("ReferenceQuadrotorM2BenchmarkRequest("))
+    #expect(source.contains("result.decision.allPassed"))
+    #expect(!source.contains("result.artifact.suiteSummaries.allSatisfy"))
+    #expect(!source.contains("summary.taskPassCount == summary.episodeCount"))
+    #expect(!source.contains("summary.violationCount == 0"))
+}
+
+@Test func m2BenchmarkCommandLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/BenchmarkReferenceAttitudeM2Command.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("BenchmarkReferenceAttitudeM2.self"))
+    #expect(!cliSource.contains("struct BenchmarkReferenceAttitudeM2"))
+    #expect(!cliSource.contains("ReferenceQuadrotorM2BenchmarkService().run"))
+    #expect(commandSource.contains("struct BenchmarkReferenceAttitudeM2"))
+    #expect(commandSource.contains("benchmark-reference-attitude-m2"))
     #expect(commandSource.contains("ReferenceQuadrotorM2BenchmarkService().run"))
-    #expect(commandSource.contains("ReferenceQuadrotorM2BenchmarkRequest("))
     #expect(commandSource.contains("result.decision.allPassed"))
-    #expect(!commandSource.contains("result.artifact.suiteSummaries.allSatisfy"))
-    #expect(!commandSource.contains("summary.taskPassCount == summary.episodeCount"))
-    #expect(!commandSource.contains("summary.violationCount == 0"))
+    #expect(commandLineCount <= 180)
+}
+
+@Test func loopCommandLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/LoopCommand.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("Loop.self"))
+    #expect(!cliSource.contains("struct Loop"))
+    #expect(!cliSource.contains("TrainingRunOrchestrator("))
+    #expect(!cliSource.contains("[loop]"))
+    #expect(commandSource.contains("struct Loop"))
+    #expect(commandSource.contains("TrainingRunOrchestrator("))
+    #expect(commandSource.contains("ManasMLXTrainingBackend("))
+    #expect(commandSource.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(commandLineCount <= 210)
+}
+
+@Test func rolloutCommandLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/RolloutCommand.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("Rollout.self"))
+    #expect(!cliSource.contains("struct Rollout"))
+    #expect(!cliSource.contains("[rollout]"))
+    #expect(!cliSource.contains("TrainingDatasetWriter()"))
+    #expect(!cliSource.contains("printRolloutSummary"))
+    #expect(commandSource.contains("struct Rollout"))
+    #expect(commandSource.contains("RolloutRunner("))
+    #expect(commandSource.contains("ParallelRolloutCollector("))
+    #expect(commandSource.contains("TrainingDatasetWriter()"))
+    #expect(commandLineCount <= 230)
+}
+
+@Test func probeManasCommandLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/ProbeManasCommand.swift", isDirectory: false)
+    let supportURL = root.appendingPathComponent("Sources/KuyuCLI/TrainingHarnessSupport.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let supportSource = try String(contentsOf: supportURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("ProbeManas.self"))
+    #expect(!cliSource.contains("struct ProbeManas:"))
+    #expect(!cliSource.contains("TrainingProbeOrchestrator("))
+    #expect(commandSource.contains("struct ProbeManas"))
+    #expect(commandSource.contains("runCLIManasProbe("))
+    #expect(commandSource.contains("let artifactReader = KuyuCLITrainingArtifactReader()"))
+    #expect(commandSource.contains("artifactReader.validatedProbeArtifacts(in: artifactRoot)"))
+    #expect(!commandSource.contains("TrainingProbeOrchestrator("))
+    #expect(supportSource.contains("ManasMLXTrainingProbeService().run"))
+    #expect(!supportSource.contains("TrainingProbeOrchestrator("))
+    #expect(commandLineCount <= 160)
 }
 
 @Test func publishWorldModelFusedEvidenceDelegatesPublicationToWorldModelOwnerService() throws {
-    let source = try String(
+    let cliSource = try String(
         contentsOf: kuyuPackageRoot()
             .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
         encoding: .utf8
     )
-    let commandSource = try extractSource(
-        source,
-        from: "struct PublishWorldModelFusedEvidence",
-        to: "struct Verify"
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/WorldModelCommand.swift", isDirectory: false),
+        encoding: .utf8
     )
+    let commandStart = try #require(source.range(of: "struct PublishWorldModelFusedEvidence")?.lowerBound)
+    let commandSource = source[commandStart...]
 
-    #expect(source.contains("PublishWorldModelFusedEvidence.self"))
+    #expect(cliSource.contains("PublishWorldModelFusedEvidence.self"))
     #expect(commandSource.contains("MLXRuntimeReadinessService().check"))
     #expect(commandSource.contains("DatasetBackedFusedLongHorizonPublicationRequest("))
-    #expect(commandSource.contains("DatasetBackedFusedLongHorizonEvidenceService().publish"))
-    #expect(commandSource.contains("FusedEnvironmentLongHorizonArtifact.fileName"))
+    #expect(commandSource.contains("DatasetBackedFusedLongHorizonEvidenceService().publication"))
+    #expect(commandSource.contains("publication.artifactURL"))
+    #expect(commandSource.contains("publication.physicsGroundedImaginationArtifactURL"))
+    #expect(!commandSource.contains("FusedEnvironmentLongHorizonArtifact.fileName"))
     #expect(!commandSource.contains("StateWorldModel("))
     #expect(!commandSource.contains("TrainingDatasetContractValidator"))
     #expect(!commandSource.contains("MLX.loadArrays"))
@@ -338,7 +490,7 @@ import Testing
 @Test func imagineTrainPublishesFusedEvidenceThroughM2OwnerService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/WorldModelCommand.swift", isDirectory: false),
         encoding: .utf8
     )
     let commandSource = try extractSource(
@@ -348,15 +500,43 @@ import Testing
     )
 
     #expect(commandSource.contains("M2ImaginationFusedEvidenceRequest("))
-    #expect(commandSource.contains("service.imagineTrainAndPublishFusedEvidence"))
+    #expect(commandSource.contains("service.publishFusedEvidenceFromImaginationTraining"))
     #expect(commandSource.contains("fusedEvidenceOutputPath"))
     #expect(commandSource.contains("datasetIndex != 0"))
     #expect(commandSource.contains("startRecordIndex != 0"))
-    #expect(commandSource.contains("FusedEnvironmentLongHorizonArtifact.fileName"))
+    #expect(commandSource.contains("result.imaginationManifestURL"))
+    #expect(commandSource.contains("result.physicsGroundedImaginationArtifactURL"))
+    #expect(commandSource.contains("result.fusedEvidenceArtifactURL"))
+    #expect(commandSource.contains("result.projectEvidencePublication.projectEvidencePackURL"))
+    #expect(commandSource.contains("result.projectEvidencePublication.projectEvidencePack.projectID"))
+    #expect(!commandSource.contains("FusedEnvironmentLongHorizonArtifact.fileName"))
     #expect(!commandSource.contains("DatasetBackedFusedLongHorizonEvidenceService().publish"))
     #expect(!commandSource.contains("StateWorldModel("))
     #expect(!commandSource.contains("TrainingDatasetContractValidator"))
     #expect(!commandSource.contains("MLX.loadArrays"))
+}
+
+@Test func worldModelCommandsLiveOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/WorldModelCommand.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("TrainWorldModel.self"))
+    #expect(cliSource.contains("ImagineTrain.self"))
+    #expect(cliSource.contains("PublishWorldModelFusedEvidence.self"))
+    #expect(!cliSource.contains("struct TrainWorldModel"))
+    #expect(!cliSource.contains("struct ImagineTrain"))
+    #expect(!cliSource.contains("struct PublishWorldModelFusedEvidence"))
+    #expect(commandSource.contains("struct TrainWorldModel"))
+    #expect(commandSource.contains("struct ImagineTrain"))
+    #expect(commandSource.contains("struct PublishWorldModelFusedEvidence"))
+    #expect(commandSource.contains("M2TrainingService().trainWorldModel"))
+    #expect(commandSource.contains("service.publishFusedEvidenceFromImaginationTraining"))
+    #expect(commandSource.contains("DatasetBackedFusedLongHorizonEvidenceService().publication"))
+    #expect(commandLineCount <= 230)
 }
 
 @Test func daggerRelabelDelegatesRolloutRelabelingToReferenceOwnerService() throws {
@@ -380,46 +560,87 @@ import Testing
 }
 
 @Test func biasCalibrationDelegatesCheckpointEvaluationPipelineToReferenceOwnerService() throws {
-    let source = try String(
+    let cliSource = try String(
         contentsOf: kuyuPackageRoot()
             .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/BiasCalibrationCommand.swift", isDirectory: false),
         encoding: .utf8
     )
     let commandSource = try extractSource(
         source,
         from: "struct SelectManasBiasCalibration",
-        to: "private func createFreshArtifactRoot"
+        to: "private func createFreshBiasCalibrationArtifactRoot"
     )
 
+    #expect(cliSource.contains("SelectManasBiasCalibration.self"))
     #expect(commandSource.contains("ReferenceQuadrotorCheckpointEvaluationService()"))
     #expect(commandSource.contains("checkpointEvaluationService.evaluate"))
     #expect(!commandSource.contains("ManasMLXReferenceQuadrotorCheckpointEvaluator("))
-    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().loadCheckpointEvaluationArtifact"))
+    #expect(!commandSource.contains("GeneratedTrainingArtifactCompatibilityVerifier().validatedCheckpointEvaluationArtifact"))
     #expect(!commandSource.contains("ReferenceQuadrotorCheckpointEvaluationAcceptanceService()"))
 }
 
-@Test func trainingProbeExecutorDelegatesRecoveryRelabelDatasetToReferenceOwnerService() throws {
+@Test func biasCalibrationCommandsLiveOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/BiasCalibrationCommand.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let commandLineCount = commandSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("CalibrateManasCheckpoint.self"))
+    #expect(cliSource.contains("SelectManasBiasCalibration.self"))
+    #expect(!cliSource.contains("struct CalibrateManasCheckpoint"))
+    #expect(!cliSource.contains("struct SelectManasBiasCalibration"))
+    #expect(!cliSource.contains("func parseRawBiasDeltas"))
+    #expect(!cliSource.contains("func parseCalibrationSuites"))
+    #expect(commandSource.contains("struct CalibrateManasCheckpoint"))
+    #expect(commandSource.contains("struct SelectManasBiasCalibration"))
+    #expect(commandSource.contains("ManasMLXCheckpointBiasCalibrationService().calibrate"))
+    #expect(commandSource.contains("ReferenceQuadrotorBiasCalibrationSelectionService()"))
+    #expect(commandSource.contains("selectionService.summarize"))
+    #expect(commandLineCount <= 300)
+}
+
+@Test func trainingProbeAdapterDelegatesExecutionToMLXService() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/TrainingHarnessSupport.swift", isDirectory: false),
         encoding: .utf8
     )
-    let executorSource = try extractSource(
-        source,
-        from: "private final class CLITrainingProbeExecutor",
-        to: "struct EvolveManas"
-    )
 
-    #expect(executorSource.contains("ReferenceQuadrotorRecoveryRelabelDatasetService().write"))
-    #expect(executorSource.contains("ReferenceQuadrotorRecoveryRelabelDatasetRequest("))
-    #expect(!executorSource.contains("KuyAtt1Suite().scenarios"))
-    #expect(!executorSource.contains("KuyLiftSuite().scenarios"))
-    #expect(!executorSource.contains("KuySingleLiftSuite().scenarios"))
-    #expect(!executorSource.contains("AttitudeRecoveryRelabeler()"))
-    #expect(!executorSource.contains("LiftRecoveryRelabeler()"))
-    #expect(!executorSource.contains("SinglePropRecoveryRelabeler()"))
-    #expect(!executorSource.contains("KuyuSingleLiftParameterTuning.tuned"))
-    #expect(!executorSource.contains(".write(result:"))
+    #expect(source.contains("import KuyuMLXTrainingProbe"))
+    #expect(source.contains("ManasMLXTrainingProbeService().run"))
+    #expect(source.contains("ManasMLXTrainingProbeRequest("))
+    #expect(!source.contains("final class CLITrainingProbeExecutor"))
+    #expect(!source.contains("ReferenceQuadrotorRecoveryRelabelDatasetService().write"))
+    #expect(!source.contains("ManasMLXTrainingBackend("))
+    #expect(!source.contains("TrainingProbeOrchestrator("))
+}
+
+@Test func trainingHarnessSupportLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let supportURL = root.appendingPathComponent("Sources/KuyuCLI/TrainingHarnessSupport.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let supportSource = try String(contentsOf: supportURL, encoding: .utf8)
+    let supportLineCount = supportSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("CheckTrainingHarness.self"))
+    #expect(cliSource.contains("CheckTrainingHarnessSweep.self"))
+    #expect(cliSource.contains("runCLIManasProbe("))
+    #expect(!cliSource.contains("final class CLITrainingProbeExecutor"))
+    #expect(!cliSource.contains("struct CheckTrainingHarnessProbeEntry"))
+    #expect(!cliSource.contains("func parseProbeTasks"))
+    #expect(supportSource.contains("ManasMLXTrainingProbeService().run"))
+    #expect(!supportSource.contains("final class CLITrainingProbeExecutor"))
+    #expect(supportSource.contains("struct CheckTrainingHarnessProbeEntry"))
+    #expect(supportSource.contains("func parseProbeTasks"))
+    #expect(supportLineCount <= 450)
 }
 
 @Test func appAdaptersDelegateReferenceQuadrotorParameterResolutionToReferenceOwnerService() throws {
@@ -443,14 +664,20 @@ import Testing
             .appendingPathComponent("Sources/KuyuUI/Model/SimulationViewModel.swift", isDirectory: false),
         encoding: .utf8
     )
+    let viewModelPreflightSource = try extractSource(
+        viewModelSource,
+        from: "private func preflightParameters(modelPath: String)",
+        to: "private func preflightParameters()"
+    )
 
-    #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parametersOrReferenceBaseline(modelPath: modelPath)"))
+    #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().resolvedParameters(modelPath: modelPath)"))
     #expect(cliSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
     #expect(conformanceSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionService()"))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorParameterResolutionRequest("))
-    #expect(viewModelSource.contains("ReferenceQuadrotorParameterResolutionService().parameters(modelPath: trimmed)"))
-    #expect(viewModelSource.contains("ReferenceQuadrotorParameterResolutionService().parameters("))
+    #expect(viewModelPreflightSource.contains("ReferenceQuadrotorParameterResolutionService()"))
+    #expect(viewModelPreflightSource.contains(".parameters("))
+    #expect(viewModelPreflightSource.contains("modelPath: trimmed"))
     #expect(!cliSource.contains("KuyuSingleLiftParameterTuning.tuned"))
     #expect(!conformanceSource.contains("KuyuSingleLiftParameterTuning.tuned"))
     #expect(!runnerServiceSource.contains("KuyuSingleLiftParameterTuning.tuned"))
@@ -507,6 +734,136 @@ import Testing
     #expect(!source.contains("activeJointLimits"))
 }
 
+@Test func roArmM1HardwareRuntimeCaptureDelegatesTelemetryToProfileOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/RoArmM1HardwareRuntimeCapture.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(cliSource.contains("CaptureRoArmM1HardwareRuntime.self"))
+    #expect(source.contains("commandName: \"capture-roarm-m1-hardware-runtime\""))
+    #expect(source.contains("let options = try preflightOptions()\n        let loaded = try KuyuModelLoader().loadRobot(path: model)"))
+    #expect(source.contains("let rawTraceBinding = try resolvedRawTraceBinding()"))
+    #expect(source.contains("guard sampleCount > 0"))
+    #expect(source.contains("readTimeoutSeconds.isFinite"))
+    #expect(source.contains("--maximum-sample-interval-seconds"))
+    #expect(source.contains("--freshness-challenge-lifetime-seconds"))
+    #expect(source.contains("maximumSampleIntervalSeconds.isFinite"))
+    #expect(source.contains("freshnessChallengeLifetimeSeconds.isFinite"))
+    #expect(source.contains("RoArmM1HardwareRuntimeFreshnessChallengeIssuer().challenge"))
+    #expect(source.contains("let calibration = try validatedCalibrationReport(path: calibrationReport, loaded: loaded)"))
+    #expect(source.contains("let freshnessChallenge = try RoArmM1HardwareRuntimeFreshnessChallengeIssuer().challenge"))
+    #expect(source.contains("lifetimeSeconds: options.freshnessChallengeLifetimeSeconds"))
+    #expect(source.contains("RoArmM1HardwareRuntimeCapabilityNegotiation.supported("))
+    #expect(source.contains("maximumSampleIntervalSeconds: options.maximumSampleIntervalSeconds"))
+    #expect(source.contains("capabilityNegotiation: capabilityNegotiation"))
+    #expect(source.contains("freshnessChallenge: freshnessChallenge"))
+    #expect(source.contains("let freshnessChallengeLifetimeSeconds: Double"))
+    #expect(source.contains("publication.log.freshnessChallenge"))
+    #expect(source.contains("maxObservedSampleInterval"))
+    #expect(source.contains("KuyuModelLoader().loadRobot(path: model)"))
+    #expect(source.contains("RoArmM1HardwareParityReadinessService().validateReport"))
+    #expect(source.contains("RoArmM1ArmGripperHardwareRuntimeCaptureService().capture"))
+    #expect(source.contains("RoArmM1ArmGripperHardwareRuntimeCaptureRequest("))
+    #expect(source.contains("devicePath: options.devicePath"))
+    #expect(source.contains("expectedSampleCount: options.sampleCount"))
+    #expect(source.contains("readTimeoutSeconds: options.readTimeoutSeconds"))
+    #expect(source.contains("sessionSource: sessionSource"))
+    #expect(source.contains("trustedFirmwareAttestationKeyID"))
+    #expect(source.contains("trustedFirmwareAttestationPublicKeyX963"))
+    #expect(source.contains("trustedFirmwareKey: options.trustedFirmwareKey"))
+    #expect(source.contains("RoArmM1HardwareRuntimeTrustedFirmwareKey("))
+    #expect(source.contains("rawTraceBinding: options.rawTraceBinding"))
+    #expect(source.contains("resolvedRawTraceBinding()"))
+    #expect(source.contains("RoArmM1HardwareRuntimeRawTraceBinding("))
+    #expect(source.contains("rawTraceArtifactURL: URL(fileURLWithPath: artifactPath, isDirectory: false)"))
+    #expect(source.contains("artifactRoot: URL(fileURLWithPath: rootPath, isDirectory: true)"))
+    #expect(source.contains("measurementSystem: calibration.evidence.measurementSystem"))
+    #expect(source.contains("measurementDeviceID: calibration.evidence.measurementDeviceID"))
+    #expect(source.contains("calibration: calibration"))
+    #expect(source.contains("RoArmM1SerialTelemetrySessionSource("))
+    #expect(source.contains("publication.log.telemetrySessionID"))
+    #expect(!source.contains("RoArmM1ArmGripperHardwareRuntimeLog("))
+    #expect(!source.contains("RoArmM1ArmGripperHardwareRuntimeReport("))
+    #expect(!source.contains("RoArmM1SerialTelemetryReader"))
+    #expect(!source.contains("RoArmM1ArmGripperHardwareRuntimeJSONLinesSampleSource"))
+    #expect(!source.contains("Darwin"))
+    #expect(!source.contains("termios"))
+    #expect(!source.contains("pollfd"))
+    #expect(!source.contains("JSONDecoder"))
+    #expect(!source.contains("HardwareCalibrationReport"))
+    #expect(!source.contains("ManasRuntimeAcceptanceValidator"))
+    #expect(!source.contains("ManasModelBundleValidator"))
+}
+
+@Test func roArmM1HardwareRuntimePublicationDelegatesEvidenceToProfileOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/RoArmM1HardwareRuntimePublication.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(cliSource.contains("PublishRoArmM1HardwareRuntime.self"))
+    #expect(source.contains("commandName: \"publish-roarm-m1-hardware-runtime\""))
+    #expect(source.contains("import KuyuMLXRoArmM1"))
+    #expect(source.contains("RoArmM1HardwareRuntimeBundleEvidenceService().publish"))
+    #expect(source.contains("logURL: logURL"))
+    #expect(source.contains("checkpointURL: checkpointURL"))
+    #expect(source.contains("reportURL: reportURL"))
+    #expect(source.contains("RoArmM1ArmGripperBundleReadinessValidator().validatedBundle"))
+    #expect(source.contains("requirement: .hardwareRuntime"))
+    #expect(source.contains("bundleScopedURL"))
+    #expect(source.contains("readiness.hardwareRuntimeBundleEvidence?.telemetrySessionID"))
+    #expect(source.contains("publication.evidenceURL.path"))
+    #expect(source.contains("readiness.trainingArtifact.bundleID"))
+    #expect(source.contains("readiness.readinessLevel.rawValue"))
+    #expect(source.contains("readiness.sourceKind.rawValue"))
+    #expect(!source.contains("RoArmM1ArmGripperHardwareRuntimeReportService"))
+    #expect(!source.contains("JSONDecoder"))
+    #expect(!source.contains("ManasRuntimeAcceptanceValidator"))
+    #expect(!source.contains("ManasModelBundleValidator"))
+    #expect(!source.contains("ReadinessGate"))
+    #expect(!source.contains("HardwareRuntimeReport("))
+    #expect(!source.contains("boundedBehaviorSummary()"))
+    #expect(!source.contains("hardwareEvidence()"))
+}
+
+@Test func roArmM1HardwareCalibrationPublicationDelegatesReportAssemblyToProfileOwnerService() throws {
+    let source = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/RoArmM1HardwareCalibrationPublication.swift", isDirectory: false),
+        encoding: .utf8
+    )
+    let cliSource = try String(
+        contentsOf: kuyuPackageRoot()
+            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+        encoding: .utf8
+    )
+
+    #expect(cliSource.contains("PublishRoArmM1HardwareCalibration.self"))
+    #expect(source.contains("commandName: \"publish-roarm-m1-hardware-calibration\""))
+    #expect(source.contains("RoArmM1HardwareCalibrationReportService().writeReport"))
+    #expect(source.contains("RoArmM1HardwareCalibrationReportPublicationRequest("))
+    #expect(source.contains("HardwareCalibrationSource("))
+    #expect(!source.contains("JSONDecoder"))
+    #expect(!source.contains("JSONEncoder"))
+    #expect(!source.contains("HardwareCalibrationReport("))
+    #expect(!source.contains("RoArmM1ArmGripperHardwareParityEvidence.validated"))
+    #expect(!source.contains("RoArmM1HardwareParityReadinessService().validateReport"))
+    #expect(!source.contains("ReadinessGate"))
+}
+
 @Test func uiAdaptersDelegateStarterCheckpointContractToReferenceOwnerService() throws {
     let viewModelSource = try String(
         contentsOf: kuyuPackageRoot()
@@ -535,6 +892,11 @@ import Testing
     #expect(preparerSource.contains("ReferenceQuadrotorStarterCheckpointContractService().contract"))
     #expect(preparerSource.contains("starterContract.observationContract"))
     #expect(preparerSource.contains("starterContract.starterActionMean"))
+    #expect(preparerSource.contains("projectRootURL"))
+    #expect(preparerSource.contains("assertCheckpointIsOwned"))
+    #expect(preparerSource.contains("resolvingSymlinksInPath()"))
+    #expect(preparerSource.contains("checkpointParentPath"))
+    #expect(preparerSource.contains("refusingExternalCheckpointPath"))
     #expect(runnerServiceSource.contains("ReferenceQuadrotorStarterCheckpointContractService()"))
     #expect(runnerServiceSource.contains(".defaultContract(for: request.taskMode)"))
     #expect(runnerServiceSource.contains("motorNerveContractRejected"))
@@ -612,53 +974,72 @@ import Testing
     #expect(!source.contains("KuyAtt1RunOutput(result:"))
 }
 
-@Test func commandSystemDelegatesReferenceTrainingBackendBundleToProfileOwnerService() throws {
-    let source = try String(
-        contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuUI/Services/CommandSystem.swift", isDirectory: false),
-        encoding: .utf8
-    )
-
-    #expect(source.contains("ReferenceQuadrotorTrainingBackendBundleFactory("))
-    #expect(source.contains("workerModelStoreFactory: { ManasMLXModelStore() }"))
-    #expect(source.contains("robotManifestPath: runRequest.robotManifestPath"))
-    #expect(!source.contains("ManasMLXTrainingBackendFactory("))
-}
-
-@Test func uiCommandControllersUseMainActorIsolationInsteadOfNSLock() throws {
-    let serviceFiles = [
-        "Sources/KuyuUI/Services/CommandSystem.swift",
-        "Sources/KuyuUI/Services/TrainingLoopController.swift",
-    ]
-
-    for file in serviceFiles {
-        let source = try String(
-            contentsOf: kuyuPackageRoot().appendingPathComponent(file, isDirectory: false),
-            encoding: .utf8
-        )
-        #expect(source.contains("@MainActor"))
-        #expect(!source.contains("NSLock"))
-    }
-}
-
 @Test func cliGracefulStopSignalHandlingUsesTaskInsteadOfDispatchSources() throws {
     let source = try String(
         contentsOf: kuyuPackageRoot()
-            .appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false),
+            .appendingPathComponent("Sources/KuyuCLI/RunLearningCampaignSupport.swift", isDirectory: false),
         encoding: .utf8
     )
     let signalSource = try String(extractSource(
         source,
         from: "static func installStopSignalHandlers",
-        to: "private func parseCampaignSeeds"
+        to: "static func restoreStopSignalHandlers"
     ))
-
-    #expect(signalSource.contains("Task<Void, Never>?"))
+    #expect(signalSource.contains("Task<Void, Never>"))
     #expect(signalSource.contains("learningCampaignStopSignalRequested"))
     #expect(signalSource.contains("Task.sleep"))
+    #expect(signalSource.contains("LearningCampaignProcessSignal("))
+    #expect(signalSource.contains("await onStopRequested(signal)"))
+    #expect(source.contains("_exit(128 + signal)"))
     #expect(!signalSource.contains("DispatchQueue"))
     #expect(!signalSource.contains("DispatchSource"))
     #expect(!signalSource.contains("EventLoopFuture"))
+}
+
+@Test func runLearningCampaignCommandLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let commandURL = root.appendingPathComponent("Sources/KuyuCLI/RunLearningCampaignCommand.swift", isDirectory: false)
+    let executionURL = root.appendingPathComponent("Sources/KuyuCLI/RunLearningCampaignCommand+Execution.swift", isDirectory: false)
+    let supportURL = root.appendingPathComponent("Sources/KuyuCLI/RunLearningCampaignSupport.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let commandSource = try String(contentsOf: commandURL, encoding: .utf8)
+    let executionSource = try String(contentsOf: executionURL, encoding: .utf8)
+    let supportSource = try String(contentsOf: supportURL, encoding: .utf8)
+
+    #expect(cliSource.contains("RunLearningCampaign.self"))
+    #expect(!cliSource.contains("struct RunLearningCampaign"))
+    #expect(!cliSource.contains("ManasMLXTrainingRunExecutor()"))
+    #expect(!cliSource.contains("TrainingRunConfiguration("))
+    #expect(commandSource.contains("struct RunLearningCampaign"))
+    #expect(commandSource.contains("@Option"))
+    #expect(!commandSource.contains("mutating func run"))
+    #expect(executionSource.contains("extension RunLearningCampaign"))
+    #expect(executionSource.contains("mutating func run"))
+    #expect(!executionSource.contains("@Option"))
+    #expect(executionSource.contains("ManasMLXTrainingRunProcessExecutor("))
+    #expect(executionSource.contains("ManasMLXTrainingWorkerProcessConfigurationFactory().userCache("))
+    #expect(!executionSource.contains("let executor = ManasMLXTrainingRunExecutor()"))
+    #expect(executionSource.contains("TrainingRunConfiguration("))
+    #expect(executionSource.contains("executor.resume"))
+    #expect(executionSource.contains("executor.start"))
+    #expect(executionSource.contains("resumeSource = .artifactRoot(artifactRoot)"))
+    #expect(executionSource.contains("if let resumeSource"))
+    #expect(executionSource.contains("source: resumeSource"))
+    #expect(executionSource.contains("--resume and --source-checkpoint cannot both be set"))
+    #expect(executionSource.contains("ReferenceQuadrotorLearningCampaignTrainingContractResolver()"))
+    #expect(executionSource.contains(".contracts(for: task)"))
+    #expect(executionSource.contains("ManasMLXModelBundleReferenceResolver()"))
+    #expect(!executionSource.contains("bundleID: sourceCheckpointURL.lastPathComponent"))
+    #expect(supportSource.contains("static func installStopSignalHandlers"))
+    #expect(supportSource.contains("static func restoreStopSignalHandlers"))
+    #expect(executionSource.contains("TrainingRunLifecycleCoordinator()"))
+    #expect(executionSource.contains("await lifecycle.requestCancellation()"))
+    #expect(executionSource.contains("try await lifecycle.register(handle)"))
+    #expect(executionSource.contains("lifecycle.waitForTermination()"))
+    #expect(executionSource.contains("summary.terminalState == .completed"))
+    #expect(supportSource.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
+    #expect(!supportSource.contains("extension LearningCampaignTask"))
 }
 
 @Test func regressionMatrixDelegatesSummaryPassClassificationToReferenceOwnerService() throws {
@@ -670,7 +1051,7 @@ import Testing
     let regressionMatrixSource = try String(extractSource(
         source,
         from: "struct CheckKuyuRegressionMatrix",
-        to: "private func runKuyuRegression("
+        to: "struct Verify"
     ))
 
     #expect(regressionMatrixSource.contains("let matrixSummaryService = ReferenceQuadrotorRegressionMatrixSummaryService()"))
@@ -682,6 +1063,31 @@ import Testing
     #expect(!regressionMatrixSource.contains("accepted: summary.gateReport.accepted"))
     #expect(!regressionMatrixSource.contains("entries.allSatisfy(\\.accepted)"))
     #expect(!regressionMatrixSource.contains("private struct KuyuRegressionMatrixSummary"))
+}
+
+@Test func regressionCommandSupportLivesOutsideKuyuCLI() throws {
+    let root = kuyuPackageRoot()
+    let cliURL = root.appendingPathComponent("Sources/KuyuCLI/KuyuCLI.swift", isDirectory: false)
+    let supportURL = root.appendingPathComponent("Sources/KuyuCLI/RegressionCommandSupport.swift", isDirectory: false)
+    let cliSource = try String(contentsOf: cliURL, encoding: .utf8)
+    let supportSource = try String(contentsOf: supportURL, encoding: .utf8)
+    let supportLineCount = supportSource.split(separator: "\n", omittingEmptySubsequences: false).count
+
+    #expect(cliSource.contains("CheckKuyuRegression.self"))
+    #expect(cliSource.contains("CheckKuyuRegressionMatrix.self"))
+    #expect(cliSource.contains("runKuyuRegression("))
+    #expect(cliSource.contains("writeRegressionMatrixSummary(summary, to: artifactRoot)"))
+    #expect(!cliSource.contains("func runKuyuRegression("))
+    #expect(!cliSource.contains("func regressionSnapshotURL"))
+    #expect(!cliSource.contains("func parseRegressionSuites"))
+    #expect(!cliSource.contains("func regressionQualityText"))
+    #expect(supportSource.contains("func runKuyuRegression("))
+    #expect(supportSource.contains("func regressionSnapshotURL"))
+    #expect(supportSource.contains("func parseRegressionSuites"))
+    #expect(supportSource.contains("func regressionQualityText"))
+    #expect(supportSource.contains("ReferenceQuadrotorRegressionRunner().run"))
+    #expect(supportSource.contains("ReferenceQuadrotorRegressionRunConfig("))
+    #expect(supportLineCount <= 180)
 }
 
 @Test func regressionRunStoreDelegatesInspectionStateToReferenceOwnerService() throws {

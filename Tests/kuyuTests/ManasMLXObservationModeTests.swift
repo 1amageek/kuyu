@@ -12,10 +12,10 @@ import Testing
 
 @Test func liftRuntimeUsesExtendedObservationMode() throws {
     let mode = ManasMLXObservationMode.runtimeMode(for: .lift)
-    #expect(mode == .passThrough(channelCount: 64))
+    #expect(mode == .passThrough(channelCount: 8))
     #expect(mode.accepts(channelIndex: 0))
-    #expect(mode.accepts(channelIndex: 63))
-    #expect(!mode.accepts(channelIndex: 64))
+    #expect(mode.accepts(channelIndex: 7))
+    #expect(!mode.accepts(channelIndex: 8))
 }
 
 @Test func singleDriveDatasetsKeepAltitudeObservationChannels() throws {

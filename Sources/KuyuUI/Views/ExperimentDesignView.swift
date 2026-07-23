@@ -25,6 +25,7 @@ struct ExperimentDesignView: View {
                     }
                     TextField("Source Checkpoint", text: $model.learningCampaignSourceCheckpointPath)
                     TextField("Artifact Root", text: $model.learningCampaignArtifactDirectory)
+                        .disabled(model.isLearningCampaignRunning)
                     Toggle("Compact Artifact Retention", isOn: $model.learningCampaignCompactRetention)
                     Button {
                         model.prepareStarterLearningProject()

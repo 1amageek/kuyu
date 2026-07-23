@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLXCampaignContracts
 
 struct TrainingMonitorSnapshot: Sendable, Equatable {
     enum Health: String, Sendable, Equatable {
@@ -7,6 +8,8 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         case attention
         case stale
         case failed
+        case rejected
+        case cancelled
         case complete
 
         var label: String {
@@ -21,6 +24,10 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
                 return "stale"
             case .failed:
                 return "failed"
+            case .rejected:
+                return "rejected"
+            case .cancelled:
+                return "cancelled"
             case .complete:
                 return "complete"
             }
@@ -45,6 +52,7 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         let artifactChange: TimeInterval
         let artifactLoad: TimeInterval
         let candidate: TimeInterval
+        let work: TimeInterval
     }
 
     let health: Health
@@ -55,9 +63,12 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
     let generationText: String
     let candidateText: String
     let estimatedRemainingText: String
+    let scenarioEstimatedRemainingText: String
     let eventAgeText: String
+    let receivedAgeText: String
     let artifactAgeText: String
     let candidateAgeText: String
+    let workAgeText: String
     let eventStreamStatus: String
     let artifactMonitorStatus: String
     let artifactLoadStatus: String
@@ -71,33 +82,46 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
 
     @MainActor
     init(model: SimulationViewModel, now: Date = Date()) {
-        let state = model.learningCampaignState
+        let projection = LearningCampaignMonitorProjection(
+            execution: model.learningCampaignExecutionSnapshot,
+            persistedState: model.learningCampaignState,
+            configuredArtifactPath: model.learningCampaignArtifactDirectory
+        )
+        let state = projection.persistedState
         let progressEvents = model.learningCampaignProgressEventsForDisplay
         let latestProgressRecord = progressEvents.last
         let latestCandidateRecord = progressEvents.last { $0.event == "candidate-evaluated" }
         let latestProgressEventDate = latestProgressRecord?.timestamp
         let latestCandidateDate = latestCandidateRecord?.timestamp
-        let lastRunnerEventAt = model.learningCampaignLastRunnerEventAt ?? latestProgressEventDate
+        let lastRunnerEventReceivedAt = model.learningCampaignLastRunnerEventAt
+        let latestProducerEventAt = latestProgressEventDate ?? lastRunnerEventReceivedAt
+        let activeControlStep = state?.progress.currentControlStepProgress
+        let latestWorkDate = activeControlStep?.timestamp
         let latestBatch = state?.latestVectorizedBatch
-        let latestThroughput = latestCandidateRecord?.workerThroughput.flatMap(Self.finitePositive)
+        let latestCandidateThroughput = latestCandidateRecord?.workerThroughput.flatMap(Self.finitePositive)
             ?? latestBatch.flatMap(Self.throughput(batch:))
+        let latestWorkThroughput = state?.progress.currentControlStepEstimate.unitsPerSecond
+            .flatMap(Self.finitePositive)
         let plannedCandidates = state?.plannedCandidateEvaluationCount ?? 0
         let completedCandidates = state?.liveCandidateEvaluationCount ?? model.learningCampaignLiveCandidateEvaluationCount
         let remainingCandidates = max(0, plannedCandidates - completedCandidates)
-        let isRunning = model.isLearningCampaignRunning
-        let status = state?.statusLabel ?? (isRunning ? "running" : "idle")
+        let isRunning = projection.isRunning
+        let status = projection.statusLabel
         let normalizedStatus = status.lowercased()
-        let progress = state?.campaignProgressFraction ?? model.learningCampaignProgressFraction
-        let primaryIssue = state?.primaryFailureReason
+        let progress = projection.progressFraction
+        let primaryIssue = projection.primaryIssue
             ?? model.lastPostRegressionGate?.primaryRejectReason
             ?? model.learningCampaignError
-        let eventAge = lastRunnerEventAt.map { now.timeIntervalSince($0) }
+        let eventAge = latestProducerEventAt.map { now.timeIntervalSince($0) }
+        let receivedAge = lastRunnerEventReceivedAt.map { now.timeIntervalSince($0) }
         let artifactAge = model.learningCampaignLastArtifactLoadChangedAt.map { now.timeIntervalSince($0) }
         let artifactLoadAge = model.learningCampaignLastArtifactLoadStartedAt.map { now.timeIntervalSince($0) }
         let candidateAge = latestCandidateDate.map { now.timeIntervalSince($0) }
+        let workAge = latestWorkDate.map { now.timeIntervalSince($0) }
         let stalenessPolicy = Self.stalenessPolicy(
             state: state,
-            latestThroughput: latestThroughput,
+            latestCandidateThroughput: latestCandidateThroughput,
+            latestWorkThroughput: latestWorkThroughput,
             hasLoadedArtifactState: model.learningCampaignLastArtifactLoadChangedAt != nil
         )
         let gpuActivity = LearningCampaignGPUActivitySnapshot(
@@ -109,8 +133,8 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         )
 
         self.statusLabel = status
-        self.phase = model.learningCampaignCurrentPhase
-        self.latestEvent = model.learningCampaignLatestEvent
+        self.phase = projection.phase
+        self.latestEvent = projection.latestEvent
         self.progressFraction = progress
         self.generationText = Self.generationText(state: state)
         self.candidateText = Self.candidateText(
@@ -118,12 +142,22 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
             planned: plannedCandidates
         )
         self.estimatedRemainingText = Self.estimatedRemainingText(
+            lifecycleStage: state?.progress.lifecycleStage,
+            normalizedStatus: normalizedStatus,
+            isRunning: isRunning,
+            hasProgressEvidence: !progressEvents.isEmpty,
             remainingCandidates: remainingCandidates,
-            throughput: latestThroughput
+            runtimeEstimateSeconds: state?.progress.estimate.estimatedRemainingSeconds,
+            fallbackThroughput: latestCandidateThroughput
+        )
+        self.scenarioEstimatedRemainingText = Self.scenarioEstimatedRemainingText(
+            state?.progress.currentControlStepEstimate
         )
         self.eventAgeText = Self.ageText(eventAge)
+        self.receivedAgeText = Self.ageText(receivedAge)
         self.artifactAgeText = Self.ageText(artifactAge)
         self.candidateAgeText = Self.ageText(candidateAge)
+        self.workAgeText = Self.ageText(workAge)
         self.eventStreamStatus = Self.eventStreamStatus(
             isRunning: isRunning,
             age: eventAge,
@@ -138,12 +172,14 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
             policy: stalenessPolicy
         )
         self.artifactRootLabel = Self.artifactRootLabel(
-            state: state,
-            configuredPath: model.learningCampaignArtifactDirectory
+            artifactRoot: projection.artifactRoot
         )
         self.acceleratorLabel = gpuActivity.acceleratorLabel
         self.gpuEvidenceLabel = Self.gpuEvidenceLabel(activity: gpuActivity)
-        self.throughputText = Self.throughputText(latestThroughput)
+        self.throughputText = Self.throughputText(
+            work: latestWorkThroughput,
+            candidate: latestCandidateThroughput
+        )
         self.parallelismText = state?.actualParallelismLabel
             ?? "\(model.learningCampaignCandidateEvaluationConcurrency) requested"
         self.runLogRetentionText = "\(model.learningCampaignRunLog.count)/500 UI log, \(progressEvents.count)/4000 events"
@@ -156,11 +192,13 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
             artifactAge: artifactAge,
             artifactLoadAge: artifactLoadAge,
             candidateAge: candidateAge,
+            workAge: workAge,
+            hasActiveWork: activeControlStep != nil,
             stalenessPolicy: stalenessPolicy,
             model: model,
             state: state,
             gpuActivity: gpuActivity,
-            latestThroughput: latestThroughput
+            latestThroughput: latestCandidateThroughput
         )
         generatedAlerts.sort { lhs, rhs in
             if lhs.severity != rhs.severity {
@@ -183,8 +221,14 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         progressFraction: Double,
         alerts: [Alert]
     ) -> Health {
-        if normalizedStatus == "failed" || normalizedStatus == "cancelled" {
+        if normalizedStatus == "failed" {
             return .failed
+        }
+        if normalizedStatus == "cancelled" {
+            return .cancelled
+        }
+        if normalizedStatus == "rejected" {
+            return .rejected
         }
         if normalizedStatus == "succeeded" || normalizedStatus == "completed" || progressFraction >= 1 {
             return .complete
@@ -207,6 +251,8 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         artifactAge: TimeInterval?,
         artifactLoadAge: TimeInterval?,
         candidateAge: TimeInterval?,
+        workAge: TimeInterval?,
+        hasActiveWork: Bool,
         stalenessPolicy: StalenessPolicy,
         model: SimulationViewModel,
         state: LearningCampaignRunStoreState?,
@@ -263,7 +309,21 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
                     detail: "The monitor is running, but no artifact snapshot has been applied."
                 ))
             }
-            if let candidateAge, candidateAge >= stalenessPolicy.candidate {
+            let workIsFresh = hasActiveWork
+                && workAge.map { $0 < stalenessPolicy.work } == true
+            if hasActiveWork,
+               let workAge,
+               workAge >= stalenessPolicy.work {
+                alerts.append(Alert(
+                    id: "work-stale",
+                    severity: .critical,
+                    title: "Scenario progress has stalled",
+                    detail: "No control-step progress has been produced for \(ageText(workAge))."
+                ))
+            }
+            if let candidateAge,
+               candidateAge >= stalenessPolicy.candidate,
+               !workIsFresh {
                 alerts.append(Alert(
                     id: "candidate-stale",
                     severity: .warning,
@@ -367,18 +427,43 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         return "\(completed)/\(planned)"
     }
 
-    private static func estimatedRemainingText(remainingCandidates: Int, throughput: Double?) -> String {
-        guard remainingCandidates > 0 else { return "complete" }
-        guard let throughput, throughput > 0 else { return "--" }
-        return durationText(Double(remainingCandidates) / throughput)
+    private static func estimatedRemainingText(
+        lifecycleStage: LearningCampaignLifecycleStage?,
+        normalizedStatus: String,
+        isRunning: Bool,
+        hasProgressEvidence: Bool,
+        remainingCandidates: Int,
+        runtimeEstimateSeconds: TimeInterval?,
+        fallbackThroughput: Double?
+    ) -> String {
+        if lifecycleStage == .completed || normalizedStatus == "succeeded" || normalizedStatus == "completed" {
+            return "complete"
+        }
+        if lifecycleStage == .failed || lifecycleStage == .cancelled
+            || normalizedStatus == "failed" || normalizedStatus == "cancelled"
+            || normalizedStatus == "rejected" {
+            return "stopped"
+        }
+        guard isRunning || hasProgressEvidence else { return "not started" }
+        if let runtimeEstimateSeconds, runtimeEstimateSeconds.isFinite, runtimeEstimateSeconds > 0 {
+            return durationText(runtimeEstimateSeconds)
+        }
+        if remainingCandidates > 0,
+           let fallbackThroughput,
+           fallbackThroughput.isFinite,
+           fallbackThroughput > 0 {
+            return durationText(Double(remainingCandidates) / fallbackThroughput)
+        }
+        return isRunning ? "collecting evidence" : "stopped"
     }
 
     private static func stalenessPolicy(
         state: LearningCampaignRunStoreState?,
-        latestThroughput: Double?,
+        latestCandidateThroughput: Double?,
+        latestWorkThroughput: Double?,
         hasLoadedArtifactState: Bool
     ) -> StalenessPolicy {
-        let candidateCadence = latestThroughput.map { 1 / $0 }
+        let candidateCadence = latestCandidateThroughput.map { 1 / $0 }
             ?? state?.averageCandidateEvaluationDurationSeconds
             ?? (hasLoadedArtifactState ? 60 : 30)
         let parallelism = Double(max(1, state?.maxRequestedCandidateConcurrency ?? 1))
@@ -387,11 +472,22 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         let artifactChange = boundedDuration(eventStream * 2, lower: 60, upper: 1_200)
         let artifactLoad = boundedDuration(eventStream, lower: 15, upper: 180)
         let candidate = boundedDuration(expectedBatchCadence * 8, lower: 60, upper: 1_800)
+        let workUpdateUnitCount = state?.progress.currentControlStepProgress.map {
+            max(1, $0.totalUnitCount / 40)
+        }
+        let workCadence = if let latestWorkThroughput,
+                             let workUpdateUnitCount {
+            Double(workUpdateUnitCount) / latestWorkThroughput
+        } else {
+            Double(30)
+        }
+        let work = boundedDuration(workCadence * 4, lower: 30, upper: 600)
         return StalenessPolicy(
             eventStream: eventStream,
             artifactChange: artifactChange,
             artifactLoad: artifactLoad,
-            candidate: candidate
+            candidate: candidate,
+            work: work
         )
     }
 
@@ -403,16 +499,8 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         min(upper, max(lower, value))
     }
 
-    private static func artifactRootLabel(
-        state: LearningCampaignRunStoreState?,
-        configuredPath: String
-    ) -> String {
-        if let state {
-            return state.artifactDirectory.lastPathComponent
-        }
-        let trimmed = configuredPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "--" }
-        return URL(fileURLWithPath: trimmed).lastPathComponent
+    private static func artifactRootLabel(artifactRoot: URL?) -> String {
+        artifactRoot?.lastPathComponent ?? "--"
     }
 
     private static func gpuEvidenceLabel(activity: LearningCampaignGPUActivitySnapshot) -> String {
@@ -421,9 +509,23 @@ struct TrainingMonitorSnapshot: Sendable, Equatable {
         return "\(activity.statusLabel) / events \(events) / batches \(batches)"
     }
 
-    private static func throughputText(_ throughput: Double?) -> String {
-        guard let throughput, throughput.isFinite, throughput > 0 else { return "--" }
-        return String(format: "%.2f/s", throughput)
+    private static func scenarioEstimatedRemainingText(
+        _ estimate: LearningCampaignWorkProgressEstimate?
+    ) -> String {
+        guard let seconds = estimate?.estimatedRemainingSeconds,
+              seconds.isFinite,
+              seconds >= 0 else {
+            return "--"
+        }
+        return durationText(seconds)
+    }
+
+    private static func throughputText(work: Double?, candidate: Double?) -> String {
+        if let work, work.isFinite, work > 0 {
+            return String(format: "%.1f steps/s", work)
+        }
+        guard let candidate, candidate.isFinite, candidate > 0 else { return "--" }
+        return String(format: "%.2f candidates/s", candidate)
     }
 
     private static func ageText(_ age: TimeInterval?) -> String {

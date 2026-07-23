@@ -62,11 +62,6 @@ struct LaunchValidationView: View {
                         Label("Save as Template", systemImage: "doc.badge.plus")
                     }
 
-                    Button {
-                        model.queueLearningCampaignRun()
-                    } label: {
-                        Label("Queue Run", systemImage: "tray.and.arrow.down")
-                    }
                 }
             } label: {
                 Label("Launch Settings", systemImage: "paperplane")
@@ -78,6 +73,14 @@ struct LaunchValidationView: View {
                     StatRow(label: "Artifact Root", value: artifactRoot)
                     StatRow(label: "Domain", value: model.learningCampaignAutonomyDomain.displayName)
                     StatRow(label: "Suites", value: model.learningCampaignSuites)
+                    StatRow(
+                        label: "RR-PPO Budget",
+                        value: "\(model.learningCampaignReinforcementIterations) iterations"
+                    )
+                    StatRow(
+                        label: "RR-PPO Stop",
+                        value: "min \(model.learningCampaignReinforcementStopping.minimumIterationCount), plateau \(model.learningCampaignReinforcementStopping.plateauWindow), unsafe \(model.learningCampaignReinforcementStopping.unsafeWindow)"
+                    )
                     StatRow(label: "Quality Gate", value: "strict")
                     StatRow(label: "Machine", value: model.learningCampaignMachineCapacity.summary)
                     StatRow(label: "Readiness", value: model.learningCampaignReadiness.status.label)
@@ -86,9 +89,6 @@ struct LaunchValidationView: View {
                         .foregroundStyle(readinessColor)
                     if let templateStatus = model.learningCampaignTemplateStatus {
                         StatRow(label: "Template", value: templateStatus)
-                    }
-                    if !model.learningCampaignQueuedRuns.isEmpty {
-                        StatRow(label: "Queued Runs", value: "\(model.learningCampaignQueuedRuns.count)")
                     }
                     if let estimate = model.learningCampaignLaunchEstimate {
                         Divider()

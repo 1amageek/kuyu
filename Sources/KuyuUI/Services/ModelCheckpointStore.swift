@@ -36,20 +36,12 @@ struct ModelCheckpointStore {
         }
     }
 
-    @MainActor
-    func load(model: TrainingModelInfo, into store: ManasMLXModelStore) throws -> ManasMLXModelManifest? {
+    func load(
+        model: TrainingModelInfo,
+        into store: ManasMLXModelStore
+    ) async throws -> ManasMLXModelManifest? {
         guard catalog.manifestExists(at: model.storageURL) else { return nil }
-        return try store.loadModel(from: model.storageURL)
-    }
-
-    @MainActor
-    func persist(model: TrainingModelInfo, from store: ManasMLXModelStore) throws {
-        try store.saveModel(
-            to: model.storageURL,
-            name: model.name,
-            createdAt: model.createdAt,
-            lastTrainedAt: model.lastTrainedAt
-        )
+        return try await store.loadModel(from: model.storageURL)
     }
 
     func removeArtifacts(at url: URL) -> [ManasMLXRemovedModelCheckpointArtifact] {

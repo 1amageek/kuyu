@@ -13,6 +13,10 @@ let package = Package(
             name: "KuyuUI",
             targets: ["KuyuUI"]
         ),
+        .library(
+            name: "KuyuWorkerRuntime",
+            targets: ["KuyuWorkerRuntime"]
+        ),
         .executable(
             name: "kuyu",
             targets: ["KuyuCLI"]
@@ -43,8 +47,17 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "KuyuWorkerRuntime",
+            dependencies: [
+                .product(name: "KuyuTraining", package: "kuyu-training"),
+                .product(name: "KuyuMLX", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXTrainingRuntime", package: "kuyu-mlx"),
+            ]
+        ),
+        .target(
             name: "KuyuUI",
             dependencies: [
+                "KuyuWorkerRuntime",
                 .product(name: "KuyuCore", package: "kuyu-core"),
                 .product(name: "EmbodimentContract", package: "embodiment-contract"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),
@@ -54,6 +67,7 @@ let package = Package(
                 .product(name: "KuyuMLXCampaignContracts", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXEvolution", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXTrainingRuntime", package: "kuyu-mlx"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Configuration", package: "swift-configuration"),
             ],
@@ -70,6 +84,7 @@ let package = Package(
         .executableTarget(
             name: "KuyuCLI",
             dependencies: [
+                "KuyuWorkerRuntime",
                 "KuyuUI",
                 .product(name: "KuyuCore", package: "kuyu-core"),
                 .product(name: "EmbodimentContract", package: "embodiment-contract"),
@@ -81,6 +96,7 @@ let package = Package(
                 .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXRoArmM1", package: "kuyu-mlx"),
                 .product(name: "KuyuMLXTrainingProbe", package: "kuyu-mlx"),
+                .product(name: "KuyuMLXTrainingRuntime", package: "kuyu-mlx"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
@@ -106,6 +122,7 @@ let package = Package(
         .testTarget(
             name: "kuyuTests",
             dependencies: [
+                "KuyuWorkerRuntime",
                 .product(name: "KuyuCore", package: "kuyu-core"),
                 .product(name: "EmbodimentContract", package: "embodiment-contract"),
                 .product(name: "KuyuPhysics", package: "kuyu-physics"),

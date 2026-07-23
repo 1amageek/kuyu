@@ -13,6 +13,7 @@ Kuyu is a simulation environment for training and evaluating [Manas](https://git
 | Module | Description |
 |--------|-------------|
 | **KuyuMLX** | Imported from `kuyu-mlx`; Manas-MLX bridge, learning campaign runner, checkpoint evaluator, and regression gate implementation |
+| **KuyuWorkerRuntime** | Strict hidden-worker invocation and shared authenticated worker service used by the CLI executable and packaged app |
 | **KuyuUI** | SwiftUI-based GUI that operates Kuyu APIs and renders typed events/artifacts |
 | **KuyuCLI** | Command-line adapter that maps arguments into the same Kuyu APIs used by the UI |
 
@@ -33,15 +34,19 @@ remain outside Kuyu.
 
 ### API-First UI/CLI Boundary
 
-Kuyu is the base runtime. Bounded/KuyuUI and KuyuCLI must operate Kuyu through
-typed in-process APIs instead of reimplementing training or checkpoint logic in
-the application layer.
+Kuyu is the base runtime. Bounded/KuyuUI and KuyuCLI operate the same typed Kuyu
+APIs and worker service instead of reimplementing training or checkpoint logic
+in the application layer. Heavy MLX execution may cross a process boundary;
+acceptance, validation, and terminal-state semantics remain in shared APIs.
 
 ```mermaid
 flowchart LR
   A["Kuyu API source of truth"] --> B["CLI adapter"]
   A --> C["Bounded / KuyuUI adapter"]
   A --> D["Artifact validators"]
+  B --> W["Kuyu worker service"]
+  C --> W
+  W --> M["kuyu-mlx execution"]
   E["Xcode launcher scripts"] --> B
 ```
 
@@ -117,6 +122,12 @@ M1.5 means Kuyu exposes a reinforcement-learning environment contract, not a com
 
 - `reset / step / reward / done / truncated / info` exist as typed environment values.
 - The primary policy action is `DriveIntent`; direct actuator actions remain teacher/test escape hatches.
+- One RL `step` applies the action selected from the returned observation,
+  advances one complete control period, and returns the corresponding next
+  observation. Failure inside that period stops at the first failing physics tick.
+- Schema v5 rollout artifacts bind each decision ID to its exact source
+  observation, policy action, applied actuator command, and outcome; temporal PPO
+  rejects legacy rollout schemas.
 - Reward and terminal semantics are finite and deterministic for the ATT and lift reference scenarios.
 - Serial and parallel rollout produce deterministic merged artifacts ordered by scenario, seed, and worker index.
 - Parallel rollout uses independent environment and policy instances per worker. Shared `ManasMLXModelStore` execution is intentionally excluded until M2.
@@ -135,19 +146,20 @@ M1.6 fixes the execution boundary around native robot contracts, UI commands, an
 Dependency-order verification:
 
 ```bash
-cd ../manas && python3 -c 'import subprocess,sys; sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)' 60 swift test
-cd ../kuyu-core && python3 -c 'import subprocess,sys; sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)' 60 swift test
-cd ../kuyu-physics && python3 -c 'import subprocess,sys; sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)' 60 swift test
-cd ../kuyu-scenarios && python3 -c 'import subprocess,sys; sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)' 60 swift test
-cd ../kuyu-training && python3 -c 'import subprocess,sys; sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)' 60 swift test
-cd ../kuyu && python3 -c 'import subprocess,sys; sys.exit(subprocess.run(sys.argv[2:], timeout=int(sys.argv[1])).returncode)' 120 swift test
+cd ../manas && xcodebuild test -scheme manas-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
+cd ../kuyu-core && xcodebuild test -scheme kuyu-core-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
+cd ../kuyu-scenarios && xcodebuild test -scheme kuyu-scenarios -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
+cd ../kuyu-training && xcodebuild test -scheme kuyu-training-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
+cd ../kuyu-mlx && xcodebuild test -scheme kuyu-mlx-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
+cd ../kuyu && xcodebuild test -scheme kuyu-app-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
 swift run kuyu rollout --controller teacherBaseline --episodes 2 --workers 1
 swift run kuyu rollout --controller teacherBaseline --episodes 8 --workers 4
 ```
 
 ### Verification Split
 
-SwiftPM is the default path for non-MLX contracts: CLI parsing, manifest/body/world/embodiment loading, RL environment types, scenario execution, rollout harnesses, and dataset export.
+Xcode is the verification path for Kuyu, Manas, and MLX runtime/training contracts
+so Metal resources and Xcode test behavior match production execution.
 
 Xcode is the authority for MLX and Metal-backed execution. Use it for `ManasMLXModelStore` load/train/save smoke tests, app-level MLX tests, and `kuyu-world-model` validation:
 
@@ -161,6 +173,21 @@ xcodebuild test -scheme kuyu-world-model -destination 'platform=macOS' -maximum-
 `check-xcode-e2e.sh` runs `xcodebuild test`, executes teacher regression, creates a ManasMLX checkpoint, evaluates that checkpoint as the incumbent, and runs a small evolution gate. It validates the produced artifacts, including `accepted-checkpoint.json` and `evaluation-trace.jsonl`.
 
 Learning readiness, resume selection, artifact validation, and checkpoint acceptance must live in typed Swift runtime APIs. Shell campaign wrappers were removed because they duplicated policy and made UI/CLI behavior diverge. Use the Xcode-built app or CLI so MLX/Metal resources and the same runtime contracts are active.
+
+Long-running campaigns use the same executable's hidden worker command. The
+launcher binds each attempt to an immutable launch digest and a read-only CoW
+source snapshot. It also stages and digest-verifies the selected executable or
+application bundle under the private launch directory before spawning. Every
+progress event is appended to an attempt-bound durable journal so a restarted UI
+can replay unread events without owning the worker process. Readers consume only
+new complete journal records from a retained byte cursor; partial tails wait and
+malformed complete records fail closed. The runtime projects campaign, active
+scenario, and active control-step progress, with separate campaign/scenario ETA
+and producer/receiver/artifact freshness. CLI emits the same typed progress as
+copyable one-line text. Stop and terminal outcome artifacts are also
+attempt-bound; stale UI handles cannot stop or adopt a replacement attempt.
+Progress persistence failure cancels the worker. A completed outcome is
+successful only when it carries an accepted checkpoint.
 
 `kuyu validate-learning-campaign` is the Swift post-run artifact gate. It checks plan/status/progress/environment/resource samples, verifies every seed has complete evolution artifacts, checks fitness counts against population/generations, and rejects an incomplete final checkpoint before it is used as a future source checkpoint. `validate-learning-campaign-artifacts.sh` is a compatibility wrapper around that Swift command.
 

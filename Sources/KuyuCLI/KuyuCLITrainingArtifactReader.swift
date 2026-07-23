@@ -1,4 +1,5 @@
 import Foundation
+import KuyuMLXTrainingProbe
 import KuyuTraining
 
 struct KuyuCLIEvolutionArtifactSnapshot: Sendable {
@@ -17,12 +18,20 @@ struct KuyuCLITrainingArtifactReader: Sendable {
         self.verifier = verifier
     }
 
-    func loadProbeArtifacts(from artifactDirectory: URL) throws -> TrainingProbeArtifactBundle {
-        try verifier.loadProbeArtifacts(from: artifactDirectory)
+    func validatedProbeArtifacts(in artifactDirectory: URL) throws -> TrainingProbeArtifactBundle {
+        try verifier.validatedProbeArtifacts(in: artifactDirectory)
     }
 
-    func loadEvolutionPublication(from artifactDirectory: URL) throws -> KuyuCLIEvolutionArtifactSnapshot {
-        let artifacts = try verifier.loadEvolutionArtifacts(from: artifactDirectory)
+    func validatedManasMLXProbeAcceptance(
+        in artifactDirectory: URL
+    ) throws -> ManasMLXTrainingProbeAcceptanceReceipt {
+        try ManasMLXProbeAcceptanceValidator().validatedAcceptance(
+            in: artifactDirectory
+        )
+    }
+
+    func validatedEvolutionPublication(in artifactDirectory: URL) throws -> KuyuCLIEvolutionArtifactSnapshot {
+        let artifacts = try verifier.validatedEvolutionArtifacts(in: artifactDirectory)
         return KuyuCLIEvolutionArtifactSnapshot(
             artifacts: artifacts,
             publication: verifier.evolutionPublicationProjection(for: artifacts)

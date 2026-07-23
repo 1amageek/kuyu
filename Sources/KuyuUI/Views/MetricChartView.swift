@@ -39,7 +39,7 @@ public struct MetricChartView: View {
                         y: .value(title, sample.value)
                     )
                     .foregroundStyle(lineColor)
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.linear)
                 }
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 5))

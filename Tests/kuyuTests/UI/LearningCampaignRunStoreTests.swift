@@ -20,16 +20,7 @@ import Testing
         ),
         to: root.appendingPathComponent("campaign-status.json")
     )
-    try writeJSON(
-        LearningCampaignValidation(
-            timestamp: "2026-05-07T00:00:01Z",
-            artifactRoot: root.path,
-            valid: true,
-            issueCount: 0,
-            issues: []
-        ),
-        to: root.appendingPathComponent("learning-campaign-validation.json")
-    )
+    try writeValidationReceipt(root: root)
     try writeLine(
         LearningCampaignProgressEvent(
             event: "seed-started",
@@ -72,11 +63,85 @@ import Testing
 
     #expect(state.task == "singleLift")
     #expect(state.statusLabel == "running")
-    #expect(state.validationLabel == "valid")
+    #expect(state.validationLabel == "recorded strict valid")
     #expect(state.progressEvents.count == 1)
     #expect(state.generations.count == 1)
     #expect(state.bestDelta == 2)
     #expect(state.latestGenerations.first?.incumbentImproved == true)
+}
+
+@Test func learningCampaignRunStoreSurfacesValidationReceiptCorruption() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-corrupt-receipt-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Issue.record("Failed to remove validation receipt fixture: \(error)")
+        }
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeValidationReceipt(root: root)
+
+    let aliasURL = root.appendingPathComponent(
+        LearningCampaignValidationReceiptStore.strictAliasFileName
+    )
+    let locator = try JSONDecoder().decode(
+        LearningCampaignValidationReceiptLocator.self,
+        from: Data(contentsOf: aliasURL)
+    )
+    let objectURL = root
+        .appendingPathComponent(
+            LearningCampaignValidationReceiptStore.receiptDirectoryName,
+            isDirectory: true
+        )
+        .appendingPathComponent("\(locator.contentSHA256).json")
+    try Data("tampered".utf8).write(to: objectURL, options: [.atomic])
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.validation == nil)
+    #expect(state.validationLabel == "recorded strict receipt invalid")
+    #expect(state.validationReceiptIssue != nil)
+    #expect(state.diagnosticText.contains("validationReceiptIssue="))
+}
+
+@Test func learningCampaignRunStoreKeepsStrictValidationWhenDiagnosticReceiptIsCorrupt() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-corrupt-diagnostic-receipt-\(UUID().uuidString)", isDirectory: true)
+    defer {
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Issue.record("Failed to remove validation receipt fixture: \(error)")
+        }
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeValidationReceipt(root: root)
+    try writeValidationReceipt(root: root, policy: .diagnosticFailedAndRunningCampaign)
+
+    let aliasURL = root.appendingPathComponent(
+        LearningCampaignValidationReceiptStore.diagnosticAliasFileName
+    )
+    let locator = try JSONDecoder().decode(
+        LearningCampaignValidationReceiptLocator.self,
+        from: Data(contentsOf: aliasURL)
+    )
+    let objectURL = root
+        .appendingPathComponent(
+            LearningCampaignValidationReceiptStore.receiptDirectoryName,
+            isDirectory: true
+        )
+        .appendingPathComponent("\(locator.contentSHA256).json")
+    try Data("tampered".utf8).write(to: objectURL, options: [.atomic])
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.strictValidation?.valid == true)
+    #expect(state.diagnosticValidation == nil)
+    #expect(state.diagnosticValidationReceiptIssue != nil)
+    #expect(state.validationLabel == "recorded strict valid")
+    #expect(state.diagnosticText.contains("diagnosticValidationReceiptIssue="))
 }
 
 @Test func learningCampaignRunStoreLoadsFiveGenerationHistory() throws {
@@ -215,6 +280,105 @@ import Testing
     #expect(state.liveAltitudeErrorRatioSamples.map(\.value) == [0.8, 0.6])
 }
 
+@Test func learningCampaignRunStoreUsesCommittedReinforcementIterationProgress() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("kuyu-ui-rr-ppo-progress-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try writeJSON(makeFiveGenerationPlan(root: root), to: root.appendingPathComponent("learning-campaign-plan.json"))
+
+    let baseline = try LearningCampaignReinforcementHealthSummary(
+        episodeCount: 4,
+        failureCount: 2,
+        rewardAverage: -2,
+        maximumAngularRate: 2,
+        maximumAttitudeDeviation: 0.8,
+        minimumRootAltitude: 0.4
+    )
+    let retained = try LearningCampaignReinforcementHealthSummary(
+        episodeCount: 4,
+        failureCount: 1,
+        rewardAverage: -1,
+        maximumAngularRate: 1,
+        maximumAttitudeDeviation: 0.4,
+        minimumRootAltitude: 0.8
+    )
+    let progress = try LearningCampaignReinforcementIterationProgress(
+        runID: "rr-ppo-run",
+        globalIteration: 2,
+        completedIterationCount: 3,
+        totalIterationCount: 10,
+        selectedCandidateID: "candidate-2",
+        accepted: true,
+        materiallyImproved: true,
+        currentHorizonSteps: 512,
+        fullHorizonSteps: 10_000,
+        actorLearningRate: 0.00002,
+        scopeProgress: [
+            try LearningCampaignReinforcementScopeProgress(
+                scopeID: "frontier-512",
+                role: .frontier,
+                horizonSteps: 512,
+                baseline: baseline,
+                retained: retained
+            ),
+        ],
+        observedCost: 0.02,
+        costLimit: 0.04,
+        dualLambda: 0.1,
+        constraintEpisodeCount: 4,
+        constraintTransitionCount: 2_048,
+        artifactPath: "/tmp/rr-ppo-iteration.json",
+        artifactSHA256: String(repeating: "a", count: 64),
+        timestamp: Date(timeIntervalSince1970: 1_778_112_005)
+    )
+    let workProgress = try TrainingWorkProgress(
+        scope: TrainingWorkScope(runID: "rr-ppo-run", iterationIndex: 2),
+        phase: .optimization,
+        state: .advanced,
+        unit: TrainingWorkUnit(kind: .epoch, identifier: "rr-ppo-iterations"),
+        completedUnitCount: 3,
+        totalUnitCount: 10,
+        timestamp: progress.timestamp
+    )
+    try writeLine(
+        LearningCampaignProgressEvent(
+            event: .workProgress(seed: nil, progress: workProgress),
+            timestamp: progress.timestamp
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+    try writeLine(
+        LearningCampaignProgressEvent(
+            event: .reinforcementIterationCompleted(seed: nil, progress: progress),
+            timestamp: progress.timestamp
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+
+    let state = try LearningCampaignRunStore().load(from: root)
+
+    #expect(state.latestReinforcementIteration == progress)
+    #expect(state.latestReinforcementIteration?.fractionCompleted == 0.3)
+    #expect(state.activeReinforcementIteration == progress)
+    #expect(state.campaignProgressFraction == 0)
+    #expect(state.progress.lifecycleStage == .reinforcing)
+
+    try writeLine(
+        LearningCampaignProgressEvent(
+            event: .parentEvaluationStarted(
+                label: "initial-parent",
+                checkpointPath: "/tmp/checkpoint"
+            ),
+            timestamp: Date(timeIntervalSince1970: 1_778_112_006)
+        ),
+        to: root.appendingPathComponent("progress.jsonl")
+    )
+    let evaluatingState = try LearningCampaignRunStore().load(from: root)
+    #expect(evaluatingState.latestReinforcementIteration == progress)
+    #expect(evaluatingState.activeReinforcementIteration == nil)
+    #expect(evaluatingState.progress.lifecycleStage == .evaluatingParent)
+}
+
 @Test func learningCampaignRunStoreAggregatesFailureDiagnostics() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("kuyu-ui-campaign-failure-\(UUID().uuidString)", isDirectory: true)
@@ -230,23 +394,15 @@ import Testing
         ),
         to: root.appendingPathComponent("campaign-status.json")
     )
-    try """
-    {
-      "artifactRoot": "\(root.path)",
-      "issueCount": 1,
-      "issues": [
-        {
-          "code": "accepted-checkpoint-missing",
-          "detail": "accepted checkpoint artifact is missing"
-        }
-      ],
-      "timestamp": "2026-05-07T00:01:01Z",
-      "valid": false
-    }
-    """.write(
-        to: root.appendingPathComponent("learning-campaign-validation.json"),
-        atomically: true,
-        encoding: .utf8
+    try writeValidationReceipt(
+        root: root,
+        valid: false,
+        issues: [
+            LearningCampaignValidationIssue(
+                code: "accepted-checkpoint-missing",
+                detail: "accepted checkpoint artifact is missing"
+            )
+        ]
     )
     try writeLine(
         LearningCampaignProgressEvent(
@@ -288,7 +444,7 @@ import Testing
 
     let state = try LearningCampaignRunStore().load(from: root)
 
-    #expect(state.primaryFailureReason == "validation:accepted-checkpoint-missing: accepted checkpoint artifact is missing")
+    #expect(state.primaryFailureReason == "generation:seed-1:g0: minimum-incumbent-improvement")
     #expect(state.failureReasons.contains("generation:seed-1:g0: minimum-incumbent-improvement"))
     #expect(state.failureReasons.contains("status: failed"))
     #expect(state.failureReasons.contains("event:2026-05-07T00:01:02Z: validation-failed"))
@@ -333,7 +489,7 @@ import Testing
 
     #expect(state.acceptedCheckpoints.count == 1)
     #expect(state.acceptedCheckpoints.first?.accepted == false)
-    #expect(state.primaryFailureReason == "accepted-checkpoint:seed-1: incumbent-improvement-below-min:g12-c7:-287.3--287.3<0.001")
+    #expect(state.primaryFailureReason == "accepted-checkpoint:seed-1: dedicated-acceptance-required")
     #expect(state.failureReasons.contains("No checkpoint was accepted by the gate."))
     #expect(state.diagnosticText.contains("accepted-checkpoint:seed-1"))
     #expect(state.diagnosticText.contains("incumbent-improvement-below-min"))
@@ -435,23 +591,15 @@ import Testing
         ),
         to: root.appendingPathComponent("learning-campaign-summary.json")
     )
-    try """
-    {
-      "artifactRoot": "\(root.path)",
-      "issueCount": 1,
-      "issues": [
-        {
-          "code": "invalid-seed-evolution-artifact",
-          "detail": "seed=1 error=missingCandidateFitness(\\\"g7-c0\\\")"
-        }
-      ],
-      "timestamp": "2026-05-07T00:02:01Z",
-      "valid": false
-    }
-    """.write(
-        to: root.appendingPathComponent("learning-campaign-validation.json"),
-        atomically: true,
-        encoding: .utf8
+    try writeValidationReceipt(
+        root: root,
+        valid: false,
+        issues: [
+            LearningCampaignValidationIssue(
+                code: "invalid-seed-evolution-artifact",
+                detail: "seed=1 error=missingCandidateFitness(\"g7-c0\")"
+            )
+        ]
     )
     try writeLine(
         LearningCampaignProgressEvent(
@@ -470,10 +618,8 @@ import Testing
     #expect(state.failureReasons.contains("status: cancelled"))
     #expect(state.failureReasons.contains("exitCode: 130"))
     #expect(state.failureReasons.contains("No checkpoint was accepted by the gate."))
-    #expect(state.failureReasons.contains {
-        $0.contains("validation-note:validation:invalid-seed-evolution-artifact") &&
-            $0.contains("missingCandidateFitness")
-    })
+    #expect(state.diagnosticText.contains("recordedStrictValidationIssues:"))
+    #expect(state.diagnosticText.contains("missingCandidateFitness"))
     #expect(state.primaryFailureReason?.contains("missingCandidateFitness") == false)
 }
 
@@ -566,9 +712,11 @@ import Testing
     let state = try LearningCampaignRunStore().load(from: root)
 
     #expect(state.statusLabel == "completed")
-    #expect(state.plan?.population == 8)
-    #expect(state.plan?.generations == 5)
-    #expect(state.plan?.candidateEvaluationConcurrency == 8)
+    #expect(state.plan == nil)
+    #expect(state.evolutionManifest?.populationSize == 8)
+    #expect(state.task == "lift")
+    #expect(state.plannedGenerationCount == 5)
+    #expect(state.plannedCandidateEvaluationCount == 40)
     #expect(state.generations.count == 5)
     #expect(state.candidates.count == 5)
     #expect(state.acceptedCount == 0)
@@ -610,13 +758,16 @@ private func makePlan(root: URL) -> LearningCampaignPlan {
     LearningCampaignPlan(
         artifactRoot: root.path,
         task: "singleLift",
-        suites: ["6", "7"],
-        episodes: 1,
+        searchSuites: ["6", "7"],
+        searchEpisodes: 1,
+        acceptanceSuites: ["6", "7"],
+        acceptanceEpisodes: 1,
         workers: 2,
         population: 4,
         generations: 2,
         eliteCount: 1,
         candidateEvaluationConcurrency: 2,
+        cutPeriodSteps: 2,
         seeds: ["seed-1"],
         sourceCheckpoint: nil,
         robotManifest: nil,
@@ -647,13 +798,16 @@ private func makeFiveGenerationPlan(root: URL) -> LearningCampaignPlan {
     LearningCampaignPlan(
         artifactRoot: root.path,
         task: "lift",
-        suites: ["6"],
-        episodes: 1,
+        searchSuites: ["6"],
+        searchEpisodes: 1,
+        acceptanceSuites: ["6"],
+        acceptanceEpisodes: 1,
         workers: 1,
         population: 8,
         generations: 5,
         eliteCount: 2,
         candidateEvaluationConcurrency: 8,
+        cutPeriodSteps: 2,
         seeds: ["seed-1"],
         sourceCheckpoint: nil,
         robotManifest: nil,
@@ -820,6 +974,7 @@ private func writeRejectedEvolutionArtifact(to directory: URL) throws {
                 completedAt: Date(timeIntervalSince1970: 2)
             )
         ],
+        acceptanceEvaluations: [],
         to: directory
     )
 }
@@ -828,6 +983,7 @@ private func makeVectorizedEvaluationArtifact() throws -> ManasMLXVectorizedEval
     let quality = try VectorizedTaskQualitySummary(
         profileID: "attitude",
         task: "attitude",
+        scenarioSuiteID: "6",
         scenarioID: "ATT-1",
         seed: 1,
         passed: true,
@@ -873,6 +1029,9 @@ private func makeVectorizedEvaluationArtifact() throws -> ManasMLXVectorizedEval
         observationExecutionMode: "mlx-tensor-ctbr-observation-bridge-v1",
         worldExecutionMode: "mlx-tensor-lift-world-v1",
         worldActiveActionDimension: 4,
+        evaluationFidelity: .fullScenario,
+        workPhase: .candidateGate,
+        worldExecutionRequirement: .preferAcceleratorSharedWorld,
         summaries: [summary]
     )
 }
@@ -896,6 +1055,9 @@ private struct UncheckedLearningCampaignVectorizedEvaluationArtifact: Encodable 
     let observationExecutionMode: String
     let worldExecutionMode: String
     let worldActiveActionDimension: Int
+    let evaluationFidelity: TrainingEvaluationFidelity
+    let workPhase: TrainingWorkPhase
+    let worldExecutionRequirement: VectorizedWorldExecutionRequirement
     let summaries: [VectorizedCandidateRolloutSummary]
 
     init(
@@ -920,8 +1082,35 @@ private struct UncheckedLearningCampaignVectorizedEvaluationArtifact: Encodable 
         observationExecutionMode = artifact.observationExecutionMode
         worldExecutionMode = artifact.worldExecutionMode
         worldActiveActionDimension = artifact.worldActiveActionDimension
+        evaluationFidelity = artifact.evaluationFidelity
+        workPhase = artifact.workPhase
+        worldExecutionRequirement = artifact.worldExecutionRequirement
         summaries = artifact.summaries
     }
+}
+
+private func writeValidationReceipt(
+    root: URL,
+    valid: Bool = true,
+    issues: [LearningCampaignValidationIssue] = [],
+    policy: LearningCampaignValidationPolicy = .strict
+) throws {
+    let snapshot = try LearningCampaignValidationInputSnapshotter().snapshot(at: root)
+    let integrity = LearningCampaignValidationReceiptIntegrity()
+    let receipt = try integrity.receipt(content: LearningCampaignValidationContent(
+        timestamp: "2026-05-07T00:00:01Z",
+        artifactRoot: root.path,
+        validator: .current,
+        policy: policy,
+        inputSnapshot: snapshot,
+        valid: valid,
+        issueCount: issues.count,
+        issues: issues
+    ))
+    _ = try LearningCampaignValidationReceiptStore(integrity: integrity).write(
+        receipt,
+        to: root
+    )
 }
 
 private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

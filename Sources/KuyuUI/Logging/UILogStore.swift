@@ -57,7 +57,7 @@ public final class UILogStore {
         }
     }
 
-    public func shutdownAndWait() async {
+    public func shutdownAwaitingCompletion() async {
         streamTask?.cancel()
         streamTask = nil
         entryObserver = nil

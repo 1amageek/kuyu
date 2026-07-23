@@ -266,7 +266,7 @@ public final class AppViewModel {
 
         do {
             let package = try await Task.detached {
-                try Self.makeAndWriteProjectPackage(
+                try Self.writeProjectPackage(
                     projectName: projectName,
                     targetURL: targetURL,
                     temporaryURL: temporaryURL,
@@ -276,7 +276,7 @@ public final class AppViewModel {
             try Task.checkCancellation()
 
             if template.isRunnableStarter {
-                try simulationViewModel.prepareRunnableProjectAssets(for: package)
+                try await simulationViewModel.prepareRunnableProjectAssets(for: package)
             }
             try Task.checkCancellation()
 
@@ -530,7 +530,7 @@ public final class AppViewModel {
         return metadata
     }
 
-    private nonisolated static func makeAndWriteProjectPackage(
+    private nonisolated static func writeProjectPackage(
         projectName: String,
         targetURL: URL,
         temporaryURL: URL,
