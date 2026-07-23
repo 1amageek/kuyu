@@ -184,6 +184,13 @@ struct RunLearningCampaign: AsyncParsableCommand {
   var reinforcementWarmupMaxBatches: Int?
 
   @Option(
+    name: .customLong("reinforcement-dual-learning-rate"),
+    help:
+      "Dual-ascent step size for the Lagrangian safety-cost multiplier (backend default 0.05). Raise it when the observed episode cost stays far above the cost limit while lambda remains near zero."
+  )
+  var reinforcementDualLearningRate: Double?
+
+  @Option(
     name: .customLong("reinforcement-min-iterations"),
     help: "Minimum PPO iteration count before plateau stopping is allowed.")
   var reinforcementMinimumIterations: Int = 10

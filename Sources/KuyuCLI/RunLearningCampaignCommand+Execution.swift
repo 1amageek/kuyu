@@ -63,6 +63,10 @@ extension RunLearningCampaign {
        !explorationLogStd.isFinite || explorationLogStd < -5 || explorationLogStd >= 0 {
       throw ValidationError("--exploration-log-std must be finite and in [-5, 0).")
     }
+    if let reinforcementDualLearningRate,
+       !reinforcementDualLearningRate.isFinite || reinforcementDualLearningRate <= 0 {
+      throw ValidationError("--reinforcement-dual-learning-rate must be finite and > 0.")
+    }
     let contractResolver = ReferenceQuadrotorLearningCampaignTrainingContractResolver(
       explorationLogStandardDeviation: explorationLogStd
     )
@@ -192,6 +196,7 @@ extension RunLearningCampaign {
         iterations: reinforcementWarmupIterations,
         learningRate: reinforcementWarmupLearningRate,
         maxBatches: reinforcementWarmupMaxBatches,
+        dualLearningRate: reinforcementDualLearningRate,
         stopping: try TrainingReinforcementStoppingSettings(
           minimumIterationCount: reinforcementMinimumIterations,
           plateauWindow: reinforcementPlateauWindow,
