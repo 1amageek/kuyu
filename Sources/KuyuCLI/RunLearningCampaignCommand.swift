@@ -204,6 +204,13 @@ struct RunLearningCampaign: AsyncParsableCommand {
   )
   var reinforcementTrainingSuites: String?
 
+  @Flag(
+    name: .customLong("observation-motor-feedback"),
+    help:
+      "Use the 20-channel body-rate observation with achieved per-motor outputs (channels 16-19). Requires a source checkpoint derived onto the 20ch schema via scripts/derive_motor_feedback_checkpoint.py."
+  )
+  var observationMotorFeedback: Bool = false
+
   @Option(
     name: .customLong("reinforcement-min-iterations"),
     help: "Minimum PPO iteration count before plateau stopping is allowed.")

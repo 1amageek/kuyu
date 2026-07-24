@@ -86,7 +86,8 @@ extension RunLearningCampaign {
       selectedTrainingSuites = nil
     }
     let contractResolver = ReferenceQuadrotorLearningCampaignTrainingContractResolver(
-      explorationLogStandardDeviation: explorationLogStd
+      explorationLogStandardDeviation: explorationLogStd,
+      observationMotorFeedback: observationMotorFeedback
     )
     let contracts = try contractResolver.contracts(for: task)
     let selectedSeeds = try seeds.map(parseCampaignSeeds)
