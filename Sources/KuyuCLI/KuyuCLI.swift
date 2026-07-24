@@ -24,7 +24,7 @@ struct KuyuCLI: AsyncParsableCommand {
       BenchmarkReferenceAttitudeM2.self, CalibrateManasCheckpoint.self,
       SelectManasBiasCalibration.self, CheckEnvironments.self, CheckTrainingHarness.self,
       CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self,
-      EvolveManas.self, RunLearningCampaign.self, RunLearningCampaignWorker.self,
+      EvolveManas.self, RunLearningCampaign.self, RunLearningCampaignWorker.self, DeriveMotorFeedbackCheckpoint.self,
       ValidateLearningCampaign.self, DiagnoseLearningCampaign.self, TrainWorldModel.self,
       ImagineTrain.self,
       PublishWorldModelFusedEvidence.self, Verify.self, Conformance.self, Doctor.self,
