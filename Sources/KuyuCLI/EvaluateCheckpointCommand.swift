@@ -93,6 +93,9 @@ struct EvaluateCheckpoint: AsyncParsableCommand {
     print(
       "[evaluate-checkpoint] task=\(task.rawValue) suites=\(suites) episodes=\(episodes) severity=\(stressSeverity)"
     )
+    let diagnosticsByKey = Dictionary(
+      uniqueKeysWithValues: evaluation.diagnostics.map { ("\($0.scenarioID)#\($0.seed)", $0) }
+    )
     var passedCount = 0
     for quality in evaluation.taskQuality {
       let verdict = quality.passed ? "PASS" : "FAIL"
@@ -100,8 +103,16 @@ struct EvaluateCheckpoint: AsyncParsableCommand {
       let reasons = quality.failureReasons.isEmpty
         ? ""
         : " reasons=\(quality.failureReasons.joined(separator: ","))"
+      var detail = ""
+      if let diagnostic = diagnosticsByKey["\(quality.scenarioID)#\(quality.seed)"] {
+        if let failureTime = diagnostic.failureTime {
+          detail += String(format: " failureTime=%.3fs", failureTime)
+        }
+        detail += " steps=\(diagnostic.stepCount)"
+        detail += String(format: " rewardSum=%.0f", diagnostic.rewardSum)
+      }
       print(
-        "[evaluate-checkpoint] \(verdict) \(quality.scenarioID) seed=\(quality.seed)\(reasons)"
+        "[evaluate-checkpoint] \(verdict) \(quality.scenarioID) seed=\(quality.seed)\(reasons)\(detail)"
       )
     }
     print(
