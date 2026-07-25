@@ -28,13 +28,41 @@ struct DeriveInterpolatedCheckpoint: ParsableCommand {
       "Restrict interpolation to parameters whose key starts with this prefix (repeatable); other parameters are copied from checkpoint A.")
   var keyPrefixes: [String] = []
 
+  @Option(
+    name: .customLong("column-start"),
+    help:
+      "First last-axis column (inclusive) to interpolate in the prefixed 2-D parameters; requires --key-prefix. 1-D parameters matching a prefix interpolate fully.")
+  var columnStart: Int?
+
+  @Option(
+    name: .customLong("column-end"),
+    help: "Last-axis column (exclusive) ending the interpolated range; requires --column-start.")
+  var columnEnd: Int?
+
   @Option(name: .customLong("output-checkpoint"), help: "Output checkpoint directory (must not exist).")
   var outputCheckpoint: String
 
   @Option(name: .customLong("name"), help: "Checkpoint name recorded in the manifest.")
   var checkpointName: String = "interpolated-derived"
 
+  enum ColumnRangeError: Error {
+    case incompleteRange
+    case invalidRange(start: Int, end: Int)
+  }
+
   mutating func run() throws {
+    var columnRange: Range<Int>? = nil
+    switch (columnStart, columnEnd) {
+    case (nil, nil):
+      break
+    case let (start?, end?):
+      guard start >= 0, end > start else {
+        throw ColumnRangeError.invalidRange(start: start, end: end)
+      }
+      columnRange = start..<end
+    default:
+      throw ColumnRangeError.incompleteRange
+    }
     let service = ManasMLXTemporalReinforcementWarmupService(
       rolloutDatasetLoader: ReferenceQuadrotorTemporalRolloutDatasetLoaderFactory.make()
     )
@@ -47,12 +75,18 @@ struct DeriveInterpolatedCheckpoint: ParsableCommand {
       outputCheckpointURL: URL(fileURLWithPath: outputCheckpoint, isDirectory: true)
         .standardizedFileURL,
       checkpointName: checkpointName,
-      keyPrefixes: keyPrefixes
+      keyPrefixes: keyPrefixes,
+      columnRange: columnRange
     )
     print("[derive-interpolated-checkpoint] wrote \(outputCheckpoint)")
     print("[derive-interpolated-checkpoint] factor=\(factor) (weight of checkpoint B)")
     if !keyPrefixes.isEmpty {
       print("[derive-interpolated-checkpoint] key-prefixes=\(keyPrefixes.joined(separator: ","))")
+    }
+    if let columnRange {
+      print(
+        "[derive-interpolated-checkpoint] columns=\(columnRange.lowerBound)..<\(columnRange.upperBound)"
+      )
     }
   }
 }
