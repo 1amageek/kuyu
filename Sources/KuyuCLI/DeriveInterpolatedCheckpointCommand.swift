@@ -19,8 +19,14 @@ struct DeriveInterpolatedCheckpoint: ParsableCommand {
 
   @Option(
     name: .customLong("factor"),
-    help: "Interpolation factor in (0, 1): weight of checkpoint B.")
+    help: "Interpolation factor in (0, 1]: weight of checkpoint B.")
   var factor: Double
+
+  @Option(
+    name: .customLong("key-prefix"),
+    help:
+      "Restrict interpolation to parameters whose key starts with this prefix (repeatable); other parameters are copied from checkpoint A.")
+  var keyPrefixes: [String] = []
 
   @Option(name: .customLong("output-checkpoint"), help: "Output checkpoint directory (must not exist).")
   var outputCheckpoint: String
@@ -40,9 +46,13 @@ struct DeriveInterpolatedCheckpoint: ParsableCommand {
       interpolationFactor: factor,
       outputCheckpointURL: URL(fileURLWithPath: outputCheckpoint, isDirectory: true)
         .standardizedFileURL,
-      checkpointName: checkpointName
+      checkpointName: checkpointName,
+      keyPrefixes: keyPrefixes
     )
     print("[derive-interpolated-checkpoint] wrote \(outputCheckpoint)")
     print("[derive-interpolated-checkpoint] factor=\(factor) (weight of checkpoint B)")
+    if !keyPrefixes.isEmpty {
+      print("[derive-interpolated-checkpoint] key-prefixes=\(keyPrefixes.joined(separator: ","))")
+    }
   }
 }
