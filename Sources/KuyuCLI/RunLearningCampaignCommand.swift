@@ -246,7 +246,7 @@ struct RunLearningCampaign: AsyncParsableCommand {
   @Option(
     name: .customLong("exploration-log-std"),
     help:
-      "Override the fixed exploration log standard deviation of the CTBR gaussian action distribution (default -3.2, sigma about 0.04). Wider exploration (e.g. -2.3) enlarges the PPO trust region quadratically."
+      "Declare the fixed exploration log standard deviation of the CTBR gaussian action distribution (default -3.2, sigma about 0.04). The exploration width is stored in the checkpoint, so this value must match the source checkpoint's width; a run that declares a different width is rejected. Write the checkpoint at the desired width to refine with wider exploration."
   )
   var explorationLogStd: Double?
 
