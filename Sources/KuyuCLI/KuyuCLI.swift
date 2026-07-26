@@ -26,6 +26,7 @@ struct KuyuCLI: AsyncParsableCommand {
       CheckTrainingHarnessSweep.self, CheckKuyuRegression.self, CheckKuyuRegressionMatrix.self,
       EvolveManas.self, RunLearningCampaign.self, RunLearningCampaignWorker.self, DeriveMotorFeedbackCheckpoint.self,
       DeriveInterpolatedCheckpoint.self, DeriveExplorationWidthCheckpoint.self,
+      DeriveResetCriticCheckpoint.self,
       EvaluateCheckpoint.self,
       ValidateLearningCampaign.self, DiagnoseLearningCampaign.self, TrainWorldModel.self,
       ImagineTrain.self,
