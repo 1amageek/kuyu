@@ -110,6 +110,11 @@ struct EvaluateCheckpoint: AsyncParsableCommand {
         }
         detail += " steps=\(diagnostic.stepCount)"
         detail += String(format: " rewardSum=%.0f", diagnostic.rewardSum)
+        if let safetyCost = diagnostic.safetyCost {
+          detail += String(format: " safetyCost=%.4f", safetyCost)
+        } else {
+          detail += " safetyCost=unavailable"
+        }
       }
       print(
         "[evaluate-checkpoint] \(verdict) \(quality.scenarioID) seed=\(quality.seed)\(reasons)\(detail)"
