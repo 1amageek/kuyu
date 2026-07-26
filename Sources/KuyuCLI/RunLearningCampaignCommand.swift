@@ -198,6 +198,13 @@ struct RunLearningCampaign: AsyncParsableCommand {
   var reinforcementInitialLambda: Double?
 
   @Option(
+    name: .customLong("reinforcement-dual-cost-limit"),
+    help:
+      "Safety-cost budget the dual ascends against during training (backend default is the task's terminal budget). Set it inside the range the current policy actually reaches so the constraint gap can change sign, and lower it across segments. It never relaxes the promotion budget."
+  )
+  var reinforcementDualCostLimit: Double?
+
+  @Option(
     name: .customLong("reinforcement-training-suites"),
     help:
       "Comma-separated A1 suite IDs whose graded scenarios are injected into the RR PPO training distribution at --search-stress-severity (e.g. 2 to train on actuator-swap stress). Requires --search-stress-severity."

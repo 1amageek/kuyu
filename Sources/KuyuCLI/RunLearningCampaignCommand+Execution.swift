@@ -71,6 +71,10 @@ extension RunLearningCampaign {
        !reinforcementInitialLambda.isFinite || reinforcementInitialLambda < 0 {
       throw ValidationError("--reinforcement-initial-lambda must be finite and >= 0.")
     }
+    if let reinforcementDualCostLimit,
+       !reinforcementDualCostLimit.isFinite || reinforcementDualCostLimit <= 0 {
+      throw ValidationError("--reinforcement-dual-cost-limit must be finite and > 0.")
+    }
     let selectedTrainingSuites: [Int]?
     if let reinforcementTrainingSuites {
       let parsed = try parseRegressionSuites(reinforcementTrainingSuites)
@@ -217,6 +221,7 @@ extension RunLearningCampaign {
         maxBatches: reinforcementWarmupMaxBatches,
         dualLearningRate: reinforcementDualLearningRate,
         dualInitialLambda: reinforcementInitialLambda,
+        dualCostLimit: reinforcementDualCostLimit,
         trainingSuites: selectedTrainingSuites,
         stopping: try TrainingReinforcementStoppingSettings(
           minimumIterationCount: reinforcementMinimumIterations,
