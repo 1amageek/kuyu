@@ -469,6 +469,25 @@ func droneStarterTemplateRunsSmallLearningCampaignEndToEnd() async throws {
         .appendingPathComponent("seed-1", isDirectory: true)
         .appendingPathComponent("evolution", isDirectory: true)
     try FileManager.default.createDirectory(at: evolution, withIntermediateDirectories: true)
+    // The continuation resolver only harvests candidates from an evolution
+    // directory whose manifest reports a terminal state, so the fixture must
+    // carry the manifest a real run would have written alongside the records.
+    try writeJSON(
+        EvolutionRunManifest(
+            runID: "resume-run",
+            taskID: "lift",
+            configHash: "resume-config",
+            policyID: "manasMLX",
+            populationSize: 4,
+            generationCount: 13,
+            eliteCount: 1,
+            workerCount: 1,
+            startedAt: Date(timeIntervalSince1970: 0),
+            completedAt: Date(timeIntervalSince1970: 1),
+            terminalState: .completed
+        ),
+        to: evolution.appendingPathComponent("evolution-manifest.json")
+    )
     try writeJSONLines([
         GenomeCandidate(
             runID: "resume-run",
@@ -590,15 +609,31 @@ private enum SelfContainedContinuationBundleManifest {
     """
 }
 
-private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+/// Encodes fixtures the way `EvolutionRunArtifactWriter` encodes real artifacts.
+///
+/// Readers of these directories decode with `.iso8601` dates and string-encoded
+/// non-conforming floats, so a fixture written with a default encoder is a shape
+/// production never produces.
+private func makeProjectFlowFixtureEncoder() -> JSONEncoder {
     let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.nonConformingFloatEncodingStrategy = .convertToString(
+        positiveInfinity: "Infinity",
+        negativeInfinity: "-Infinity",
+        nan: "NaN"
+    )
+    return encoder
+}
+
+private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+    let encoder = makeProjectFlowFixtureEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(value)
     try data.write(to: url, options: .atomic)
 }
 
 private func writeJSONLines<T: Encodable>(_ values: [T], to url: URL) throws {
-    let encoder = JSONEncoder()
+    let encoder = makeProjectFlowFixtureEncoder()
     encoder.outputFormatting = [.sortedKeys]
     let lines = try values.map { value in
         let data = try encoder.encode(value)

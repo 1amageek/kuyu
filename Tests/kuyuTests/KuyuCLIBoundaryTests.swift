@@ -1027,7 +1027,7 @@ import Testing
     #expect(executionSource.contains("if let resumeSource"))
     #expect(executionSource.contains("source: resumeSource"))
     #expect(executionSource.contains("--resume and --source-checkpoint cannot both be set"))
-    #expect(executionSource.contains("ReferenceQuadrotorLearningCampaignTrainingContractResolver()"))
+    #expect(executionSource.contains("ReferenceQuadrotorLearningCampaignTrainingContractResolver("))
     #expect(executionSource.contains(".contracts(for: task)"))
     #expect(executionSource.contains("ManasMLXModelBundleReferenceResolver()"))
     #expect(!executionSource.contains("bundleID: sourceCheckpointURL.lastPathComponent"))
@@ -1037,7 +1037,10 @@ import Testing
     #expect(executionSource.contains("await lifecycle.requestCancellation()"))
     #expect(executionSource.contains("try await lifecycle.register(handle)"))
     #expect(executionSource.contains("lifecycle.waitForTermination()"))
-    #expect(executionSource.contains("summary.terminalState == .completed"))
+    // Terminal classification belongs to the shared disposition type, not to an
+    // inline terminal-state comparison duplicated in the command.
+    #expect(executionSource.contains("TrainingRunWorkerProcessDisposition(summary: summary)"))
+    #expect(!executionSource.contains("summary.terminalState == "))
     #expect(supportSource.contains("TrainingRunResultTerminalClassifier().classify(result: result)"))
     #expect(!supportSource.contains("extension LearningCampaignTask"))
 }

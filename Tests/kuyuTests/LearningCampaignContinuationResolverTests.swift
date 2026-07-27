@@ -705,15 +705,31 @@ private enum ContinuationCTBRBundleManifestFixture {
     """
 }
 
-private func writeContinuationJSON<T: Encodable>(_ value: T, to url: URL) throws {
+/// Encodes fixtures the way `EvolutionRunArtifactWriter` encodes real artifacts.
+///
+/// The continuation resolver decodes with `.iso8601` dates and string-encoded
+/// non-conforming floats, so a fixture written with a default encoder is a shape
+/// production never produces and the resolver correctly rejects.
+private func makeContinuationFixtureEncoder() -> JSONEncoder {
     let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.nonConformingFloatEncodingStrategy = .convertToString(
+        positiveInfinity: "Infinity",
+        negativeInfinity: "-Infinity",
+        nan: "NaN"
+    )
+    return encoder
+}
+
+private func writeContinuationJSON<T: Encodable>(_ value: T, to url: URL) throws {
+    let encoder = makeContinuationFixtureEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(value)
     try data.write(to: url, options: .atomic)
 }
 
 private func writeContinuationJSONLines<T: Encodable>(_ values: [T], to url: URL) throws {
-    let encoder = JSONEncoder()
+    let encoder = makeContinuationFixtureEncoder()
     encoder.outputFormatting = [.sortedKeys]
     let lines = try values.map { value in
         let data = try encoder.encode(value)
