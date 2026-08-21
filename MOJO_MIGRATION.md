@@ -9,12 +9,14 @@ This ledger records implementation state. Normative behavior remains in
 ## Completion Claim
 
 Kuyu is not Mojo-backed yet. The current application and training runtime still
-execute through `kuyu-mlx`. The canonical buffer contracts and `swift-mojo`
-borrowed-buffer, synchronous opaque-session, session-owned Float32-buffer, and
-schema-5 Linux artifact slices are backend foundations; they are not a Kuyu
-training runtime or proof of accelerator execution. Numerical parity, learning
-qualification, native Jetson Swift/CUDA execution, and hardware-in-the-loop
-behavior remain unverified until their gates are executed and recorded here.
+execute through `kuyu-mlx`. KuyuPhysics now owns a closed, validated canonical
+dynamics program and a Swift Float64 reference executor, while `swift-mojo`
+provides borrowed-buffer, synchronous opaque-session, session-owned
+Float32-buffer, and schema-5 Linux artifact foundations. These are not a Kuyu
+Mojo training runtime or proof of accelerator execution. Cross-executor
+numerical parity, learning qualification, native Jetson Swift/CUDA execution,
+and hardware-in-the-loop behavior remain unverified until their gates are
+executed and recorded here.
 
 ## Final Usage Contract
 
@@ -52,8 +54,8 @@ flowchart LR
 |---|---|---|
 | The application directly consumes `KuyuMLX` | `../kuyu-app/Package.swift` and `../kuyu-app/Sources` imports | App cutover is blocked until a backend-neutral runtime facade exists |
 | The backend package exposes fourteen MLX products | `../kuyu-mlx/Package.swift` | Migration must classify semantic ownership before moving code |
-| The reference quadrotor uses closure-backed force terms | `../kuyu-physics/Sources/KuyuPhysics/Plant/AnyQuadrotorForceTerm.swift` | This is not a portable canonical operation graph |
-| The named canonical integrator is a Swift RK4 implementation | `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalIntegrator.swift` | Mojo parity cannot be established from the name or type shape |
+| The reference quadrotor force, derivative, and observable equations are closed SSA operation graphs with validated layouts, shapes, units, differentiability propagation, fidelity partitions, integration stages, and a stable digest | `../kuyu-physics/Sources/KuyuPhysics/Canonical`, `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalProgram.swift` | The Swift Float64 path is the semantic reference consumed by Plant and IMU; Mojo executors must consume this program rather than copy equations |
+| The canonical integrator selects the declared integration scheme and evaluates graph-derived RK4 derivatives; RK4 stage arithmetic remains the Swift Float64 reference implementation | `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalIntegrator.swift` | P3 must match every declared projection stage and the reference trace before accelerator promotion |
 | `swift-mojo` proves scalar/borrowed calls, synchronous session, and session-owned host Float32-buffer lifecycle with exact-count synchronous host copies on universal macOS; it also cross-generates a schema-5 aarch64 Linux static artifact bundle | `/Users/1amageek/Desktop/swift-mojo/docs/REQUIREMENTS.md`, `docs/ADR-0007-OPAQUE-RUNTIME-SESSION-ABI.md`, and `docs/ADR-0008-NON-APPLE-STATIC-LIBRARY-ARTIFACTS.md` | Attempt-owned CPU session/resource composition, transfer ABI, and Linux packaging are available; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization still precede Kuyu cutover |
 | Manas exposes MLX-specific model/runtime/training products | `../manas/Package.swift` | Manas model structure must gain a portable Mojo implementation without moving model ownership into Kuyu |
 
@@ -113,9 +115,9 @@ flowchart LR
 
 | Gate | Deliverable | Exit condition | State |
 |---|---|---|---|
-| P0 | Authority freeze and migration ledger | Specs agree; legacy callable gaps are marked; no new MLX production features | In progress |
+| P0 | Authority freeze and migration ledger | Specs agree; legacy callable gaps are marked or removed; no new MLX production features | Complete |
 | P1 | `swift-mojo` ABI v2 | Owned buffers/state, scoped borrows, typed capabilities, shutdown, Linux ARM64 artifact verification | In progress: host borrows, session/resource ownership, exact-count synchronous host transfer, host Float32-buffer lifecycle, and Linux ARM64 cross packaging are verified; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization remain |
-| P2 | Canonical dynamics and sensor programs | Closed opcodes, layouts, units, differentiability, integration/projection stages, stable digest | In progress: buffer layout primitives only |
+| P2 | Canonical dynamics and sensor programs | Closed opcodes, layouts, units, differentiability, integration/projection stages, stable digest | Complete for the reference quadrotor program and Swift Float64 semantic executor; digest `6c6773c5a824508fd683390aa7a4acdc1636e8c8483f6ac9ee9667bf62d54310` |
 | P3 | Mojo world executors | CPU `Float64`, Metal, and CUDA consume the same program without copied equations or fallback | Not started |
 | P4 | Manas Mojo implementation | Core/Reflex model structure remains Manas-owned; runtime and training satisfy bundle contracts | Not started |
 | P5 | Kuyu Mojo compute | Vectorized world, GA, PPO/SHAC, and world-model protocols have real production conformers | Not started |
@@ -148,15 +150,15 @@ finite loss, changed weights, or successful process exit is insufficient.
 
 | Change | State | Evidence |
 |---|---|---|
-| Mojo authority and package graph frozen | Edited, not built | `SPEC.md`, `LEARNING_SYSTEM_SPEC.md`, `../KUYU_PACKAGE_ARCHITECTURE.md` |
-| Canonical buffer field/layout primitives | Implemented; all 7 canonical tests passed | `../kuyu-physics/Sources/KuyuPhysics/Canonical` and `CanonicalBufferLayoutTests.swift`; bounded `xcodebuild test` execution on 2026-08-21 |
-| Stable digest value validation | Implemented and covered by the passing canonical tests | `CanonicalProgramDigest.swift` |
-| Closure/RK4 canonical gap markers | Added | `AnyQuadrotorForceTerm.swift`, `ReferenceQuadrotorCanonicalIntegrator.swift` |
-| Full `KuyuPhysicsTests` target | Existing unrelated failures remain | 117 tests ran; two pre-existing exact floating-point equality cases failed at `1.2` versus `1.2000000000000002`. This does not invalidate the 7 explicit canonical passes, but the target is not green |
+| Mojo authority and package graph frozen | Committed | `SPEC.md`, `LEARNING_SYSTEM_SPEC.md`, `../KUYU_PACKAGE_ARCHITECTURE.md` |
+| Canonical buffer, instruction, graph, fidelity, integration, and digest contracts | Implemented and validated | `../kuyu-physics/Sources/KuyuPhysics/Canonical`, `CanonicalBufferLayoutTests.swift`, and `CanonicalDynamicsProgramTests.swift` |
+| Stable digest value validation | Implemented with decode-time recomputation and a fixed reference golden | `CanonicalProgramDigest.swift`; reference digest `6c6773c5a824508fd683390aa7a4acdc1636e8c8483f6ac9ee9667bf62d54310` |
+| Closure/RK4 canonical gap | Removed from the production path | Closure-backed force-term types and duplicated `ReferenceQuadrotorDynamics` were deleted; Plant and IMU consume the canonical program through `ReferenceQuadrotorScalarDynamicsExecutor`; the integrator dispatches the declared RK4 scheme |
+| Full `KuyuPhysicsTests` target | Passed | 119 of 119 tests passed under bounded `xcodebuild test`, including differentiability propagation and the strict 400-step/s canonical-kernel budget |
 | Source-risk audit | Executed | `unconscious/scripts/audit-dangerous-code.sh --verbose`: 0 blockers; 44 existing oversized-production-file review findings retained for separate review |
-| Full canonical opcode program | Not implemented | P2 blocker |
+| Full reference canonical opcode program | Implemented | Nine force terms, derivative, observables, full/single-prop fidelity partitions, and RK4 projection stages share one validated program |
 | Mojo package and complete ABI v2 | Partially implemented upstream | Caller-owned mutable host-buffer, synchronous session, session-owned Float32-buffer create/copy/shutdown, and schema-5 Linux ARM64 cross artifact are implemented; native Jetson and accelerator execution remain P1 blockers |
-| Build/test/benchmark/device evidence | Partially executed | Canonical tests, source audit, focused `swift-mojo` `xcodebuild test`, real Mojo universal macOS session/resource/transfer acceptance, and aarch64 Linux cross-artifact inspection executed. Benchmark, sanitizer, native Jetson, GPU, and HIL evidence remain |
+| Build/test/benchmark/device evidence | Partially executed | KuyuPhysics 119/119, KuyuScenarios 127/127, strict 400-step/s scalar budget, focused `swift-mojo` `xcodebuild test`, real Mojo universal macOS session/resource/transfer acceptance, and aarch64 Linux cross-artifact inspection executed. Mojo parity, sanitizer, native Jetson, GPU, and HIL evidence remain; the Kuyu aggregate test target is environment-blocked because the installed Xcode lacks its optional Metal Toolchain component |
 
 ## P1 Work Log
 
@@ -180,13 +182,12 @@ finite loss, changed weights, or successful process exit is insufficient.
 
 ## Immediate Next Slice
 
-1. Supply the MAX-backed `DeviceContext` package on the exact deployment,
-   implement CUDA allocation/transfer/synchronization behind the existing
-   session-owned buffer contract, then link and run the schema-5 Linux ARM64
-   artifact natively on Jetson with recorded capability and failure evidence.
-2. Define the closed canonical opcode, instruction, shape, unit, integration,
-   projection, fidelity, observable, and canonical serialization contracts.
-3. Encode the reference quadrotor from those contracts and produce scalar
-   conformance fixtures.
-4. Only then create `kuyu-mojo` and compile the same program for CPU, Metal, and
-   CUDA; no placeholder backend or success-valued fallback is permitted.
+1. Create `kuyu-mojo`, compile the reference canonical program for Mojo CPU
+   Float64, and converge differential force, derivative, observable, RK4,
+   boundary, and typed-failure traces against the fixed program digest.
+2. Supply the MAX-backed `DeviceContext` package on the exact deployment and
+   implement Metal/CUDA allocation, transfer, synchronization, and compiled
+   program caching behind the existing session-owned buffer contract.
+3. When the Jetson is reachable, link and run the schema-5 Linux ARM64 artifact
+   natively and record capability negotiation, success, failure, cancellation,
+   and dynamic dependency evidence before CUDA qualification.
