@@ -8,15 +8,15 @@ This ledger records implementation state. Normative behavior remains in
 
 ## Completion Claim
 
-Kuyu is not Mojo-backed yet. The current application and training runtime still
-execute through `kuyu-mlx`. KuyuPhysics now owns a closed, validated canonical
-dynamics program and a Swift Float64 reference executor, while `swift-mojo`
-provides borrowed-buffer, synchronous opaque-session, session-owned
-Float32-buffer, and schema-5 Linux artifact foundations. These are not a Kuyu
-Mojo training runtime or proof of accelerator execution. Cross-executor
-numerical parity, learning qualification, native Jetson Swift/CUDA execution,
-and hardware-in-the-loop behavior remain unverified until their gates are
-executed and recorded here.
+Kuyu is not Mojo-backed end to end yet. The current application and training
+runtime still execute through `kuyu-mlx`. KuyuPhysics owns the closed canonical
+dynamics program and Swift Float64 reference, while `kuyu-mojo` now compiles and
+executes the same digest-bound program with a real Mojo 1.0 CPU Float64 backend.
+The CPU executor has passed differential force, derivative, observable, RK4,
+zero-boundary, projection, typed-failure, and strict 400-step/s gates. This is
+not a Kuyu Mojo training runtime or proof of accelerator execution. Metal,
+CUDA, native Jetson Swift/CUDA, learning qualification, sanitizer, and
+hardware-in-the-loop gates remain unverified until recorded here.
 
 ## Final Usage Contract
 
@@ -56,7 +56,8 @@ flowchart LR
 | The backend package exposes fourteen MLX products | `../kuyu-mlx/Package.swift` | Migration must classify semantic ownership before moving code |
 | The reference quadrotor force, derivative, and observable equations are closed SSA operation graphs with validated layouts, shapes, units, differentiability propagation, fidelity partitions, integration stages, and a stable digest | `../kuyu-physics/Sources/KuyuPhysics/Canonical`, `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalProgram.swift` | The Swift Float64 path is the semantic reference consumed by Plant and IMU; Mojo executors must consume this program rather than copy equations |
 | The canonical integrator selects the declared integration scheme and evaluates graph-derived RK4 derivatives; RK4 stage arithmetic remains the Swift Float64 reference implementation | `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalIntegrator.swift` | P3 must match every declared projection stage and the reference trace before accelerator promotion |
-| `swift-mojo` proves scalar/borrowed calls, synchronous session, and session-owned host Float32-buffer lifecycle with exact-count synchronous host copies on universal macOS; it also cross-generates a schema-5 aarch64 Linux static artifact bundle | `/Users/1amageek/Desktop/swift-mojo/docs/REQUIREMENTS.md`, `docs/ADR-0007-OPAQUE-RUNTIME-SESSION-ABI.md`, and `docs/ADR-0008-NON-APPLE-STATIC-LIBRARY-ARTIFACTS.md` | Attempt-owned CPU session/resource composition, transfer ABI, and Linux packaging are available; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization still precede Kuyu cutover |
+| `swift-mojo` proves scoped Float32 and Float64 borrowed calls, synchronous session, and session-owned host Float32-buffer lifecycle with exact-count synchronous host copies on universal macOS; it also cross-generates a schema-5 aarch64 Linux static artifact bundle | `swift-mojo` commit `9382a34`, `docs/ADR-0007-OPAQUE-RUNTIME-SESSION-ABI.md`, `docs/ADR-0008-NON-APPLE-STATIC-LIBRARY-ARTIFACTS.md`, and `docs/ADR-0009-FLOAT64-BORROWED-BUFFER-ABI.md` | CPU Float64 canonical execution can use a scoped no-escape bridge; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization still precede Kuyu cutover |
+| `kuyu-mojo` executes all closed canonical opcodes through one generic Mojo SSA interpreter without copied quadrotor equations or a reference fallback | `kuyu-mojo` commit `083a5a8`, `PARITY_CONTRACT.md`, and `RELIABILITY_EVIDENCE.md` | The macOS arm64 CPU Float64 rung is implemented and qualified for the fixed reference digest; accelerator rungs remain unavailable rather than silently selecting CPU |
 | Manas exposes MLX-specific model/runtime/training products | `../manas/Package.swift` | Manas model structure must gain a portable Mojo implementation without moving model ownership into Kuyu |
 
 ## Source Ownership Migration
@@ -116,9 +117,9 @@ flowchart LR
 | Gate | Deliverable | Exit condition | State |
 |---|---|---|---|
 | P0 | Authority freeze and migration ledger | Specs agree; legacy callable gaps are marked or removed; no new MLX production features | Complete |
-| P1 | `swift-mojo` ABI v2 | Owned buffers/state, scoped borrows, typed capabilities, shutdown, Linux ARM64 artifact verification | In progress: host borrows, session/resource ownership, exact-count synchronous host transfer, host Float32-buffer lifecycle, and Linux ARM64 cross packaging are verified; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization remain |
+| P1 | `swift-mojo` ABI v2 | Owned buffers/state, scoped borrows, typed capabilities, shutdown, Linux ARM64 artifact verification | In progress: scoped Float32/Float64 borrows, session/resource ownership, exact-count synchronous host transfer, host Float32-buffer lifecycle, and Linux ARM64 cross packaging are verified; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization remain |
 | P2 | Canonical dynamics and sensor programs | Closed opcodes, layouts, units, differentiability, integration/projection stages, stable digest | Complete for the reference quadrotor program and Swift Float64 semantic executor; digest `6c6773c5a824508fd683390aa7a4acdc1636e8c8483f6ac9ee9667bf62d54310` |
-| P3 | Mojo world executors | CPU `Float64`, Metal, and CUDA consume the same program without copied equations or fallback | Not started |
+| P3 | Mojo world executors | CPU `Float64`, Metal, and CUDA consume the same program without copied equations or fallback | In progress: macOS arm64 CPU Float64 is implemented and qualified; Metal, CUDA, and native Jetson remain |
 | P4 | Manas Mojo implementation | Core/Reflex model structure remains Manas-owned; runtime and training satisfy bundle contracts | Not started |
 | P5 | Kuyu Mojo compute | Vectorized world, GA, PPO/SHAC, and world-model protocols have real production conformers | Not started |
 | P6 | Semantic ownership cleanup | Scenario, campaign, and artifact semantics no longer live in a backend package | Not started |
@@ -157,8 +158,8 @@ finite loss, changed weights, or successful process exit is insufficient.
 | Full `KuyuPhysicsTests` target | Passed | 119 of 119 tests passed under bounded `xcodebuild test`, including differentiability propagation and the strict 400-step/s canonical-kernel budget |
 | Source-risk audit | Executed | `unconscious/scripts/audit-dangerous-code.sh --verbose`: 0 blockers; 44 existing oversized-production-file review findings retained for separate review |
 | Full reference canonical opcode program | Implemented | Nine force terms, derivative, observables, full/single-prop fidelity partitions, and RK4 projection stages share one validated program |
-| Mojo package and complete ABI v2 | Partially implemented upstream | Caller-owned mutable host-buffer, synchronous session, session-owned Float32-buffer create/copy/shutdown, and schema-5 Linux ARM64 cross artifact are implemented; native Jetson and accelerator execution remain P1 blockers |
-| Build/test/benchmark/device evidence | Partially executed | KuyuPhysics 119/119, KuyuScenarios 127/127, strict 400-step/s scalar budget, focused `swift-mojo` `xcodebuild test`, real Mojo universal macOS session/resource/transfer acceptance, and aarch64 Linux cross-artifact inspection executed. Mojo parity, sanitizer, native Jetson, GPU, and HIL evidence remain; the Kuyu aggregate test target is environment-blocked because the installed Xcode lacks its optional Metal Toolchain component |
+| Mojo package and complete ABI v2 | Partially implemented upstream | Caller-owned Float32 and Float64 mutable host-buffer calls, synchronous session, session-owned Float32-buffer create/copy/shutdown, and schema-5 Linux ARM64 cross artifact are implemented; native Jetson and accelerator execution remain P1 blockers |
+| Build/test/benchmark/device evidence | Partially executed | KuyuPhysics 119/119, KuyuScenarios 127/127, KuyuMojoDynamics 9/9, strict 400-step/s Swift and Mojo CPU budgets, package-wide `swift-mojo` 136/136, real Mojo macOS Float32/Float64 and session/resource acceptance, and aarch64 Linux cross-artifact inspection executed. Sanitizer, native Jetson, GPU, and HIL evidence remain; the Kuyu aggregate test target is environment-blocked because the installed Xcode lacks the optional Metal Toolchain component |
 
 ## P1 Work Log
 
@@ -170,6 +171,7 @@ finite loss, changed weights, or successful process exit is insufficient.
 | Empty input/output failures | Implemented and real-runtime verified | distinct `emptyBorrowedBuffer` and `emptyMutableBuffer` paths |
 | Static consumption | Verified locally | four bridge symbols present; final consumer had no Mojo dynamic dependency |
 | Ownership scope | Caller-owned host buffers only | Both pointers end with the synchronous nested borrow; no device/session ownership is claimed |
+| `([Double], inout [Double]) throws -> Void` scoped ABI | Implemented, package-tested, and real-runtime verified on arm64 macOS | Commit `9382a34`; generated `const double *` / `double *` dispatcher, recoverable status, empty-buffer failures, static link/run, and no Mojo dynamic dependency |
 | Opaque session binding IR and macro | Implemented and tested | factory requires a paired shutdown; use binding names its Swift factory and must remain in the same external package |
 | Versioned create/use/shutdown ABI | Implemented and real-runtime verified on arm64 macOS | flat schema-v1 request/response, `void *` handle, session-bound mutable-buffer dispatcher, and paired shutdown symbols |
 | Session ownership and isolation | Verified locally | `Mutex<State>` owner, factory-domain identity, single synchronous lease, typed reentrant/concurrent `busy`, typed use-after-shutdown, idempotent explicit shutdown, and deinit fallback |
@@ -180,14 +182,25 @@ finite loss, changed weights, or successful process exit is insufficient.
 | Linux ARM64 static artifact | Cross packaging verified | real Mojo `aarch64-unknown-linux-gnu` ELF object/archive, schema-5 SE-0482 artifact bundle, platform-conditioned package graph, tree/archive verification, and no KGEN undefined symbols |
 | Native Jetson acceptance | Not verified | Swift import/link/run, CUDA capability negotiation, device allocation/transfer/synchronization, success/failure paths, and dynamic dependency evidence are required before P1 completion or Kuyu runtime integration |
 
+## P3 Work Log
+
+| Change | State | Evidence |
+|---|---|---|
+| `kuyu-mojo` package boundary | Implemented and pushed | Public repository `1amageek/kuyu-mojo`, commit `083a5a8`; `KuyuMojoCore` and `KuyuMojoDynamics` keep canonical semantics in KuyuPhysics |
+| Canonical program compiler | Implemented | Closed opcode mapping, validated shapes/units, fixed-width Float64 plan, immutable digest-bound execution identity, and no target-conditioned mutable state |
+| Generic Mojo CPU Float64 interpreter | Implemented with real Mojo 1.0 artifact | One external binding, artifact digest `bdece09559ebb25fc58e68245957ed38f636140be8afe5e2914e2c73a6aff04b`; no quadrotor equations in Mojo source |
+| Differential and boundary convergence | Passed | 9/9 bounded `xcodebuild` tests for full/single-prop force, derivative, observables, 20-step RK4, zero norm, projection, digest/fidelity/input/plan/arithmetic failures |
+| CPU real-time floor | Passed | `KUYU_MOJO_STRICT_PERFORMANCE_BUDGETS=1`; 200 timed full RK4 steps exceeded 400 steps/s |
+| Workspace boundary and source-risk review | Passed | Kuyu and unconscious boundary validators passed; source-risk audit reported zero blockers and no new unsafe-memory/precondition/oversized-source finding in `kuyu-mojo` |
+| Accelerator execution | Not implemented | Standalone author environment lacks the MAX `DeviceContext` host package; no Metal/CUDA path or CPU fallback branch was added |
+
 ## Immediate Next Slice
 
-1. Create `kuyu-mojo`, compile the reference canonical program for Mojo CPU
-   Float64, and converge differential force, derivative, observable, RK4,
-   boundary, and typed-failure traces against the fixed program digest.
-2. Supply the MAX-backed `DeviceContext` package on the exact deployment and
+1. Supply the MAX-backed `DeviceContext` package on the exact deployment and
    implement Metal/CUDA allocation, transfer, synchronization, and compiled
    program caching behind the existing session-owned buffer contract.
+2. Converge the Metal executor against the qualified CPU Float64 trace without
+   changing the canonical program, identity, tolerance, or failure taxonomy.
 3. When the Jetson is reachable, link and run the schema-5 Linux ARM64 artifact
    natively and record capability negotiation, success, failure, cancellation,
    and dynamic dependency evidence before CUDA qualification.
