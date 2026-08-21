@@ -3,15 +3,17 @@
 This document is the authoritative normative specification for Kuyu.
 
 ## Purpose (Normative)
-Kuyu is a **learning simulator** for Manas. It is **not** a general‑purpose
+Kuyu is a **learning simulator** for Manas. It is **not** a general-purpose
 simulator; it exists to provide the environment, realism, and logs required
-for MLX‑based learning. It injects swappability events and HF stressors while
-keeping runs reproducible.
+for portable Mojo-backed learning. It injects swappability events and HF
+stressors while keeping runs reproducible.
 
 Kuyu owns the training runtime boundary for Manas improvement. Generic
 training contracts, rollout orchestration, population execution, artifacts, and
-validators live in Kuyu packages. Concrete Manas/MLX execution lives in
-`kuyu-mlx` behind Kuyu training protocols.
+validators live in Kuyu packages. Concrete accelerated execution lives in
+`kuyu-mojo` behind Kuyu training protocols. `kuyu-mlx` is a migration-only
+reference implementation and MUST NOT remain in the conforming production
+dependency graph.
 
 ## Responsibility Boundary (Normative)
 Kuyu owns the training-world side of the unconscious stack:
@@ -26,10 +28,10 @@ Kuyu MUST NOT own or duplicate:
 
 - Manas control protocol internals,
 - Manas learning model internals,
-- concrete MLX optimizer kernels outside the `kuyu-mlx` backend boundary,
-- shared `ManasMLXModelStore` execution across parallel rollout workers.
+- concrete optimizer or accelerator kernels outside the `kuyu-mojo` backend boundary,
+- shared mutable model-store execution across parallel rollout workers.
 
-The top-level Kuyu application may bridge to Manas/MLX for execution and
+The top-level Kuyu application may bridge to Manas/Mojo for execution and
 training, but those bridges do not make Manas model internals a Kuyu core or
 training-contract responsibility.
 
@@ -39,7 +41,8 @@ learning campaign orchestration, checkpoint evaluation, checkpoint selection,
 artifact writing, artifact validation, regression gates, readiness checks, and
 continuation/resume selection. KuyuUI/Bounded and KuyuCLI are adapters over the
 same typed Kuyu APIs and worker service; they are not independent execution
-engines. Heavy MLX work MAY run in an authenticated child process, but the
+engines. Heavy Mojo work MAY run in an authenticated child process or remote
+Jetson worker, but the
 process boundary MUST NOT duplicate acceptance, validation, or terminal-state
 semantics.
 
@@ -56,7 +59,8 @@ Required layering:
 
 ```mermaid
 flowchart LR
-  A["kuyu-training typed contracts"] --> B["kuyu-mlx Manas/MLX backend"]
+  A["kuyu-training typed contracts"] --> B["kuyu-mojo compute backend"]
+  S["swift-mojo ABI / artifacts"] --> B
   M["manas / ManasLearningContracts"] --> B
   C["kuyu-app KuyuCLI adapter"] --> W["shared worker service"]
   D["kuyu-app KuyuUI adapter"] --> W
@@ -66,13 +70,16 @@ flowchart LR
   G["Shell launchers"] --> C
 ```
 
-- `KuyuTraining` owns portable task profiles, rollout contracts, evaluation
-  artifacts, project package contracts, and validation schemas.
+- `KuyuTraining` owns portable task profiles, rollout contracts, campaign
+  lifecycle, checkpoint-evaluator contracts, regression and promotion gates,
+  continuation resolution, artifact publication, project package contracts,
+  and validation schemas.
 - `manas` owns only optimizer-ready in-memory `ManasLearningContracts`; it does
   not own or read a persisted Kuyu dataset schema.
-- The `kuyu-mlx` package owns Manas/MLX bridge execution, campaign runners,
-  checkpoint evaluators, regression gates, continuation resolution, and artifact
-  publication.
+- The `kuyu-mojo` package owns Mojo bridge execution, compiled canonical-world
+  programs, accelerator kernels, Manas adapter execution, and concrete compute
+  implementations consumed by the Kuyu training runtime. It does not own the
+  lifecycle, acceptance, continuation, or publication semantics it executes.
 - The `kuyu-app` package owns `KuyuCLI` and `KuyuUI` adapters. They map
   command-line or UI intent into Kuyu API configuration, subscribe to Kuyu
   events, and report or render Kuyu artifacts. They MUST NOT implement separate
@@ -270,8 +277,9 @@ Required semantics:
   substituted for the policy input.
 
 Parallel rollout is scenario/seed parallelism. Each worker MUST have an
-independent environment and policy instance. Shared `ManasMLXModelStore`
-execution is out of scope until M2 worker snapshots or actor pools exist.
+independent environment and policy instance. Shared mutable model-store
+execution is prohibited; workers consume immutable checkpoint snapshots and
+own their Mojo sessions and device buffers.
 
 Sensor stress applies to the formal observation contract. For the 8-channel
 lift observation schema, state channels 6 and 7 are valid targets for
@@ -302,8 +310,8 @@ dataset/metric requirements for M1.
 ## Evolution Harness (M2, Normative)
 Kuyu runs evolutionary optimization over Manas checkpoint candidates through a
 typed training runtime. `kuyu-training` owns the generic population, scheduling,
-rollout, gate, artifact, validation, and continuation contracts. `kuyu-mlx`
-owns concrete Manas/MLX mutation, crossover, batched inference, checkpoint
+rollout, gate, artifact, validation, and continuation contracts. `kuyu-mojo`
+owns concrete Manas/Mojo mutation, crossover, batched inference, checkpoint
 serialization, and accelerator execution.
 
 Required artifacts:
@@ -330,7 +338,7 @@ Required semantics:
 - Kuyu may adapt mutation rate and mutation noise scale from generation gate
   results. Accepted generations may decay exploration pressure; rejected
   generations may increase it within configured bounds. The concrete mutation
-  implementation remains behind the Manas/MLX variation backend.
+  implementation remains behind the Manas/Mojo variation backend.
 - A run is accepted when at least one candidate has passed the quality gate.
   Later generation regressions MUST NOT discard an earlier accepted elite.
 - Completed evolution artifacts MUST contain a non-empty elite archive, a
@@ -339,13 +347,13 @@ Required semantics:
   behavior descriptors. The archive is an observability and selection artifact;
   it does not make `kuyu-app` or Bounded the owner of optimizer internals.
 - Rejected generations MUST include typed candidate-level rejection reasons.
-- Gaussian mutation over ManasMLX checkpoints MUST preserve `model.json`,
+- Gaussian mutation over Manas model bundles MUST preserve `model.json`,
   write `core.safetensors` and optional `reflex.safetensors`, emit the Manas
   `manas-bundle.json` model-bundle manifest when serializing a checkpoint, and
   produce a reloadable candidate checkpoint.
-- Xcode runtime verification is required for MLX save/load smoke coverage
-  because SwiftPM command-line execution may not exercise the same Metal
-  resource path.
+- Xcode runtime verification is required for the Apple Metal path. Jetson
+  acceptance additionally requires native Linux ARM64 and CUDA execution; one
+  platform's successful build is not evidence for the other platform.
 
 Reference verification commands:
 

@@ -46,7 +46,7 @@ There MUST be one authority for each semantic fact.
 | State layout, force terms, constraints, integrator, fidelity partition | `kuyu-physics` | Scalar and accelerated world executors |
 | Task intent, reset, stress schedule, reward, cost, failure, task quality | `kuyu-scenarios` | Training runtime and evaluators |
 | Persisted rollout schema, validation, lifecycle, gates, evidence | `kuyu-training` | Backends, CLI, UI |
-| MLX graph compilation, policy distribution, optimizer, checkpoint adapter | `kuyu-mlx` | Kuyu training runtime |
+| Mojo program compilation, policy distribution, optimizer, Kuyu-to-Manas adapter | `kuyu-mojo` | Kuyu training runtime |
 | Control protocol, model structure, optimizer-ready in-memory inputs | `manas` | Manas trainers and Kuyu adapters |
 | Commands and read-only presentation | `kuyu-app` / Bounded | Operators |
 
@@ -57,19 +57,23 @@ flowchart LR
   Core["kuyu-core"] --> Physics["kuyu-physics"]
   Physics --> Scenarios["kuyu-scenarios"]
   Scenarios --> Training["kuyu-training"]
-  Training --> MLX["kuyu-mlx"]
-  ManasContracts["manas / ManasLearningContracts"] --> MLX
-  MLX --> App["kuyu-app adapters"]
+  Training --> Mojo["kuyu-mojo"]
+  SwiftMojo["swift-mojo"] --> Mojo
+  ManasContracts["manas / ManasLearningContracts"] --> Mojo
+  Mojo --> App["kuyu-app adapters"]
 ```
 
 `manas-training-data` MUST be removed. Manas MUST NOT own a persisted copy of a
 Kuyu dataset schema or read Kuyu artifact directories. `ManasLearningContracts`
 is an in-package Manas target containing only optimizer-ready, in-memory sample
-and batch contracts. `KuyuManasMLXAdapter` validates Kuyu artifacts and converts
+and batch contracts. `KuyuManasMojoAdapter` validates Kuyu artifacts and converts
 them into those contracts.
 
-No package below `kuyu-mlx` may import MLX or Manas MLX modules. No Manas target
-may import Kuyu scenario, reward, failure, or artifact types.
+No package below `kuyu-mojo` may import Mojo, `swift-mojo`, MLX, or
+backend-specific Manas compute modules. No Manas target may import Kuyu
+scenario, reward, failure, or artifact types. `swift-mojo` MUST remain a generic
+Swift/Mojo ABI, ownership, and artifact bridge and MUST NOT own Kuyu or Manas
+domain types.
 
 ## 3. Canonical World Program
 
@@ -93,12 +97,12 @@ the program is built. An arbitrary Swift closure cannot enter canonical mode.
 Scenario scheduling, policy cadence, and reward/failure semantics do not belong
 inside this graph; they remain in `ScenarioExecutionPlan`.
 
-Two executors consume the same program:
+Two Mojo executors consume the same program:
 
 | Executor | Responsibility | Prohibited responsibility |
 |---|---|---|
-| `ScalarDynamicsExecutor` | Deterministic `Double` execution and reference traces | Redefining terms or scenario support |
-| `MLXDynamicsExecutor` | Compile and cache a batched MLX graph by program digest | Maintaining independent equations |
+| `MojoScalarDynamicsExecutor` | Compile and execute deterministic CPU `Float64` reference traces | Redefining terms or scenario support |
+| `MojoAcceleratedDynamicsExecutor` | Compile and cache batched Metal or CUDA programs by program digest | Maintaining independent equations or choosing scenarios |
 
 The existing reference-quadrotor force-term IDs, fidelity partitions, state,
 parameters, and canonical integrator semantics should be retained. Closure-backed
@@ -109,9 +113,11 @@ fidelity or is removed.
 
 Execution identity MUST include program schema/version/digest, fidelity,
 constraint projection, mixer and rotor-spin convention, executor version,
-numeric dtype, and device class. Scalar `Double` and MLX `Float` parity uses a
-declared per-output absolute/relative tolerance and boundary classification
-rule; matching configuration names or hashes alone is not proof of parity.
+numeric dtype, and device class. Mojo CPU `Float64`, Metal, and CUDA parity uses
+a declared per-output absolute/relative tolerance and boundary classification
+rule; matching configuration names or hashes alone is not proof of parity. A
+device capability mismatch is a typed failure and MUST NOT select another
+physics implementation implicitly.
 
 ### 3.2 Scenario execution plan
 
@@ -513,7 +519,7 @@ The following are release-blocking:
 | Contract | Required proof |
 |---|---|
 | Schema | Every producer output is accepted by every declared consumer validator |
-| Dynamics | Scalar and MLX executors consume the same program digest and match integration stages, derived observables, and boundaries within declared tolerances |
+| Dynamics | Mojo CPU, Metal, and CUDA executors consume the same program digest and match integration stages, derived observables, and boundaries within declared tolerances |
 | Scenario | One execution plan yields identical reset, event, reward, cost, failure, and support semantics across backends |
 | Trajectory | Dataset reordering/coalescing cannot cross episode or segment boundaries |
 | Distribution | Sample/log-probability round trip, Jacobian, bounds, and saturation stress are numerically verified |
@@ -566,9 +572,10 @@ No dual runtime truth is permitted. Migration proceeds in this order:
    migration wave. Runtime training rejects legacy schemas at that switch.
 5. Introduce `CanonicalDynamicsProgram` and the scalar executor; establish
    scalar conformance traces and stable execution identity.
-6. Compile that program in the MLX executor, establish parity, then switch tensor
-   producers to v7 and delete tensor-local equations and scenario allowlists.
-7. Convert `KuyuMLXWorldModel` and the current `manas-cosmos-adapter` to v7.
+6. Compile that program in the Mojo Metal and CUDA executors, establish parity,
+   then switch accelerated producers to v7 and delete tensor-local equations and
+   scenario allowlists.
+7. Convert `KuyuMojoWorldModel` and the current `manas-cosmos-adapter` to v7.
    External dataset conversion is a Kuyu import responsibility, so the Cosmos
    adapter becomes a Kuyu-owned adapter and emits v7 with explicit provenance.
 8. Delete `manas-training-data`, its persisted schema, loaders, and package edges.
@@ -597,7 +604,7 @@ that fabricates behavior evidence.
 |---|---|
 | G0 Ownership | Dependency and import tests enforce the authority table |
 | G1 Artifact | v7 round trip, migration, corruption, and producer-consumer tests pass |
-| G2 World | Scalar/MLX program digest and parity suites pass for every supported scenario capability |
+| G2 World | Mojo CPU/Metal/CUDA program digest and parity suites pass for every supported scenario capability |
 | G3 Optimizer | Distribution, trajectory, GAE, PPO, and constrained-PPO tests pass |
 | G4 Golden path | Deterministic reference campaign publishes an improved reloadable checkpoint |
 | G5 Observability | CLI and UI show the same lifecycle snapshot and failure evidence without blocking the main actor |
