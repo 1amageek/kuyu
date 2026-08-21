@@ -17,10 +17,12 @@ precision rung for future Metal and CUDA execution. Both have passed
 differential force, derivative, observable, RK4, zero-boundary, projection,
 typed-failure, and strict 400-step/s gates. Their C ABIs are also packaged in a
 verified aarch64 Linux ELF archive, but that is not native Jetson execution
-evidence. This is not a Kuyu Mojo training runtime or proof of accelerator
-execution. Metal, CUDA, native Jetson Swift/CUDA, learning qualification,
-sanitizer, and hardware-in-the-loop gates remain unverified until recorded
-here.
+evidence. A separate schema-1 receipt now verifies the real MAX object and its
+four-library AsyncRT/KGEN closure without weakening the link-closed CPU artifact
+policy. This is dependency preflight evidence, not a linked worker or proof of
+accelerator execution. Metal, CUDA, native Jetson Swift/CUDA, learning
+qualification, sanitizer, and hardware-in-the-loop gates remain unverified
+until recorded here.
 
 ## Final Usage Contract
 
@@ -60,9 +62,9 @@ flowchart LR
 | The backend package exposes fourteen MLX products | `../kuyu-mlx/Package.swift` | Migration must classify semantic ownership before moving code |
 | The reference quadrotor force, derivative, and observable equations are closed SSA operation graphs with validated layouts, shapes, units, differentiability propagation, fidelity partitions, integration stages, and a stable digest | `../kuyu-physics/Sources/KuyuPhysics/Canonical`, `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalProgram.swift` | The Swift Float64 path is the semantic reference consumed by Plant and IMU; Mojo executors must consume this program rather than copy equations |
 | The canonical integrator selects the declared integration scheme and evaluates graph-derived RK4 derivatives; RK4 stage arithmetic remains the Swift Float64 reference implementation | `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalIntegrator.swift` | P3 must match every declared projection stage and the reference trace before accelerator promotion |
-| `swift-mojo` proves scoped Float32 and Float64 borrowed calls, synchronous session, and session-owned host Float32-buffer lifecycle with exact-count synchronous host copies on universal macOS; it also cross-generates a schema-5 aarch64 Linux static artifact bundle, rejects archives that omit the compiled ELF object, and rejects undeclared accelerator runtime symbols before archiving | `swift-mojo` commits `9382a34`, `4f3f2e7`, and `164f571`, `docs/ADR-0007-OPAQUE-RUNTIME-SESSION-ABI.md`, `docs/ADR-0008-NON-APPLE-STATIC-LIBRARY-ARTIFACTS.md`, and `docs/ADR-0009-FLOAT64-BORROWED-BUFFER-ABI.md` | CPU Float64 canonical execution can use a scoped no-escape bridge; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization still precede Kuyu cutover |
-| `kuyu-mojo` executes all closed canonical opcodes through one dtype-generic Mojo SSA interpreter without copied quadrotor equations or a reference fallback | `kuyu-mojo` commit `0506f9c`, `PARITY_CONTRACT.md`, `RELIABILITY_EVIDENCE.md`, and `ACCELERATOR_ARCHITECTURE.md` | macOS arm64 CPU Float64 and Float32 are implemented and qualified for the fixed reference digest; their Linux ARM64 ABIs are cross-verified, while accelerator rungs remain unavailable rather than silently selecting CPU |
-| MAX `26.5.0` exposes a real Apple GPU through `max.gpu.host.DeviceContext`, while accelerator objects require AsyncRT, KGEN, and potentially MGPRT dynamic libraries | Isolated Modular `26.5.0` probe, object undefined-symbol and dylib export inspection, and `kuyu-mojo/ACCELERATOR_ARCHITECTURE.md` | Accelerator support needs an explicit runtime-dependency artifact schema and attempt-owned worker deployment; the static verifier must not be weakened |
+| `swift-mojo` proves scoped Float32 and Float64 borrowed calls, synchronous session, and session-owned host Float32-buffer lifecycle with exact-count synchronous host copies on universal macOS; it also cross-generates a schema-5 aarch64 Linux static artifact bundle, rejects archives that omit the compiled ELF object, rejects undeclared accelerator runtime symbols before archiving, and provides a separate schema-1 accelerator runtime receipt | `swift-mojo` commits `9382a34`, `4f3f2e7`, `164f571`, and `9312e1e`; ADRs 0007 through 0010 | CPU Float64 canonical execution can use a scoped no-escape bridge; accelerator dependency identity is verified independently; worker link/run, native Jetson, and MAX-backed allocation/synchronization still precede Kuyu cutover |
+| `kuyu-mojo` executes all closed canonical opcodes through one dtype-generic Mojo SSA interpreter without copied quadrotor equations or a reference fallback | `kuyu-mojo` commit `e46e89f`, `PARITY_CONTRACT.md`, `RELIABILITY_EVIDENCE.md`, and `ACCELERATOR_ARCHITECTURE.md` | macOS arm64 CPU Float64 and Float32 are implemented and qualified for the fixed reference digest; their Linux ARM64 ABIs are cross-verified, while accelerator rungs remain unavailable rather than silently selecting CPU |
+| MAX `26.5.0` exposes a real Apple GPU through `max.gpu.host.DeviceContext`, while accelerator objects require an exact AsyncRT/KGEN dynamic closure | Isolated Modular `26.5.0` probe and schema-1 receipt `050ceac20bc593aed6e36757c050e01a0f0ec7d002bcebb49f3675d77ba4e179` over the real object and four runtime libraries | The dependency preflight layer is implemented; attempt-owned worker packaging, relative loader policy, link inspection, and execution remain |
 | Apple Metal rejects the canonical Float64 kernel but accepts Float32 compilation through the final `metallib` step | Real MAX compiler probes on Apple M4 Max | The portable semantic contract is one canonical Float64 program with declared Float32 accelerator materialization, not one dtype on every device |
 | Mojo cross-compiles a Float32 CUDA `DeviceContext` program to AArch64 ELF for `cortex-a78ae` and recognizes Jetson Orin as `sm_87`; the embedded cross-build PTX remained `.target sm_80` | Object and assembly inspection with Mojo `1.0.0 (ed45d567)` | Host cross-generation is real and the PTX is Orin-JIT-compatible, but native Jetson target specialization, link, and execution remain mandatory acceptance evidence |
 | Manas exposes MLX-specific model/runtime/training products | `../manas/Package.swift` | Manas model structure must gain a portable Mojo implementation without moving model ownership into Kuyu |
@@ -124,7 +126,7 @@ flowchart LR
 | Gate | Deliverable | Exit condition | State |
 |---|---|---|---|
 | P0 | Authority freeze and migration ledger | Specs agree; legacy callable gaps are marked or removed; no new MLX production features | Complete |
-| P1 | `swift-mojo` ABI v2 | Owned buffers/state, scoped borrows, typed capabilities, shutdown, Linux ARM64 artifact verification | In progress: scoped Float32/Float64 borrows, session/resource ownership, exact-count synchronous host transfer, host Float32-buffer lifecycle, and Linux ARM64 cross packaging are verified; native Jetson link/run and MAX-backed Metal/CUDA allocation/synchronization remain |
+| P1 | `swift-mojo` ABI v2 | Owned buffers/state, scoped borrows, typed capabilities, shutdown, Linux ARM64 artifact verification | In progress: scoped Float32/Float64 borrows, session/resource ownership, exact-count synchronous host transfer, host Float32-buffer lifecycle, Linux ARM64 cross packaging, and accelerator runtime receipt verification are complete; worker link/run, native Jetson, and MAX-backed Metal/CUDA allocation/synchronization remain |
 | P2 | Canonical dynamics and sensor programs | Closed opcodes, layouts, units, differentiability, integration/projection stages, stable digest | Complete for the reference quadrotor program and Swift Float64 semantic executor; digest `6c6773c5a824508fd683390aa7a4acdc1636e8c8483f6ac9ee9667bf62d54310` |
 | P3 | Mojo world executors | CPU `Float64`, Metal, and CUDA consume the same program without copied equations or fallback | In progress: macOS arm64 CPU Float64 and Float32 are implemented and qualified, and both Linux ARM64 ABIs are cross-packaged; Metal, CUDA, and native Jetson execution remain |
 | P4 | Manas Mojo implementation | Core/Reflex model structure remains Manas-owned; runtime and training satisfy bundle contracts | Not started |
@@ -186,28 +188,28 @@ finite loss, changed weights, or successful process exit is insufficient.
 | Session-owned Float32 resource | Verified locally on universal macOS host memory | generated factory/create/destroy/copy ABI, required post-copy synchronization binding, typed host/device/pinned-host memory kind, capability/size/count validation, round-trip transfer, nonzero transfer/create and missing-handle cleanup, parent-before-child rejection, idempotent child shutdown, exactly-once child-before-parent destruction |
 | Static session/resource consumption | Verified locally | ten bridge symbols present; final consumer had no Mojo or KGEN dynamic dependency |
 | MAX GPU host API probe | Verified in an isolated tool environment | Modular/MAX `26.5.0` and Mojo `1.0.0` created a real Apple M4 Max `DeviceContext`; standalone Mojo remains intentionally insufficient because it does not ship the MAX host runtime |
-| Accelerator runtime linkage | Confirmed and not yet modeled by swift-mojo artifacts | MAX-backed objects reference AsyncRT and KGEN, with MGPRT part of the observed runtime distribution; the CPU artifact verifier rejects all three undeclared symbol families until an exact runtime-library/digest/loader schema is implemented |
-| Linux ARM64 static artifact | Cross packaging verified | `swift-mojo` commit `164f571` plus `kuyu-mojo` commit `0506f9c`; real Mojo `aarch64-unknown-linux-gnu` ELF object, schema-5 SE-0482 artifact bundle, required `Bindings.o` member verification, Float32 and Float64 symbols, archive digest `85651efd647c619813cc5359bed719e841bb8871ed6a2731b06965998bedf1d4`, and only libc `memset` undefined |
+| Accelerator runtime receipt | Implemented and real-input verified | `swift-mojo` commit `9312e1e`; schema-1 receipt binds object/library digests, target architecture, exact symbol providers, transitive Mach-O/ELF closure, and canonical system dependencies. Real MAX receipt `050ceac20bc593aed6e36757c050e01a0f0ec7d002bcebb49f3675d77ba4e179` resolves 15 object symbols through four libraries; an omitted transitive library fails before linking |
+| Linux ARM64 static artifact | Cross packaging verified | `swift-mojo` commit `9312e1e` plus `kuyu-mojo` commit `e46e89f`; real Mojo `aarch64-unknown-linux-gnu` ELF object, schema-5 SE-0482 artifact bundle, required `Bindings.o` member verification, Float32 and Float64 symbols, archive digest `85651efd647c619813cc5359bed719e841bb8871ed6a2731b06965998bedf1d4`, and only libc `memset` undefined |
 | Native Jetson acceptance | Not verified | Swift import/link/run, CUDA capability negotiation, device allocation/transfer/synchronization, success/failure paths, and dynamic dependency evidence are required before P1 completion or Kuyu runtime integration |
 
 ## P3 Work Log
 
 | Change | State | Evidence |
 |---|---|---|
-| `kuyu-mojo` package boundary | Implemented and pushed | Public repository `1amageek/kuyu-mojo`, commit `0506f9c`; `KuyuMojoCore` and `KuyuMojoDynamics` keep canonical semantics in KuyuPhysics and select platform artifacts through SwiftPM conditions |
+| `kuyu-mojo` package boundary | Implemented and pushed | Public repository `1amageek/kuyu-mojo`, commit `e46e89f`; `KuyuMojoCore` and `KuyuMojoDynamics` keep canonical semantics in KuyuPhysics and select platform artifacts through SwiftPM conditions |
 | Canonical program compiler | Implemented | Closed opcode mapping, validated shapes/units, numeric-specific exact-integer limits and plan magic, immutable digest-bound execution identity, finite conversion validation, and no target-conditioned mutable state |
 | Generic Mojo CPU Float64/Float32 interpreter | Implemented with real Mojo 1.0 artifacts | Two external bindings, aggregate artifact digest `379d4e137fa359d8c1404ed7e07be4adbb0cc44a58ca3fad3f32c85617859e78`; native macOS arm64 execution plus cross-verified Linux ARM64 ELF; no quadrotor equations in Mojo source |
 | Differential and boundary convergence | Passed | 10/10 bounded `xcodebuild` tests for both numeric types covering full/single-prop force, derivative, observables, 20-step RK4, zero norm, projection, digest/fidelity/input/plan/arithmetic/conversion failures; Float32 maximum absolute residuals were force `4.60e-7`, derivative `2.10e-6`, observables `5.25e-7`, RK4 state `6.38e-8`, and zero boundary `4.59e-7` |
 | CPU real-time floor | Passed | `KUYU_MOJO_STRICT_PERFORMANCE_BUDGETS=1`; Float32 `795.27` and Float64 `1410.88` complete RK4 steps/s both exceeded the 400 steps/s floor |
 | Workspace boundary and source-risk review | Passed | Kuyu and unconscious boundary validators passed; source-risk audit reported zero blockers and no new unsafe-memory/precondition/oversized-source finding in `kuyu-mojo` |
-| Accelerator execution | Not implemented | MAX device detection, Metal dtype behavior, dynamic runtime dependencies, and AArch64 CUDA cross-generation are verified; the optional Xcode Metal Toolchain, explicit runtime-dependency artifact schema, real Metal kernel run, native Jetson link/run, and device-owned session buffers remain |
+| Accelerator execution | Not implemented | MAX device detection, Metal dtype behavior, schema-1 dynamic runtime receipt, and AArch64 CUDA cross-generation are verified; worker bundle/link/loader inspection, the optional Xcode Metal Toolchain, real Metal kernel run, native Jetson link/run, and device-owned session buffers remain |
 
 ## Immediate Next Slice
 
-1. Extend `swift-mojo` artifact identity with exact Modular/MAX runtime library
-   names, digests, platform/architecture, and worker-relative loader policy;
-   keep undeclared AsyncRT/KGEN/MGPRT symbols rejected.
-2. Build the attempt-owned accelerator worker around one MAX `DeviceContext`,
+1. Define and implement the attempt-owned worker bundle layout that consumes the
+   verified schema-1 receipt, copies only the declared runtime closure, applies
+   worker-relative loader paths, and re-inspects the final Mach-O/ELF image.
+2. Build the accelerator worker around one MAX `DeviceContext`,
    device-owned buffers, explicit synchronization, cancellation, and ordered
    shutdown. The application and CLI remain outside the MAX process.
 3. Install the optional Xcode Metal Toolchain, execute the Float32 Metal kernel,
