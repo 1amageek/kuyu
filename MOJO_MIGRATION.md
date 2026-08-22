@@ -27,6 +27,15 @@ protocol or a Metal compute kernel. Metal compute, CUDA, native Jetson Swift/CUD
 qualification, sanitizer, and hardware-in-the-loop gates remain unverified
 until recorded here.
 
+The first semantic-adaptation slice is implemented independently of those
+accelerator gates. `KuyuManasMojoAdapter` validates and snapshots KuyuDataset
+v7 through `kuyu-training`, verifies exact on-policy distribution evidence,
+converts through an injected `ManasLearningInputEncoding`, applies explicit
+transition and complete Float-scalar budgets, and constructs Manas-owned
+immutable trajectories. It imports neither MLX nor MAX. It does not yet
+implement Manas Mojo models, bundle compatibility, worker snapshots,
+model-store gates, or an optimizer.
+
 ## Final Usage Contract
 
 The conforming application depends on a backend-neutral training API. Backend
@@ -71,6 +80,7 @@ flowchart LR
 | Apple Metal rejects the canonical Float64 kernel but accepts Float32 compilation through the final `metallib` step | Real MAX compiler probes on Apple M4 Max | The portable semantic contract is one canonical Float64 program with declared Float32 accelerator materialization, not one dtype on every device |
 | Mojo cross-compiles a Float32 CUDA `DeviceContext` program to AArch64 ELF for `cortex-a78ae` and recognizes Jetson Orin as `sm_87`; the embedded cross-build PTX remained `.target sm_80` | Object and assembly inspection with Mojo `1.0.0 (ed45d567)` | Host cross-generation is real and the PTX is Orin-JIT-compatible, but native Jetson target specialization, link, and execution remain mandatory acceptance evidence |
 | Manas exposes MLX-specific model/runtime/training products | `../manas/Package.swift` | Manas model structure must gain a portable Mojo implementation without moving model ownership into Kuyu |
+| The validated v7-to-Manas conversion formerly lived only in the MLX backend package | `../kuyu-mojo/Sources/KuyuManasMojoAdapter` and its behavioral tests | The conversion and exact distribution-evidence boundary now has its final Mojo-owned target; MLX remains a differential reference until destructive cutover |
 
 ## Source Ownership Migration
 
@@ -134,7 +144,7 @@ flowchart LR
 | P3 | Mojo world executors | CPU `Float64`, Metal, and CUDA consume the same program without copied equations or fallback | In progress: macOS arm64 CPU Float64 and Float32 are implemented and qualified, and both Linux ARM64 ABIs are cross-packaged; Metal, CUDA, and native Jetson execution remain |
 | P4 | Manas Mojo implementation | Core/Reflex model structure remains Manas-owned; runtime and training satisfy bundle contracts | Not started |
 | P5 | Kuyu Mojo compute | Vectorized world, GA, PPO/SHAC, and world-model protocols have real production conformers | Not started |
-| P6 | Semantic ownership cleanup | Scenario, campaign, and artifact semantics no longer live in a backend package | Not started |
+| P6 | Semantic ownership cleanup | Scenario, campaign, and artifact semantics no longer live in a backend package | In progress: validated KuyuDataset v7-to-Manas conversion and exact behavior-evidence verification now live in `KuyuManasMojoAdapter`; remaining campaign/profile semantics are still MLX-owned |
 | P7 | Single runtime cutover | CLI/UI use one backend-neutral API and no concrete backend imports | Not started |
 | P8 | Qualification | CPU/Metal/CUDA parity, v7 integrity, golden learning, and Jetson native CUDA evidence pass | Not started |
 | P9 | Destructive cleanup | `kuyu-mlx`, duplicate equations, v3-v6 runtime readers, aliases, and selectors are absent | Not started |
