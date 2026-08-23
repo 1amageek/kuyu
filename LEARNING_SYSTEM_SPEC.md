@@ -71,7 +71,7 @@ There MUST be one authority for each semantic fact.
 | Task intent, reset, stress schedule, reward, cost, failure, task quality | `kuyu-scenarios` | Training runtime and evaluators |
 | Persisted rollout schema, validation, lifecycle, gates, evidence | `kuyu-training` | Backends, CLI, UI |
 | Mojo program compilation, policy distribution, optimizer, Kuyu-to-Manas adapter | `kuyu-mojo` | Kuyu training runtime |
-| Control protocol, model structure, optimizer-ready in-memory inputs | `manas` | Manas trainers and Kuyu adapters |
+| Control protocol, model structure, learning request/result and artifact contracts | `manas` | Manas Mojo runtime and Kuyu adapters |
 | Commands and read-only presentation | `kuyu-app` / Bounded | Operators |
 
 The dependency direction is:
@@ -89,9 +89,11 @@ flowchart LR
 
 `manas-training-data` MUST be removed. Manas MUST NOT own a persisted copy of a
 Kuyu dataset schema or read Kuyu artifact directories. `ManasLearningContracts`
-is an in-package Manas target containing only optimizer-ready, in-memory sample
-and batch contracts. `KuyuManasMojoAdapter` validates Kuyu artifacts and converts
-them into those contracts.
+is an in-package Manas target containing only algorithm identity, shape,
+learning request/result, progress, and artifact contracts. The Kuyu adapter
+validates persisted evidence and submits a bounded training request or leased
+buffer identity; it does not rebuild optimizer-ready numerical batches in
+Swift.
 
 No package below `kuyu-mojo` may import Mojo, `swift-mojo`, MLX, or
 backend-specific Manas compute modules. No Manas target may import Kuyu
@@ -116,6 +118,31 @@ is limited to bounded progress summaries, deterministic replay evidence, and
 immutable artifact publication. The verified Mojo artifact owns the concrete
 CPU or accelerator target; Kuyu application code does not branch on a vendor
 API.
+
+### 2.2 Training and deployment platforms
+
+The designated primary training authority is the Apple Silicon Mac. The current
+qualification profile is `Mac16,6`, Apple M4 Max, 32-core GPU, and 36 GB unified
+memory. It owns rollout learning, automatic differentiation, optimization,
+held-out evaluation, performance tuning, and accepted-checkpoint publication.
+Changing the qualification host requires a new recorded performance profile;
+it does not change public Kuyu or Manas APIs.
+
+Jetson AGX Orin consumes accepted artifacts for target-native inference,
+real-time control, and hardware-in-the-loop evaluation. Its evidence covers
+model-load integrity, inference parity, bounded control latency, memory,
+power/thermal behavior, cancellation, shutdown, and robot safety. Jetson does
+not run the baseline optimizer, and Jetson training throughput is not a golden
+learning or Mojo-cutover requirement.
+
+```mermaid
+flowchart LR
+  Dataset["Validated Kuyu evidence"] --> Mac["Mac Mojo training session"]
+  Mac --> Candidate["Accepted immutable checkpoint"]
+  Candidate --> Jetson["Jetson inference + control + HIL"]
+  Jetson --> Trace["Provenance-bound robot trace"]
+  Trace --> Dataset
+```
 
 ## 3. Canonical World Program
 
@@ -595,9 +622,37 @@ A pipeline smoke test and a learning qualification are separate tests. The
 qualification may not replace the trainer, evaluator, gate, or persistence path
 with a test-only implementation.
 
+The reference golden qualification executes on the designated Mac training
+authority. Jetson deployment reuses the accepted artifact and verifies
+inference/control behavior; it does not repeat optimizer or learning-throughput
+qualification.
+
 All Xcode test invocations MUST have a timeout. CI MUST inspect the result bundle
 and fail when the selected test count is zero. Long campaigns use a dedicated
 scheme; the focused qualification remains bounded enough for regular CI.
+
+### 9.3 Mac training performance qualification
+
+Performance claims require the production Mojo learning API, not a standalone
+kernel, type check, or synthetic success value. The benchmark record MUST bind
+the machine profile, Mojo/MAX and artifact identities, scenario/program digest,
+model and batch shapes, warmup policy, seeds, and accepted checkpoint digest.
+It MUST report:
+
+- end-to-end elapsed time and stage elapsed time;
+- environment steps/second, samples/second, and optimizer updates/second;
+- p50 and p95 update latency after warmup;
+- host-transfer bytes and synchronization count per step and update;
+- peak and sustained unified/device memory; and
+- sustained throughput and thermal state over the declared campaign window.
+
+The historical 55.907-second warm MLX/Swift probe is migration evidence only.
+For the identical bounded probe, the Mojo path MUST be faster than that mean,
+but it is not the final performance budget. Before tuning a production profile,
+its explicit throughput, latency, memory, transfer, and stability budgets MUST
+be recorded so the target cannot be relaxed after observing results. Repeated
+warm measurements must converge within the declared variance budget; stopping
+after a time or run limit is not convergence.
 
 ## 10. Destructive Migration
 
@@ -651,10 +706,14 @@ equations, and no PPO fallback that fabricates behavior evidence.
 | G1 Artifact | v7 round trip, migration, corruption, and producer-consumer tests pass |
 | G2 World | Mojo CPU/Metal/CUDA program digest and parity suites pass for every supported scenario capability |
 | G3 Optimizer | Distribution, trajectory, GAE, PPO, and constrained-PPO tests pass |
-| G4 Golden path | Deterministic reference campaign publishes an improved reloadable checkpoint |
-| G5 Observability | CLI and UI show the same lifecycle snapshot and failure evidence without blocking the main actor |
-| G6 Mojo-only removal | Repository and package-graph scans find no `mlx-swift`, `ManasMLX*`, `KuyuMLX*`, `kuyu-mlx`, MLX resource, fallback, or active MLX verification requirement |
+| G4 Mac golden path | The designated Mac executes the production Mojo campaign and publishes an improved reloadable checkpoint |
+| G5 Mac performance | Elapsed-time rates, latency percentiles, transfer/synchronization counts, peak memory, and sustained thermal evidence meet the predeclared profile budgets |
+| G6 Observability | CLI and UI show the same lifecycle snapshot and failure evidence without blocking the main actor |
+| G7 Jetson deployment | The accepted checkpoint passes target-native load, inference parity, control latency, memory/power, cancellation/shutdown, and HIL safety gates; no optimizer-throughput comparison is required |
+| G8 Mojo-only removal | Repository and package-graph scans find no `mlx-swift`, `ManasMLX*`, `KuyuMLX*`, `kuyu-mlx`, MLX resource, fallback, or active MLX verification requirement |
 
 Until G4 passes, the project may claim that training code executes, but MUST NOT
 claim that end-to-end learning is operational. Until G5 passes, it may not claim
-that learning progress is operationally observable.
+that Mac learning performance is qualified. Until G6 passes, it may not claim
+that learning progress is operationally observable. G7 is required for Jetson
+robot deployment, not for acceptance of the Mac training runtime.

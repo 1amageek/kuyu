@@ -48,10 +48,11 @@ learning campaign orchestration, checkpoint evaluation, checkpoint selection,
 artifact writing, artifact validation, regression gates, readiness checks, and
 continuation/resume selection. KuyuUI/Bounded and KuyuCLI are adapters over the
 same typed Kuyu APIs and worker service; they are not independent execution
-engines. Heavy Mojo work MAY run in an authenticated child process or remote
-Jetson worker, but the
-process boundary MUST NOT duplicate acceptance, validation, or terminal-state
-semantics.
+engines. Heavy Mojo training runs on the designated primary Mac training host
+and MAY use authenticated attempt-owned child processes. A Jetson worker is a
+deployment, inference/control, and HIL boundary; it MUST NOT be selected as an
+implicit remote optimizer or training fallback. Every process boundary MUST
+preserve the same acceptance, validation, and terminal-state semantics.
 
 The package and target ownership skeleton is fixed in
 `../KUYU_PACKAGE_ARCHITECTURE.md`. This Kuyu spec defines behavior; the package
@@ -360,9 +361,11 @@ Required semantics:
   write `core.safetensors` and optional `reflex.safetensors`, emit the Manas
   `manas-bundle.json` model-bundle manifest when serializing a checkpoint, and
   produce a reloadable candidate checkpoint.
-- Xcode runtime verification is required for the Apple Metal path. Jetson
-  acceptance additionally requires native Linux ARM64 and CUDA execution; one
-  platform's successful build is not evidence for the other platform.
+- Xcode runtime verification is required for the primary Apple Metal training
+  path. Jetson deployment acceptance additionally requires native Linux ARM64
+  accelerator execution, model inference, bounded control-loop behavior, and
+  HIL evidence; one platform's successful build is not evidence for the other
+  platform, and Jetson training throughput is not a learning gate.
 
 Reference verification commands:
 
