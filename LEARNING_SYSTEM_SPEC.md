@@ -1,7 +1,7 @@
 # Kuyu Learning System Specification
 
-Status: normative target architecture. The current implementation is not
-conforming until every migration gate in this document passes.
+Status: normative learning architecture. Source/backend cutover is complete;
+end-to-end learning and platform qualification remain gated below.
 
 This specification intentionally permits source, package, artifact, and
 checkpoint compatibility breaks. Compatibility MUST NOT preserve ambiguous
@@ -13,17 +13,11 @@ Mojo 1.0.0 is released and is the sole conforming numerical backend under
 `../MOJO_COMPUTE_ARCHITECTURE.md`. MLX is not a production backend, fallback,
 reference implementation, parity oracle, or compatibility target.
 
-This decision changes migration behavior:
-
-- new learning, inference, world-model, and accelerated-physics work is
-  implemented in Mojo;
-- backend-independent semantics are extracted from MLX-named targets into their
-  authoritative Swift packages;
-- each caller switches directly to the backend-neutral runtime facade backed
-  only by Mojo;
-- the replaced MLX target, tests, resources, and package edges are deleted in
-  the same slice; and
-- an incomplete Mojo capability fails closed instead of retaining an MLX path.
+The cutover is complete: backend-independent semantics live in their
+authoritative Swift packages, each caller uses the backend-neutral learning
+contract, the concrete runtime is Mojo-backed, and the former backend source,
+tests, resources, and package edges have been deleted. An unavailable Mojo
+capability fails closed.
 
 Historical MLX artifacts may be inspected as historical records, but they do
 not satisfy a current conformance gate. Independent numerical evidence comes
@@ -95,15 +89,14 @@ validates persisted evidence and submits a bounded training request or leased
 buffer identity; it does not rebuild optimizer-ready numerical batches in
 Swift.
 
-No package below `kuyu-mojo` may import Mojo, `swift-mojo`, MLX, or
+No package below `kuyu-mojo` may import Mojo, `swift-mojo`, or
 backend-specific Manas compute modules. No Manas target may import Kuyu
 scenario, reward, failure, or artifact types. `swift-mojo` MUST remain a generic
 Swift/Mojo ABI, ownership, and artifact bridge and MUST NOT own Kuyu or Manas
 domain types.
 
-No package may add a new MLX dependency. Existing MLX imports are migration
-blockers and MUST disappear with their owning slice. Tests MUST NOT introduce
-MLX as a numerical oracle.
+The removed backend must not be reintroduced as a dependency or numerical
+oracle.
 
 ### 2.1 Numerical ownership and residency
 
@@ -112,12 +105,15 @@ semantics. The attempt-owned Mojo session owns numerical storage and execution
 for rollout tensors, recurrent state, GAE/returns, forward and backward passes,
 optimizer state, rollback snapshots, and device reductions.
 
-Full rollout, parameter, gradient, or optimizer-state vectors MUST NOT cross the
-Swift/Mojo boundary per control step or optimizer update. Host materialization
-is limited to bounded progress summaries, deterministic replay evidence, and
-immutable artifact publication. The verified Mojo artifact owns the concrete
-CPU or accelerator target; Kuyu application code does not branch on a vendor
-API.
+The current small-controller CPU profile may cross the Swift/Mojo boundary once
+per update through one contiguous, synchronously borrowed Float32 payload. Mojo
+copies it once into a session-owned bounded workspace; the pointer never escapes
+the borrow and no vector crosses per control step. Parameters, gradients, Adam
+state, BPTT workspace, and update iterations remain Mojo-owned. An accelerator
+profile MUST instead keep rollout, parameter, gradient, and optimizer state
+device-resident and expose only bounded summaries and immutable publication.
+The verified artifact owns the concrete target; Kuyu application code does not
+branch on a vendor API.
 
 ### 2.2 Training and deployment platforms
 
@@ -646,57 +642,41 @@ It MUST report:
 - peak and sustained unified/device memory; and
 - sustained throughput and thermal state over the declared campaign window.
 
-The historical 55.907-second warm MLX/Swift probe is migration evidence only.
-For the identical bounded probe, the Mojo path MUST be faster than that mean,
-but it is not the final performance budget. Before tuning a production profile,
+The historical pre-cutover timing probe is migration evidence only and is not a
+current performance gate. Before tuning a production profile,
 its explicit throughput, latency, memory, transfer, and stability budgets MUST
 be recorded so the target cannot be relaxed after observing results. Repeated
 warm measurements must converge within the declared variance budget; stopping
 after a time or run limit is not convergence.
 
-## 10. Destructive Migration
+## 10. Completed Destructive Cutover
 
-No dual runtime truth is permitted. Migration proceeds in this order:
+No dual runtime truth is permitted. The completed source cutover used this
+order:
 
-1. Add boundary tests and freeze new v6 producers.
-2. Implement the complete foundation before switching a producer:
-   purpose-specific v7 records, staging I/O, typed migration results,
-   `PolicyContextContract`, the exact `PolicyDistribution`,
-   `TrajectoryAssembler`, and `ManasLearningContracts`.
-3. Replace Manas persisted-dataset/reward reconstruction APIs and implement the
-   v7-to-Manas adapter plus whole-trajectory GAE/PPO input path.
-4. Switch scalar producers, validators, adapters, and trainers to v7 in one
-   migration wave. Runtime training rejects legacy schemas at that switch.
-5. Introduce `CanonicalDynamicsProgram` and the scalar executor; establish
-   scalar conformance traces and stable execution identity.
-6. Compile that program into target-specific Mojo accelerator artifacts,
-   establish parity against the independent scalar oracle, then switch
-   accelerated producers to v7 and delete tensor-local equations and scenario
-   allowlists.
-7. Convert `KuyuMojoWorldModel` and the current `manas-cosmos-adapter` to v7.
-   External dataset conversion is a Kuyu import responsibility, so the Cosmos
-   adapter becomes a Kuyu-owned adapter and emits v7 with explicit provenance.
-8. Delete `manas-training-data`, its persisted schema, loaders, and package edges.
-9. Route training, evaluation, acceptance, rollback, and publication through
-    the single persisted lifecycle state machine.
-10. Replace source-shape and self-bootstrap tests with contract, parity,
-    likelihood-ratio, GAE-invariance, and golden learning tests.
-11. Switch UI/CLI to the runtime progress read model, then remove compatibility
-    initializers, deprecated readers, and obsolete fields.
+1. Freeze the KuyuDataset v7 causal and behavior-evidence contract.
+2. Implement Manas-owned model, PPO, BPTT, Adam, checkpoint, and loader contracts
+   in Mojo-backed products.
+3. Implement the v7-to-Manas adapter and a bounded dataset-to-candidate service.
+4. Switch CLI, UI, and Bounded to one backend-neutral learning-update contract.
+5. Delete the former backend, compatibility aliases, broad unimplemented
+   campaign UI, and its tests/resources instead of renaming them.
+6. Remove the unused learned world-model implementation. A future model is
+   admitted only by a measured need and is created as a Manas-owned Mojo model
+   family.
+7. Keep unimplemented held-out evaluation, promotion, and long-running campaign
+   features out of the callable API until their complete lifecycle and evidence
+   contracts are implemented.
 
-These are implementation steps within one non-released migration branch. Each
-step that replaces an MLX target also deletes it; MLX is not retained until a
-final parity phase. A release MUST NOT expose a mixed backend or mixed v6/v7
-training runtime. `RolloutBuffer`,
+The conforming graph exposes neither a mixed backend nor a mixed v6/v7 training
+runtime. `RolloutBuffer`,
 `OnlineDataBuffer`, and record budgeters may operate on off-policy records or
 whole segments only; they MUST NOT split/reorder on-policy trajectories before
 advantage computation.
 
-Each step is complete only when its behavior tests pass and downstream packages
-no longer import the replaced API. Deprecations may exist within one migration
-step, but the final conforming branch contains no runtime v3-v6 reader, no
-`ManasTrainingDataset`, no MLX import/product/resource, no tensor-local canonical
-equations, and no PPO fallback that fabricates behavior evidence.
+The final graph contains no runtime v3-v6 reader, no `ManasTrainingDataset`, no
+removed-backend import/product/resource, no tensor-local canonical equations,
+and no PPO fallback that fabricates behavior evidence.
 
 ## 11. Conformance Gates
 
@@ -710,7 +690,7 @@ equations, and no PPO fallback that fabricates behavior evidence.
 | G5 Mac performance | Elapsed-time rates, latency percentiles, transfer/synchronization counts, peak memory, and sustained thermal evidence meet the predeclared profile budgets |
 | G6 Observability | CLI and UI show the same lifecycle snapshot and failure evidence without blocking the main actor |
 | G7 Jetson deployment | The accepted checkpoint passes target-native load, inference parity, control latency, memory/power, cancellation/shutdown, and HIL safety gates; no optimizer-throughput comparison is required |
-| G8 Mojo-only removal | Repository and package-graph scans find no `mlx-swift`, `ManasMLX*`, `KuyuMLX*`, `kuyu-mlx`, MLX resource, fallback, or active MLX verification requirement |
+| G8 Mojo-only removal | Repository and package-graph scans find no removed backend package edge, import, product, runtime resource, fallback, or active verification requirement |
 
 Until G4 passes, the project may claim that training code executes, but MUST NOT
 claim that end-to-end learning is operational. Until G5 passes, it may not claim

@@ -1,136 +1,98 @@
 // swift-tools-version: 6.2
-// The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 
 let package = Package(
-    name: "kuyu-app",
-    platforms: [
-        .macOS(.v26)
-    ],
-    products: [
-        .library(
-            name: "KuyuUI",
-            targets: ["KuyuUI"]
-        ),
-        .library(
-            name: "KuyuWorkerRuntime",
-            targets: ["KuyuWorkerRuntime"]
-        ),
-        .executable(
-            name: "kuyu",
-            targets: ["KuyuCLI"]
-        ),
-        .executable(
-            name: "kuyu-model-preview",
-            targets: ["KuyuModelPreview"]
-        ),
-        .executable(
-            name: "kuyu-simulator-preview",
-            targets: ["KuyuSimulatorPreview"]
-        ),
-        .executable(
-            name: "kuyu-inspection-preview",
-            targets: ["KuyuInspectionPreview"]
-        ),
-    ],
-    dependencies: [
-        .package(path: "../kuyu-core"),
-        .package(path: "../embodiment-contract"),
-        .package(path: "../kuyu-physics"),
-        .package(path: "../kuyu-scenarios"),
-        .package(path: "../kuyu-training"),
-        .package(path: "../kuyu-mlx"),
-        .package(url: "https://github.com/apple/swift-log", from: "1.13.1"),
-        .package(url: "https://github.com/apple/swift-configuration", from: "1.2.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.1"),
-    ],
-    targets: [
-        .target(
-            name: "KuyuWorkerRuntime",
-            dependencies: [
-                .product(name: "KuyuTraining", package: "kuyu-training"),
-                .product(name: "KuyuMLX", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXTrainingRuntime", package: "kuyu-mlx"),
-            ]
-        ),
-        .target(
-            name: "KuyuUI",
-            dependencies: [
-                "KuyuWorkerRuntime",
-                .product(name: "KuyuCore", package: "kuyu-core"),
-                .product(name: "EmbodimentContract", package: "embodiment-contract"),
-                .product(name: "KuyuPhysics", package: "kuyu-physics"),
-                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
-                .product(name: "KuyuTraining", package: "kuyu-training"),
-                .product(name: "KuyuMLX", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXCampaignContracts", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXEvolution", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXTrainingRuntime", package: "kuyu-mlx"),
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Configuration", package: "swift-configuration"),
-            ],
-            resources: [
-                .copy("Resources/Models")
-            ],
-            swiftSettings: [
-                // Ship the RealityKit 3D inspector as the baseline renderer (kuyu/SPEC.md
-                // "Visual Inspection (Required)"). The `#else` 2D fallback remains for
-                // environments that explicitly undefine this flag (e.g. headless builds).
-                .define("KUYU_USE_REALITYVIEW")
-            ]
-        ),
-        .executableTarget(
-            name: "KuyuCLI",
-            dependencies: [
-                "KuyuWorkerRuntime",
-                "KuyuUI",
-                .product(name: "KuyuCore", package: "kuyu-core"),
-                .product(name: "EmbodimentContract", package: "embodiment-contract"),
-                .product(name: "KuyuPhysics", package: "kuyu-physics"),
-                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
-                .product(name: "KuyuTraining", package: "kuyu-training"),
-                .product(name: "KuyuMLX", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXCore", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXReferenceQuadrotor", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXRoArmM1", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXTrainingProbe", package: "kuyu-mlx"),
-                .product(name: "KuyuMLXTrainingRuntime", package: "kuyu-mlx"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ]
-        ),
-        .executableTarget(
-            name: "KuyuModelPreview",
-            dependencies: [
-                "KuyuUI"
-            ]
-        ),
-        .executableTarget(
-            name: "KuyuSimulatorPreview",
-            dependencies: [
-                "KuyuUI"
-            ]
-        ),
-        .executableTarget(
-            name: "KuyuInspectionPreview",
-            dependencies: [
-                "KuyuUI",
-                .product(name: "KuyuTraining", package: "kuyu-training"),
-            ]
-        ),
-        .testTarget(
-            name: "kuyuTests",
-            dependencies: [
-                "KuyuWorkerRuntime",
-                .product(name: "KuyuCore", package: "kuyu-core"),
-                .product(name: "EmbodimentContract", package: "embodiment-contract"),
-                .product(name: "KuyuPhysics", package: "kuyu-physics"),
-                .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
-                .product(name: "KuyuTraining", package: "kuyu-training"),
-                .product(name: "KuyuMLX", package: "kuyu-mlx"),
-                "KuyuUI",
-            ]
-        ),
-    ]
+  name: "kuyu-app",
+  platforms: [
+    .macOS(.v26)
+  ],
+  products: [
+    .library(
+      name: "KuyuTrainingApplication",
+      targets: ["KuyuTrainingApplication"]
+    ),
+    .library(
+      name: "KuyuUI",
+      targets: ["KuyuUI"]
+    ),
+    .executable(
+      name: "kuyu",
+      targets: ["KuyuCLI"]
+    ),
+    .executable(
+      name: "kuyu-model-preview",
+      targets: ["KuyuModelPreview"]
+    ),
+    .executable(
+      name: "kuyu-inspection-preview",
+      targets: ["KuyuInspectionPreview"]
+    ),
+  ],
+  dependencies: [
+    .package(path: "../kuyu-core"),
+    .package(path: "../kuyu-physics"),
+    .package(path: "../kuyu-scenarios"),
+    .package(path: "../kuyu-training"),
+    .package(path: "../kuyu-mojo"),
+    .package(
+      url: "https://github.com/apple/swift-argument-parser",
+      from: "1.8.1"
+    ),
+  ],
+  targets: [
+    .target(
+      name: "KuyuTrainingApplication",
+      dependencies: [
+        .product(name: "KuyuTraining", package: "kuyu-training")
+      ]
+    ),
+    .target(
+      name: "KuyuUI",
+      dependencies: [
+        "KuyuTrainingApplication",
+        .product(name: "KuyuCore", package: "kuyu-core"),
+        .product(name: "KuyuPhysics", package: "kuyu-physics"),
+        .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+        .product(name: "KuyuTrainingContracts", package: "kuyu-training"),
+      ],
+      resources: [
+        .copy("Resources/Models")
+      ],
+      swiftSettings: [
+        .define("KUYU_USE_REALITYVIEW")
+      ]
+    ),
+    .executableTarget(
+      name: "KuyuCLI",
+      dependencies: [
+        "KuyuTrainingApplication",
+        .product(name: "KuyuCore", package: "kuyu-core"),
+        .product(name: "KuyuMojoTrainingRuntime", package: "kuyu-mojo"),
+        .product(name: "KuyuPhysics", package: "kuyu-physics"),
+        .product(name: "KuyuScenarios", package: "kuyu-scenarios"),
+        .product(name: "KuyuTrainingContracts", package: "kuyu-training"),
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ]
+    ),
+    .executableTarget(
+      name: "KuyuInspectionPreview",
+      dependencies: [
+        "KuyuTrainingApplication",
+        "KuyuUI",
+        .product(name: "KuyuMojoTrainingRuntime", package: "kuyu-mojo"),
+      ]
+    ),
+    .executableTarget(
+      name: "KuyuModelPreview",
+      dependencies: ["KuyuUI"]
+    ),
+    .testTarget(
+      name: "KuyuApplicationTests",
+      dependencies: [
+        "KuyuTrainingApplication",
+        .product(name: "KuyuTrainingContracts", package: "kuyu-training"),
+      ]
+    ),
+  ]
 )

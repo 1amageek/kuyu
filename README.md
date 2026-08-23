@@ -1,8 +1,8 @@
 # kuyu-app
 
 Application adapters for the Kuyu simulation and training environment. This
-package owns the CLI, SwiftUI presentation, and the shared worker adapter used
-by Bounded. It does not own training semantics or numerical kernels.
+package owns the CLI, SwiftUI presentation, and the backend-neutral learning
+application service used by Bounded. It does not own numerical kernels.
 
 ## Compute Direction
 
@@ -14,38 +14,36 @@ contract is in `SPEC.md`.
 flowchart LR
   API["Kuyu typed APIs"] --> CLI["KuyuCLI"]
   API --> UI["KuyuUI / Bounded"]
-  CLI --> Worker["Attempt-owned worker"]
-  UI --> Worker
-  Worker --> Runtime["KuyuMojoTrainingRuntime"]
-  Runtime --> Mojo["swift-mojo / Mojo artifact"]
+  CLI --> App["KuyuTrainingApplication"]
+  UI --> App
+  App --> Runtime["injected LearningUpdateRunning"]
+  Runtime --> Concrete["KuyuMojoTrainingRuntime"]
+  Concrete --> Mojo["swift-mojo / Mojo artifact"]
   Mojo --> Device["Selected CPU or accelerator"]
 ```
 
-MLX is not a production backend, fallback, reference implementation, or test
-oracle. The current package still contains direct `KuyuMLX*` dependencies;
-those are known conformance blockers and removal backlog. They MUST NOT be used
-as a template for new work. Until a command has a complete Mojo implementation,
-its conforming behavior is typed unavailability rather than MLX execution.
+The package graph contains one learning backend. Missing or incompatible Mojo
+artifacts are reported as typed failures; there is no numerical fallback.
 
 ## Modules
 
 | Module | Responsibility |
 |---|---|
-| `KuyuWorkerRuntime` | Authenticated worker invocation and attempt lifecycle adaptation |
+| `KuyuTrainingApplication` | Request construction, cancellation, and single-run lifecycle |
 | `KuyuUI` | Read-only presentation, user intent, progress and artifact inspection |
 | `KuyuCLI` | Argument mapping, event printing, and exit-code mapping |
 
-The target compute dependency is `kuyu-mojo` through the backend-neutral Kuyu
-runtime facade. UI and CLI do not import concrete Mojo modules and do not select
-Metal, CUDA, or another vendor API.
+The UI depends only on the backend-neutral application facade. Executables
+inject `KuyuMojoLearningUpdateExecutor`; they do not select Metal, CUDA, or
+another vendor API.
 
 ## Authority Boundary
 
 | Layer | Owns | Must not own |
 |---|---|---|
-| `kuyu-training` | Training plans, lifecycle, rollout contracts, gates, artifacts, validation | Numerical kernels or UI |
-| `kuyu-mojo` | Device-resident rollout, autodiff, optimizer, world-model, and canonical-program execution | Scenario meaning, acceptance policy, UI |
-| `KuyuWorkerRuntime` | Attempt-bound process composition and typed runtime adaptation | Learning algorithms or success policy |
+| `kuyu-training` | Dataset, learning-request, lifecycle, and artifact contracts | Numerical kernels or UI |
+| `kuyu-mojo` | Dataset-to-candidate orchestration and concrete Mojo execution | Scenario meaning or UI |
+| `KuyuTrainingApplication` | Request construction, cancellation, application lifecycle | Learning arithmetic or backend ABI |
 | `KuyuCLI` | Command parsing and reporting | Acceptance, readiness, or checkpoint validity decisions |
 | `KuyuUI` / Bounded | User interaction and read-only visualization | Training success or numerical execution |
 
@@ -53,23 +51,16 @@ If a capability is visible in the UI, the same operation must exist behind the
 typed Kuyu API used by the CLI. UI-only behavior is limited to presentation and
 debug inspection.
 
-## Current Implementation Gap
+## Implemented Path
 
-The source graph has not completed the destructive cutover:
+`kuyu train` and Bounded submit the same `LearningUpdateRequest`. The concrete
+runtime verifies source and dataset digests, validates exact behavior-policy
+evidence, executes recurrent PPO and Adam in Mojo, publishes the complete
+candidate atomically, and reloads the result before returning success.
 
-- `Package.swift` still depends on `../kuyu-mlx`;
-- UI, CLI, and worker sources still import `KuyuMLX*` modules; and
-- the complete `KuyuMojoReinforcement`, `KuyuMojoWorldModel`, worker, and facade
-  products do not yet exist.
-
-This means the current learning commands are migration evidence, not the
-accepted production path. New work follows this order:
-
-1. move backend-independent semantics to `kuyu-scenarios` or `kuyu-training`;
-2. implement the device-resident compute slice in `kuyu-mojo`;
-3. switch the app caller to the backend-neutral facade; and
-4. delete the replaced MLX target, tests, resources, and package edge in the
-   same slice.
+`kuyu simulate` executes the real Kuyu reference scenario runner with either a
+sensor or teacher controller and can require deterministic replay verification.
+It is not a mock of the training path.
 
 ## Simulation and Control Boundary
 
@@ -92,16 +83,12 @@ Kuyu owns physics execution, scenarios, stress, rollout evidence, visualization,
 and typed orchestration. Manas owns the control protocol and model semantics.
 Mojo owns the numerical implementation behind those contracts.
 
-## Worker and Artifact Contract
+## Artifact Contract
 
-A long-running run uses an attempt-owned worker. The launcher binds the attempt
-to an immutable request, checkpoint snapshot, staged executable, runtime bundle,
-and launch digest. Progress is an append-only attempt-bound journal. Cancellation,
-crash, rejection, acceptance, and publication are distinct typed terminal states.
-
-The runtime, not the UI or shell, decides checkpoint acceptance. A completed run
-is successful only when it contains a validated accepted checkpoint that can be
-reloaded and reproduces evaluated inference.
+The runtime, not the UI or shell, decides whether publication succeeded. Output
+is written to a new staging directory and renamed atomically. A completed update
+is successful only when the full candidate can be reloaded by the production
+Manas model loader.
 
 ## Verification
 
@@ -123,7 +110,7 @@ xcodebuild test \
   -maximum-test-execution-time-allowance 60
 ```
 
-Independent numerical verification does not use MLX:
+Independent numerical verification uses:
 
 - Swift Float64 scalar traces verify canonical dynamics;
 - closed-form fixtures verify distributions, GAE, and optimizer trajectories;

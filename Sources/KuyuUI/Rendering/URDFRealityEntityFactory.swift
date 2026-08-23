@@ -8,7 +8,6 @@ struct RenderedRobotEntity {
     let entity: Entity
     let jointBindings: [RenderJointBinding]
 }
-
 struct RenderJointBinding {
     enum Motion {
         case fixed

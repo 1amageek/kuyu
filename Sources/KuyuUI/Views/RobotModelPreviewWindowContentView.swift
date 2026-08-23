@@ -63,7 +63,6 @@ public struct RobotModelPreviewWindowContentView: View {
         }
     }
 }
-
 #Preview {
     RobotModelPreviewWindowContentView()
         .frame(width: 800, height: 560)

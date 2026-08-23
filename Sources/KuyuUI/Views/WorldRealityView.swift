@@ -1,6 +1,7 @@
 import AppKit
 import RealityKit
 import SwiftUI
+import _RealityKit_SwiftUI
 import KuyuCore
 
 public struct WorldRealityView: View {

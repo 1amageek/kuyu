@@ -10,7 +10,6 @@ public struct BodySceneState: Sendable, Equatable, Identifiable {
     let orientation: QuaternionSnapshot
     let angularVelocity: Axis3
 }
-
 public struct SceneState: Sendable, Equatable {
     let time: Double
     let bodies: [BodySceneState]

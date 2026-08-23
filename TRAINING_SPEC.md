@@ -2,12 +2,13 @@
 
 ## Purpose
 Kuyu is the **learning simulator** for Manas. It generates data and injects
-swappability and HF stress for MLX-based learning. `kuyu-training` owns portable
-training contracts and orchestration but does not implement optimizer kernels;
-concrete MLX algorithms live in `kuyu-mlx`. Scenario reward, cost, failure, and
-task-quality semantics remain owned by `kuyu-scenarios`; derived analysis may be
-computed downstream. This document defines the **M1-ATT reference suite**, not
-the only supported morphology.
+swappability and HF stress for Mojo-based learning. `kuyu-training` owns portable
+training contracts and datasets but does not implement optimizer kernels;
+concrete numerical algorithms live in Manas Mojo products and are composed by
+`kuyu-mojo`. Scenario reward, cost, failure, and task-quality semantics remain
+owned by `kuyu-scenarios`; derived analysis may be computed downstream. This
+document defines the **M1-ATT reference suite**, not the only supported
+morphology.
 
 ## Training Loop (Conceptual)
 Scenario + Seed
@@ -21,13 +22,12 @@ Scenario + Seed
 ## Execution Modes (Normative)
 Kuyu separates two training-world execution modes:
 
-- **Supervised / BC loop**: runs scenarios, exports datasets, and calls the
-  Manas/MLX training bridge. This is the existing `kuyu loop` path and is not an
-  RL algorithm.
+- **Supervised / BC data path**: runs scenarios and exports demonstration
+  records. It is not an RL algorithm.
 - **RL rollout harness**: exposes environment episodes through
   `reset / step / reward / done / truncated / info`, collects serial or
-  parallel rollouts, and exports reward-aware artifacts. This is the `kuyu
-  rollout` path and is not PPO, Dreamer, or another optimizer.
+  parallel rollouts, and exports reward-aware artifacts. The harness is not PPO
+  or another optimizer.
 
 Both modes use Kuyu physics as the source of truth and must preserve
 fail-fast failure metadata. Manas control protocol and model internals remain
@@ -99,8 +99,9 @@ The rollout harness MUST:
 - reject cancellation, max-step, and wall-time limit termination as typed errors
   unless an explicit cancelled artifact contract is introduced later.
 
-Shared `ManasMLXModelStore` is prohibited in parallel rollout. MLX parallel
-policy execution requires M2 worker snapshots or an actor pool.
+Shared mutable model state is prohibited in parallel rollout. Each parallel
+policy execution consumes an immutable checkpoint snapshot and owns its
+recurrent state.
 
 ## Failure‑Aware Training (Normative)
 Scenarios are **fail‑fast**. On first failure, the run terminates and the
@@ -134,7 +135,7 @@ M2+ reproducibility artifacts MUST include:
 ## Output Artifacts
 - Scenario logs per seed
 - Validation summary with aggregate metrics
-- Optional dataset export for MLX training
+- Optional KuyuDataset v7 export for Mojo training
 
 M2+ benchmark bundles SHOULD include:
 - deterministic replay manifest,
@@ -189,16 +190,13 @@ Implementation MUST NOT claim conformance until the v7 producer-consumer,
 trajectory-boundary, and behavior-evidence gates in `LEARNING_SYSTEM_SPEC.md`
 pass.
 
-## M2 World-Model and Imagination Smoke
-`train-world-model` trains two artifacts from rollout datasets:
-- a Manas Core world-model checkpoint used by Manas training smoke paths,
-- a Kuyu `StateWorldModel` residual checkpoint used as a validation gate.
+## Learned World-Model Admission
 
-`imagine-train` MUST validate the `StateWorldModel` checkpoint when it is
-declared in the world-model manifest. Validation failure blocks publication of
-the Manas imagination checkpoint and is treated as a typed error. Kuyu does not
-own the imagination optimizer; it only validates the world-model artifact and
-orchestrates the smoke path into Manas.
+There is no active learned world-model product. A predictive model may be added
+only after a measured planning or sample-efficiency requirement shows that the
+authoritative Kuyu physics path is insufficient. Such a model belongs to Manas
+as a Mojo model family; Kuyu may provide causal datasets and evaluate predictions
+against physics replay, but it does not own the model or its optimizer.
 
 ## Bundle Export
 `TrainingDatasetExporter` writes one dataset per scenario (from `KuyAtt1RunOutput`

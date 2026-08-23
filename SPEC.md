@@ -9,14 +9,11 @@ for portable Mojo-backed learning. It injects swappability events and HF
 stressors while keeping runs reproducible.
 
 Kuyu owns the training runtime boundary for Manas improvement. Generic
-training contracts, rollout orchestration, population execution, artifacts, and
-validators live in Kuyu packages. Concrete accelerated execution lives in
-`kuyu-mojo` behind Kuyu training protocols. `kuyu-mlx` is a migration-only
-source-removal backlog and has no conforming execution or verification role.
-It MUST NOT remain in the production dependency graph, act as a reference
-backend, or receive new features. If a Mojo capability is incomplete, the
-corresponding Kuyu API MUST fail with a typed unsupported-capability result
-rather than execute through MLX.
+training contracts, rollout orchestration, artifacts, and validators live in
+Kuyu packages. Concrete numerical execution lives in `kuyu-mojo` behind Kuyu
+training protocols. The production graph contains no compatibility backend. If
+a Mojo capability is unavailable, the corresponding Kuyu API MUST fail with a
+typed result.
 
 The cross-program compute decision is authoritative in
 `../MOJO_COMPUTE_ARCHITECTURE.md`. Mojo 1.0.0 has satisfied the cutover gate, so
@@ -70,7 +67,7 @@ flowchart LR
   A["kuyu-training typed contracts"] --> B["kuyu-mojo compute backend"]
   S["swift-mojo ABI / artifacts"] --> B
   M["manas / ManasLearningContracts"] --> B
-  C["kuyu-app KuyuCLI adapter"] --> W["shared worker service"]
+  C["kuyu-app KuyuCLI adapter"] --> W["KuyuTrainingApplication"]
   D["kuyu-app KuyuUI adapter"] --> W
   W --> B
   D --> E["Bounded document shell"]
@@ -90,13 +87,14 @@ flowchart LR
   rollout/autodiff/optimizer state, and concrete compute implementations
   consumed by the Kuyu training runtime. It does not own the lifecycle,
   acceptance, continuation, or publication semantics it executes.
-- The `kuyu-app` package owns `KuyuCLI` and `KuyuUI` adapters. They map
+- The `kuyu-app` package owns `KuyuTrainingApplication`, `KuyuCLI`, and `KuyuUI`
+  adapters. They map
   command-line or UI intent into Kuyu API configuration, subscribe to Kuyu
   events, and report or render Kuyu artifacts. They MUST NOT implement separate
   checkpoint acceptance, readiness, continuation, or artifact validity logic.
-- Bounded is a macOS document shell over `KuyuUI`. Its executable MAY host the
-  shared hidden worker entrypoint so packaged builds can launch themselves, but
-  it MUST NOT own learning algorithms or success/failure decisions.
+- Bounded is a macOS shell over `KuyuUI`. It constructs the concrete learning
+  executor and injects it through the backend-neutral application contract. It
+  MUST NOT own learning algorithms or success/failure decisions.
 - Worker launch MUST use a digest-verified immutable request, explicitly
   authorized roots, an exclusive active lease, a root-contained cooperative
   stop request, and a durable terminal summary. Reconnection MUST NOT trust PID
