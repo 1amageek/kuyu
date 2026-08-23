@@ -1,6 +1,7 @@
 # Kuyu Mojo Migration Ledger
 
-Status: active, non-released destructive migration.
+Status: active Mojo-only destructive migration. Mojo 1.0.0 cutover decision is
+effective; MLX has no retained runtime or reference role.
 
 This ledger records implementation state. Normative behavior remains in
 `SPEC.md` and `LEARNING_SYSTEM_SPEC.md`; package ownership remains in
@@ -8,8 +9,16 @@ This ledger records implementation state. Normative behavior remains in
 
 ## Completion Claim
 
+Mojo 1.0.0 was released on 2026-08-11, and the pinned local compiler is
+`Mojo 1.0.0 (ed45d567)`. The language gate is closed. Under
+`../MOJO_COMPUTE_ARCHITECTURE.md`, remaining MLX code is removal backlog only.
+It may be read to extract semantics, but it may not execute as a production
+backend, fallback, differential reference, or qualification oracle.
+
 Kuyu is not Mojo-backed end to end yet. The current application and training
-runtime still execute through `kuyu-mlx`. KuyuPhysics owns the closed canonical
+runtime still execute through `kuyu-mlx`; those entry points are non-conforming
+and must become typed unavailable paths until their Mojo replacements land.
+They are not an accepted interim backend. KuyuPhysics owns the closed canonical
 dynamics program and Swift Float64 reference, while `kuyu-mojo` now compiles and
 executes the same digest-bound program with real Mojo 1.0 CPU Float64 and
 Float32 backends. Float64 is the semantic verifier; Float32 is the explicit
@@ -70,8 +79,8 @@ flowchart LR
 
 | Fact | Evidence | Consequence |
 |---|---|---|
-| The application directly consumes `KuyuMLX` | `../kuyu-app/Package.swift` and `../kuyu-app/Sources` imports | App cutover is blocked until a backend-neutral runtime facade exists |
-| The backend package exposes fourteen MLX products | `../kuyu-mlx/Package.swift` | Migration must classify semantic ownership before moving code |
+| The application directly consumes `KuyuMLX` | `../kuyu-app/Package.swift` and `../kuyu-app/Sources` imports | Every such edge is a conformance blocker; incomplete commands must fail closed rather than keep executing this backend |
+| The backend package exposes fourteen MLX products | `../kuyu-mlx/Package.swift` | Each product is removal backlog; extract semantic ownership, replace compute in Mojo, switch callers, and delete the product in one slice |
 | The reference quadrotor force, derivative, and observable equations are closed SSA operation graphs with validated layouts, shapes, units, differentiability propagation, fidelity partitions, integration stages, and a stable digest | `../kuyu-physics/Sources/KuyuPhysics/Canonical`, `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalProgram.swift` | The Swift Float64 path is the semantic reference consumed by Plant and IMU; Mojo executors must consume this program rather than copy equations |
 | The canonical integrator selects the declared integration scheme and evaluates graph-derived RK4 derivatives; RK4 stage arithmetic remains the Swift Float64 reference implementation | `../kuyu-physics/Sources/KuyuPhysics/Plant/ReferenceQuadrotorCanonicalIntegrator.swift` | P3 must match every declared projection stage and the reference trace before accelerator promotion |
 | `swift-mojo` proves scoped Float32 and Float64 borrowed calls, synchronous session, and session-owned host Float32-buffer lifecycle with exact-count synchronous host copies on universal macOS; it cross-generates a schema-5 aarch64 Linux static artifact bundle, rejects archives that omit the compiled ELF object, rejects undeclared accelerator runtime symbols before archiving, and provides schema-1 accelerator receipts and isolated bundles | `swift-mojo` commits `9382a34`, `4f3f2e7`, `164f571`, and `438e2ab`; ADRs 0007 through 0011 | CPU Float64 canonical execution can use a scoped no-escape bridge; accelerator dependency and macOS deployment identities are verified independently; Kuyu worker protocol, native Jetson, and MAX-backed allocation/synchronization still precede cutover |
@@ -79,8 +88,8 @@ flowchart LR
 | MAX `26.5.0` exposes a real Apple GPU through `max.gpu.host.DeviceContext`, while accelerator objects require an exact AsyncRT/KGEN dynamic closure | Receipt `050ceac20bc593aed6e36757c050e01a0f0ec7d002bcebb49f3675d77ba4e179` and isolated bundle `38075467012f877bb5ea23daf3d4639aa175b478bfaca898706bd33e1ff72e77` over the real object and four runtime libraries | Relative loader packaging, final Mach-O inspection, fresh bundle verification, and relocated device-context execution are implemented; Kuyu protocol and compute remain |
 | Apple Metal rejects the canonical Float64 kernel but accepts Float32 compilation through the final `metallib` step | Real MAX compiler probes on Apple M4 Max | The portable semantic contract is one canonical Float64 program with declared Float32 accelerator materialization, not one dtype on every device |
 | Mojo cross-compiles a Float32 CUDA `DeviceContext` program to AArch64 ELF for `cortex-a78ae` and recognizes Jetson Orin as `sm_87`; the embedded cross-build PTX remained `.target sm_80` | Object and assembly inspection with Mojo `1.0.0 (ed45d567)` | Host cross-generation is real and the PTX is Orin-JIT-compatible, but native Jetson target specialization, link, and execution remain mandatory acceptance evidence |
-| Manas exposes MLX-specific model/runtime/training products | `../manas/Package.swift` | Manas model structure must gain a portable Mojo implementation without moving model ownership into Kuyu |
-| The validated v7-to-Manas conversion formerly lived only in the MLX backend package | `../kuyu-mojo/Sources/KuyuManasMojoAdapter` and its behavioral tests | The conversion and exact distribution-evidence boundary now has its final Mojo-owned target; MLX remains a differential reference until destructive cutover |
+| Manas still exposes MLX-specific model/runtime/training products | `../manas/Package.swift` | These products are conformance blockers and must be replaced by Manas-owned Mojo modules without moving model ownership into Kuyu |
+| The validated v7-to-Manas conversion formerly lived only in the MLX backend package | `../kuyu-mojo/Sources/KuyuManasMojoAdapter` and its behavioral tests | The conversion and exact distribution-evidence boundary now has its final Mojo-owned target; MLX provides no continuing reference role |
 
 ## Source Ownership Migration
 
@@ -124,30 +133,28 @@ contracts are frozen.
 
 ```mermaid
 flowchart LR
-  P0["P0 Boundary freeze\n1-2 d"] --> P1["P1 swift-mojo ABI v2\n4-6 d"]
+  P0["P0 Mojo-only freeze\n1-2 d"] --> P1["P1 swift-mojo ABI v2\n4-6 d"]
   P1 --> P2["P2 Canonical programs\n5-8 d"]
   P2 --> P3["P3 CPU/Metal/CUDA executors\n7-10 d"]
   P3 --> P4["P4 Manas Mojo models\n8-12 d"]
   P4 --> P5["P5 GA/RL/world-model compute\n8-12 d"]
-  P4 --> P6["P6 Semantic relocation\n5-8 d"]
+  P4 --> P6["P6 Semantic extraction + slice deletion\n5-8 d"]
   P5 --> P7["P7 Runtime/app cutover\n5-8 d"]
   P6 --> P7
-  P7 --> P8["P8 Parity + golden + Jetson\n5-8 d"]
-  P8 --> P9["P9 Delete MLX runtime\n2-4 d"]
+  P7 --> P8["P8 Independent parity + golden + Jetson + removal scan\n5-8 d"]
 ```
 
 | Gate | Deliverable | Exit condition | State |
 |---|---|---|---|
-| P0 | Authority freeze and migration ledger | Specs agree; legacy callable gaps are marked or removed; no new MLX production features | Complete |
+| P0 | Mojo-only authority freeze | Specs agree; new MLX imports, features, runtime selection, and test-oracle use are rejected | In progress: normative decision updated; static import/product gate and runtime disablement remain |
 | P1 | `swift-mojo` ABI v2 | Owned buffers/state, scoped borrows, typed capabilities, shutdown, Linux ARM64 artifact verification | In progress: scoped Float32/Float64 borrows, session/resource ownership, exact-count synchronous host transfer, host Float32-buffer lifecycle, Linux ARM64 cross packaging, accelerator receipts, and exact macOS bundle link/run are complete; Kuyu protocol, native Jetson, and MAX-backed Metal/CUDA allocation/synchronization remain |
 | P2 | Canonical dynamics and sensor programs | Closed opcodes, layouts, units, differentiability, integration/projection stages, stable digest | Complete for the reference quadrotor program and Swift Float64 semantic executor; digest `6c6773c5a824508fd683390aa7a4acdc1636e8c8483f6ac9ee9667bf62d54310` |
 | P3 | Mojo world executors | CPU `Float64`, Metal, and CUDA consume the same program without copied equations or fallback | In progress: macOS arm64 CPU Float64 and Float32 are implemented and qualified, and both Linux ARM64 ABIs are cross-packaged; Metal, CUDA, and native Jetson execution remain |
-| P4 | Manas Mojo implementation | Core/Reflex model structure remains Manas-owned; runtime and training satisfy bundle contracts | Not started |
+| P4 | Manas Mojo implementation | Core/Reflex model structure remains Manas-owned; runtime and training satisfy bundle contracts | In progress: portable models, CPU Core/Reflex runtime, backend-neutral accelerator transport, and device-resident Adam exist; accelerator Core/Reflex and complete training remain |
 | P5 | Kuyu Mojo compute | Vectorized world, GA, PPO/SHAC, and world-model protocols have real production conformers | Not started |
-| P6 | Semantic ownership cleanup | Scenario, campaign, and artifact semantics no longer live in a backend package | In progress: validated KuyuDataset v7-to-Manas conversion and exact behavior-evidence verification now live in `KuyuManasMojoAdapter`; remaining campaign/profile semantics are still MLX-owned |
+| P6 | Semantic extraction and slice deletion | Scenario, campaign, and artifact semantics no longer live in a backend package; each replaced MLX target is deleted with its callers | In progress: validated KuyuDataset v7-to-Manas conversion and exact behavior-evidence verification now live in `KuyuManasMojoAdapter`; remaining campaign/profile semantics and MLX targets remain blockers |
 | P7 | Single runtime cutover | CLI/UI use one backend-neutral API and no concrete backend imports | Not started |
-| P8 | Qualification | CPU/Metal/CUDA parity, v7 integrity, golden learning, and Jetson native CUDA evidence pass | Not started |
-| P9 | Destructive cleanup | `kuyu-mlx`, duplicate equations, v3-v6 runtime readers, aliases, and selectors are absent | Not started |
+| P8 | Qualification and removal | Independent scalar/closed-form fixtures, Mojo CPU/accelerator parity, v7 integrity, golden learning, native Jetson evidence, and zero-MLX repository scan pass | Not started |
 
 ## Iterative Verification Loops
 
@@ -220,16 +227,14 @@ finite loss, changed weights, or successful process exit is insufficient.
 
 ## Immediate Next Slice
 
-1. Define and implement the authenticated Kuyu worker request/result protocol,
-   one-attempt process lifecycle, terminal-result contract, cancellation, and
-   crash evidence while keeping MAX outside the application process.
-2. Extend the accelerator worker around one MAX `DeviceContext` with
-   device-owned buffers, explicit synchronization, cancellation, and ordered
-   shutdown.
-3. Install the optional Xcode Metal Toolchain, execute the Float32 Metal kernel,
-   and converge it against the qualified CPU Float32 trace without changing the
-   canonical program or selecting CPU as fallback.
-4. When the Jetson is reachable, build/link/run the worker natively, verify the
-   actual `sm_87` device target, and record capability negotiation, success,
-   failure, cancellation, thermal stability, and dynamic dependency evidence
-   before CUDA qualification.
+1. Add a static package/import gate that rejects new `mlx-swift`, `ManasMLX*`,
+   `KuyuMLX*`, and `kuyu-mlx` edges, and classify every existing edge as a
+   removal slice.
+2. Move backend-neutral campaign, profile, rollout, and artifact semantics out
+   of MLX-named targets before writing their Mojo compute replacements.
+3. Implement `KuyuMojoReinforcement` as one attempt-owned device-resident
+   rollout, GAE, autodiff, optimizer, rollback, and bounded-telemetry session.
+4. Switch the first production training command directly to the backend-neutral
+   Mojo facade and delete the replaced MLX target and callers in the same slice.
+5. Complete authenticated worker lifecycle, native Apple execution, then native
+   Jetson execution with throughput, memory, cancellation, and thermal evidence.

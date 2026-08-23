@@ -1,259 +1,157 @@
 # kuyu-app
 
-Application adapter layer for the Kuyu simulation and training environment.
-It provides the CLI and SwiftUI adapters used by Bounded, while Manas/MLX
-backend execution lives in the sibling `kuyu-mlx` package.
+Application adapters for the Kuyu simulation and training environment. This
+package owns the CLI, SwiftUI presentation, and the shared worker adapter used
+by Bounded. It does not own training semantics or numerical kernels.
 
-## Overview
+## Compute Direction
 
-Kuyu is a simulation environment for training and evaluating [Manas](https://github.com/1amageek/manas) controllers. This package composes the UI and CLI adapters over the shared Kuyu runtime APIs.
-
-### Modules
-
-| Module | Description |
-|--------|-------------|
-| **KuyuMLX** | Imported from `kuyu-mlx`; Manas-MLX bridge, learning campaign runner, checkpoint evaluator, and regression gate implementation |
-| **KuyuWorkerRuntime** | Strict hidden-worker invocation and shared authenticated worker service used by the CLI executable and packaged app |
-| **KuyuUI** | SwiftUI-based GUI that operates Kuyu APIs and renders typed events/artifacts |
-| **KuyuCLI** | Command-line adapter that maps arguments into the same Kuyu APIs used by the UI |
-
-### Runtime Basis
-
-Current `kuyu` runtime uses physics simulation as the source of truth.
-The world-model package is not authoritative physics. In M2 smoke execution it
-is used as a validated checkpoint and imagination-training gate, while
-analytical physics remains the reference.
-
-`AscendingChannelMapper` includes world-model-compatible channel layout helpers, but
-runtime simulation and evaluation are currently physics-based.
-
-Kuyu owns the training-world boundary: physics execution, scenarios, reward,
-rollout, dataset export, visual inspection, and CLI/UI orchestration. Manas
-control protocol internals, Manas model internals, and concrete RL optimizers
-remain outside Kuyu.
-
-### API-First UI/CLI Boundary
-
-Kuyu is the base runtime. Bounded/KuyuUI and KuyuCLI operate the same typed Kuyu
-APIs and worker service instead of reimplementing training or checkpoint logic
-in the application layer. Heavy MLX execution may cross a process boundary;
-acceptance, validation, and terminal-state semantics remain in shared APIs.
+Mojo 1.0.0 is the sole conforming numerical compute substrate. The normative
+decision is recorded in `../MOJO_COMPUTE_ARCHITECTURE.md` and the Kuyu behavior
+contract is in `SPEC.md`.
 
 ```mermaid
 flowchart LR
-  A["Kuyu API source of truth"] --> B["CLI adapter"]
-  A --> C["Bounded / KuyuUI adapter"]
-  A --> D["Artifact validators"]
-  B --> W["Kuyu worker service"]
-  C --> W
-  W --> M["kuyu-mlx execution"]
-  E["Xcode launcher scripts"] --> B
+  API["Kuyu typed APIs"] --> CLI["KuyuCLI"]
+  API --> UI["KuyuUI / Bounded"]
+  CLI --> Worker["Attempt-owned worker"]
+  UI --> Worker
+  Worker --> Runtime["KuyuMojoTrainingRuntime"]
+  Runtime --> Mojo["swift-mojo / Mojo artifact"]
+  Mojo --> Device["Selected CPU or accelerator"]
 ```
+
+MLX is not a production backend, fallback, reference implementation, or test
+oracle. The current package still contains direct `KuyuMLX*` dependencies;
+those are known conformance blockers and removal backlog. They MUST NOT be used
+as a template for new work. Until a command has a complete Mojo implementation,
+its conforming behavior is typed unavailability rather than MLX execution.
+
+## Modules
+
+| Module | Responsibility |
+|---|---|
+| `KuyuWorkerRuntime` | Authenticated worker invocation and attempt lifecycle adaptation |
+| `KuyuUI` | Read-only presentation, user intent, progress and artifact inspection |
+| `KuyuCLI` | Argument mapping, event printing, and exit-code mapping |
+
+The target compute dependency is `kuyu-mojo` through the backend-neutral Kuyu
+runtime facade. UI and CLI do not import concrete Mojo modules and do not select
+Metal, CUDA, or another vendor API.
+
+## Authority Boundary
 
 | Layer | Owns | Must not own |
-|-------|------|--------------|
-| **KuyuTraining** | Task profiles, rollout contracts, evaluation artifacts, project package contracts | Manas model internals |
-| **KuyuMLX** | Campaign execution, checkpoint evaluation, regression gates, continuation selection | UI layout or independent app state |
-| **KuyuCLI** | Argument parsing, event printing, exit-code mapping | Acceptance gates or artifact validity decisions |
-| **KuyuUI / Bounded** | User interaction, visualization, artifact browsing, progress display | Training success logic, checkpoint acceptance, readiness checks |
-| **Shell scripts** | Xcode build/launch convenience and environment wiring | Learning success/failure decisions |
+|---|---|---|
+| `kuyu-training` | Training plans, lifecycle, rollout contracts, gates, artifacts, validation | Numerical kernels or UI |
+| `kuyu-mojo` | Device-resident rollout, autodiff, optimizer, world-model, and canonical-program execution | Scenario meaning, acceptance policy, UI |
+| `KuyuWorkerRuntime` | Attempt-bound process composition and typed runtime adaptation | Learning algorithms or success policy |
+| `KuyuCLI` | Command parsing and reporting | Acceptance, readiness, or checkpoint validity decisions |
+| `KuyuUI` / Bounded | User interaction and read-only visualization | Training success or numerical execution |
 
-If a training, evaluation, continuation, or checkpoint publication feature is
-visible in Bounded, the same behavior must be reachable through the Kuyu API and
-CLI adapter. UI-only features are limited to visualization, inspection, and
-debug presentation.
+If a capability is visible in the UI, the same operation must exist behind the
+typed Kuyu API used by the CLI. UI-only behavior is limited to presentation and
+debug inspection.
 
-### CLI Usage
+## Current Implementation Gap
+
+The source graph has not completed the destructive cutover:
+
+- `Package.swift` still depends on `../kuyu-mlx`;
+- UI, CLI, and worker sources still import `KuyuMLX*` modules; and
+- the complete `KuyuMojoReinforcement`, `KuyuMojoWorldModel`, worker, and facade
+  products do not yet exist.
+
+This means the current learning commands are migration evidence, not the
+accepted production path. New work follows this order:
+
+1. move backend-independent semantics to `kuyu-scenarios` or `kuyu-training`;
+2. implement the device-resident compute slice in `kuyu-mojo`;
+3. switch the app caller to the backend-neutral facade; and
+4. delete the replaced MLX target, tests, resources, and package edge in the
+   same slice.
+
+## Simulation and Control Boundary
+
+Analytical Kuyu physics remains the source of truth. A learned world model is an
+auxiliary prediction model and never replaces authoritative physics, failure,
+reward, or acceptance semantics.
+
+The Manas execution path remains:
+
+```text
+sensor streams
+  -> NerveBundle
+  -> Gating and Trunks
+  -> Core plus Reflex
+  -> MotorNerve
+  -> plant
+```
+
+Kuyu owns physics execution, scenarios, stress, rollout evidence, visualization,
+and typed orchestration. Manas owns the control protocol and model semantics.
+Mojo owns the numerical implementation behind those contracts.
+
+## Worker and Artifact Contract
+
+A long-running run uses an attempt-owned worker. The launcher binds the attempt
+to an immutable request, checkpoint snapshot, staged executable, runtime bundle,
+and launch digest. Progress is an append-only attempt-bound journal. Cancellation,
+crash, rejection, acceptance, and publication are distinct typed terminal states.
+
+The runtime, not the UI or shell, decides checkpoint acceptance. A completed run
+is successful only when it contains a validated accepted checkpoint that can be
+reloaded and reproduces evaluated inference.
+
+## Verification
+
+Use Xcode for Manas/Kuyu/Mojo runtime and Metal-resource execution. Every test
+command must include a timeout and must verify that at least one intended test
+executed.
 
 ```bash
-# Run simulation with the teacher/reference baseline controller
-swift run -c release kuyu run --controller baseline
+cd ../kuyu-mojo
+xcodebuild test \
+  -scheme kuyu-mojo-Package \
+  -destination 'platform=macOS' \
+  -maximum-test-execution-time-allowance 60
 
-# Run the sensor-only baseline controller
-swift run -c release kuyu run --controller sensorBaseline
-
-# Run with Manas MLX controller
-swift run -c release kuyu run --controller manasMLX --model path/to/model.json
-
-# Training loop
-swift run -c release kuyu loop --iterations 10 --epochs 4 --lr 0.001
-
-# RL environment rollout smoke
-swift run -c release kuyu rollout --controller teacherBaseline --episodes 2 --workers 1
-swift run -c release kuyu rollout --controller teacherBaseline --episodes 8 --workers 4
-
-# M2 world-model and imagination-training smoke
-swift run -c release kuyu rollout --controller teacherBaseline --episodes 2 --workers 1 --export-dataset /tmp/kuyu-rollout-dataset
-swift run -c release kuyu train-world-model --dataset /tmp/kuyu-rollout-dataset --save-model /tmp/kuyu-world-model --epochs 1 --max-batches 1
-swift run -c release kuyu imagine-train --world-model /tmp/kuyu-world-model --save-model /tmp/kuyu-imagination --horizon 2 --epochs 1
-
-# SwiftPM release MLX smoke runs need the MLX Metal library next to the binary
-./scripts/install-mlx-metallib.sh release
-swift run -c release kuyu loop --iterations 1 --epochs 1 --lr 0.001 --save-model /tmp/kuyu-model-smoke
-
-# Preferred MLX/Metal E2E path: build/test with Xcode, then run the Xcode-built kuyu binary
-./scripts/check-xcode-e2e.sh /tmp/kuyu-xcode-e2e
-
-# Learning campaign path: use the typed Swift API through the Xcode-built app or CLI.
-# Shell campaign launchers were removed so readiness, resume, and acceptance stay in Kuyu runtime code.
-xcodebuild build -scheme kuyu-app-Package -destination 'platform=macOS'
-kuyu run-learning-campaign --artifact-root /tmp/kuyu-learning-campaign
-
-# Validate a completed campaign before using its final checkpoint
-./scripts/validate-learning-campaign-artifacts.sh /tmp/kuyu-learning-campaign
-kuyu validate-learning-campaign --artifact-root /tmp/kuyu-learning-campaign
-
-# RoArm M1 guarded hardware probe; dry-run by default
-swift run kuyu probe-roarm-m1
-swift run kuyu probe-roarm-m1 --device /dev/cu.usbserial-0001 --enable-motion
-
-# RoArm M1 camera-free arm and gripper smoke training
-swift run kuyu train-roarm-m1-arm-gripper --output /tmp/kuyu-roarm-m1-arm-gripper-training --duration 2.0 --seed 7
+cd ../kuyu
+xcodebuild test \
+  -scheme kuyu-app-Package \
+  -destination 'platform=macOS' \
+  -maximum-test-execution-time-allowance 60
 ```
 
-See `ROARM_M1_SIMULATION.md` for the Kuyu/RealityKit simulator path, and
-`ROARM_M1_TRAINING.md` for the first camera-free arm and gripper training goal.
-`ROARM_M1_HARDWARE_PROBE.md` covers the manifest, embodiment, MotorNerve,
-encoder, and serial-write boundary used by the first RoArm M1 hardware test.
+Independent numerical verification does not use MLX:
 
-### M1.5 RL Environment Acceptance
+- Swift Float64 scalar traces verify canonical dynamics;
+- closed-form fixtures verify distributions, GAE, and optimizer trajectories;
+- finite differences verify bounded gradient fixtures;
+- Mojo CPU and accelerator artifacts verify declared numerical parity; and
+- a golden campaign must publish a reloadable improved checkpoint without
+  safety regression.
 
-M1.5 means Kuyu exposes a reinforcement-learning environment contract, not a complete RL algorithm. The accepted baseline is:
+## Related Specifications
 
-- `reset / step / reward / done / truncated / info` exist as typed environment values.
-- The primary policy action is `DriveIntent`; direct actuator actions remain teacher/test escape hatches.
-- One RL `step` applies the action selected from the returned observation,
-  advances one complete control period, and returns the corresponding next
-  observation. Failure inside that period stops at the first failing physics tick.
-- Schema v5 rollout artifacts bind each decision ID to its exact source
-  observation, policy action, applied actuator command, and outcome; temporal PPO
-  rejects legacy rollout schemas.
-- Reward and terminal semantics are finite and deterministic for the ATT and lift reference scenarios.
-- Serial and parallel rollout produce deterministic merged artifacts ordered by scenario, seed, and worker index.
-- Parallel rollout uses independent environment and policy instances per worker. Shared `ManasMLXModelStore` execution is intentionally excluded until M2.
-- `kuyu rollout --model <robot-manifest>` constructs the environment from the manifest, body, world, and embodiment contracts. Invalid paths fail closed and never fall back to baseline.
-
-### M1.6 Runtime Reliability Acceptance
-
-M1.6 fixes the execution boundary around native robot contracts, UI commands, and MLX/Metal preflight:
-
-- A non-empty robot manifest path must load successfully; manifest, body, world, embodiment, compatibility, and readiness failures are terminal errors.
-- `ReferenceQuadrotorParameters.baseline` is allowed only for tests, CLI smoke, and display-only preview fallback.
-- KuyuUI user operations route through `SimulationViewModel -> CommandSystem -> Service`; views do not mutate simulation state directly.
-- KuyuUI user operations log `kuyu.ui` with action/task/robot manifest context. Preflight errors include reason and error details.
-- `manasMLX` and `kuyu loop` perform MLX metallib preflight before execution and do not fall back to baseline.
-
-Dependency-order verification:
-
-```bash
-cd ../manas && xcodebuild test -scheme manas-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-cd ../kuyu-core && xcodebuild test -scheme kuyu-core-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-cd ../kuyu-scenarios && xcodebuild test -scheme kuyu-scenarios -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-cd ../kuyu-training && xcodebuild test -scheme kuyu-training-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-cd ../kuyu-mlx && xcodebuild test -scheme kuyu-mlx-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-cd ../kuyu && xcodebuild test -scheme kuyu-app-Package -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-swift run kuyu rollout --controller teacherBaseline --episodes 2 --workers 1
-swift run kuyu rollout --controller teacherBaseline --episodes 8 --workers 4
-```
-
-### Verification Split
-
-Xcode is the verification path for Kuyu, Manas, and MLX runtime/training contracts
-so Metal resources and Xcode test behavior match production execution.
-
-Xcode is the authority for MLX and Metal-backed execution. Use it for `ManasMLXModelStore` load/train/save smoke tests, app-level MLX tests, and `kuyu-world-model` validation:
-
-```bash
-xcodebuild test -scheme kuyu -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-./scripts/check-xcode-e2e.sh /tmp/kuyu-xcode-e2e
-cd ../kuyu-world-model
-xcodebuild test -scheme kuyu-world-model -destination 'platform=macOS' -maximum-test-execution-time-allowance 60
-```
-
-`check-xcode-e2e.sh` runs `xcodebuild test`, executes teacher regression, creates a ManasMLX checkpoint, evaluates that checkpoint as the incumbent, and runs a small evolution gate. It validates the produced artifacts, including `accepted-checkpoint.json` and `evaluation-trace.jsonl`.
-
-Learning readiness, resume selection, artifact validation, and checkpoint acceptance must live in typed Swift runtime APIs. Shell campaign wrappers were removed because they duplicated policy and made UI/CLI behavior diverge. Use the Xcode-built app or CLI so MLX/Metal resources and the same runtime contracts are active.
-
-Long-running campaigns use the same executable's hidden worker command. The
-launcher binds each attempt to an immutable launch digest and a read-only CoW
-source snapshot. It also stages and digest-verifies the selected executable or
-application bundle under the private launch directory before spawning. Every
-progress event is appended to an attempt-bound durable journal so a restarted UI
-can replay unread events without owning the worker process. Readers consume only
-new complete journal records from a retained byte cursor; partial tails wait and
-malformed complete records fail closed. The runtime projects campaign, active
-scenario, and active control-step progress, with separate campaign/scenario ETA
-and producer/receiver/artifact freshness. CLI emits the same typed progress as
-copyable one-line text. Stop and terminal outcome artifacts are also
-attempt-bound; stale UI handles cannot stop or adopt a replacement attempt.
-Progress persistence failure cancels the worker. A completed outcome is
-successful only when it carries an accepted checkpoint.
-
-`kuyu validate-learning-campaign` is the Swift post-run artifact gate. It checks plan/status/progress/environment/resource samples, verifies every seed has complete evolution artifacts, checks fitness counts against population/generations, and rejects an incomplete final checkpoint before it is used as a future source checkpoint. `validate-learning-campaign-artifacts.sh` is a compatibility wrapper around that Swift command.
-
-SwiftPM release binaries can run MLX only when the MLX default metallib is installed next to the executable. Prefer `./scripts/install-mlx-metallib.sh release` for SwiftPM smoke runs, but use the Xcode-built binary when testing Metal resources or checkpoint acceptance.
-
-### M2 World-Model Entry
-
-M1.5 uses analytical physics as the source of truth. `kuyu-world-model` remains a separately verified model package and does not replace scenario physics.
-
-M2 introduces a world-model adapter behind the environment/rollout boundary:
-
-- Keep analytical physics as the reference validator.
-- Train a `StateWorldModel` residual checkpoint from rollout dataset fields.
-- Validate the `StateWorldModel` checkpoint before `imagine-train` publishes a Manas checkpoint.
-- Reject missing, non-finite, high-uncertainty, or threshold-exceeding world-model predictions before imagination training continues.
-- Use per-worker model snapshots or an actor pool; do not share a reentrant `ManasMLXModelStore` across parallel rollout workers.
-- Compare imagined rollouts against physics replay before accepting world-model rewards or terminations.
-- Keep `kuyu-world-model` acceptance in Xcode/Metal verification until SwiftPM can reliably provide the required MLX resources.
-
-## Architecture
-
-```
-kuyu-app (this package)
-  |
-  +-- KuyuUI
-  |     depends: KuyuCore, KuyuPhysics, KuyuScenarios,
-  |              KuyuTraining, KuyuMLX from kuyu-mlx,
-  |              swift-log, swift-configuration
-  |
-  +-- KuyuCLI
-        depends: KuyuCore, KuyuPhysics, KuyuScenarios,
-                 KuyuTraining, KuyuMLX from kuyu-mlx,
-                 swift-argument-parser
-```
-
-## Full Dependency Graph
-
-```
-KuyuCore ------------------- (zero dependencies)
-  |
-KuyuPhysics
-  |
-KuyuScenarios
-  |
-KuyuTraining
-  |
-kuyu-mlx + manas
-  |
-kuyu-app (this package)
-```
+- `SPEC.md` — Kuyu behavior and responsibility boundary
+- `LEARNING_SYSTEM_SPEC.md` — learning data, optimizer, lifecycle, publication,
+  and destructive migration contracts
+- `MOJO_MIGRATION.md` — current implementation ledger
+- `../KUYU_PACKAGE_ARCHITECTURE.md` — package and target ownership
+- `../MOJO_COMPUTE_ARCHITECTURE.md` — cross-program Mojo-only compute decision
+- `ROARM_M1_SIMULATION.md` — RoArm simulation path
+- `ROARM_M1_TRAINING.md` — RoArm learning objective
+- `ROARM_M1_HARDWARE_PROBE.md` — guarded hardware boundary
 
 ## Requirements
 
 - Swift 6.2+
-- macOS 26+
-- Apple Silicon (MLX Metal runtime)
-
-## Related Packages
-
-- [kuyu-core](https://github.com/1amageek/kuyu-core) — Core protocols and types
-- [kuyu-physics](https://github.com/1amageek/kuyu-physics) — Physics engines and analytical models
-- [kuyu-scenarios](https://github.com/1amageek/kuyu-scenarios) — Evaluation scenarios and logging
-- [kuyu-training](https://github.com/1amageek/kuyu-training) — Backend-agnostic training contracts, project packages, runtime orchestration, GA/RL protocols, and artifact validation
-- [kuyu-mlx](https://github.com/1amageek/kuyu-mlx) — Manas/MLX backend implementation for Kuyu training contracts
-- [manas](https://github.com/1amageek/manas) — CNS-style robotic control system
+- macOS 26+ for the Apple application
+- Mojo 1.0.0 or an explicitly adopted compatible 1.x release
+- Apple Silicon or Linux ARM64 NVIDIA deployment artifacts as qualified by the
+  owning Mojo acceptance gates
 
 ## License
 
-See repository for license information.
+See the repository for license information.

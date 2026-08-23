@@ -12,8 +12,15 @@ Kuyu owns the training runtime boundary for Manas improvement. Generic
 training contracts, rollout orchestration, population execution, artifacts, and
 validators live in Kuyu packages. Concrete accelerated execution lives in
 `kuyu-mojo` behind Kuyu training protocols. `kuyu-mlx` is a migration-only
-reference implementation and MUST NOT remain in the conforming production
-dependency graph.
+source-removal backlog and has no conforming execution or verification role.
+It MUST NOT remain in the production dependency graph, act as a reference
+backend, or receive new features. If a Mojo capability is incomplete, the
+corresponding Kuyu API MUST fail with a typed unsupported-capability result
+rather than execute through MLX.
+
+The cross-program compute decision is authoritative in
+`../MOJO_COMPUTE_ARCHITECTURE.md`. Mojo 1.0.0 has satisfied the cutover gate, so
+this is an active migration constraint rather than a future target.
 
 ## Responsibility Boundary (Normative)
 Kuyu owns the training-world side of the unconscious stack:
@@ -74,12 +81,14 @@ flowchart LR
   lifecycle, checkpoint-evaluator contracts, regression and promotion gates,
   continuation resolution, artifact publication, project package contracts,
   and validation schemas.
-- `manas` owns only optimizer-ready in-memory `ManasLearningContracts`; it does
-  not own or read a persisted Kuyu dataset schema.
+- `manas` owns typed model/training identities, shapes, and session
+  request/result contracts in `ManasLearningContracts`; it does not implement
+  numerical learning code or read a persisted Kuyu dataset schema.
 - The `kuyu-mojo` package owns Mojo bridge execution, compiled canonical-world
-  programs, accelerator kernels, Manas adapter execution, and concrete compute
-  implementations consumed by the Kuyu training runtime. It does not own the
-  lifecycle, acceptance, continuation, or publication semantics it executes.
+  programs, accelerator kernels, Manas adapter execution, device-resident
+  rollout/autodiff/optimizer state, and concrete compute implementations
+  consumed by the Kuyu training runtime. It does not own the lifecycle,
+  acceptance, continuation, or publication semantics it executes.
 - The `kuyu-app` package owns `KuyuCLI` and `KuyuUI` adapters. They map
   command-line or UI intent into Kuyu API configuration, subscribe to Kuyu
   events, and report or render Kuyu artifacts. They MUST NOT implement separate
